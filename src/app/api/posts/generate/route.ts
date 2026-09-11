@@ -1,20 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
-import { generatePlatformVariants, improveContent, suggestBestTimes } from "@/lib/ai";
+import { 
+  aiStudioGenerate, 
+  improveContent, 
+  suggestBestTimes,
+  isOpenAIAvailable,
+} from "@/lib/ai";
 import { Platform } from "@prisma/client";
 import { z } from "zod";
+import { BrandContext } from "@/types/brand-brain";
+
+const brandContextSchema = z.object({
+  profile: z.object({
+    name: z.string().optional(),
+    tagline: z.string().optional(),
+    description: z.string().optional(),
+    industry: z.string().optional(),
+    targetAudience: z.string().optional(),
+    differentiators: z.array(z.string()).optional(),
+    competitors: z.array(z.string()).optional(),
+  }).optional(),
+  voice: z.object({
+    toneKeywords: z.array(z.string()).optional(),
+    vocabularyIncludes: z.array(z.string()).optional(),
+    vocabularyExcludes: z.array(z.string()).optional(),
+    examplePhrases: z.array(z.string()).optional(),
+    formalityLevel: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+  }).optional(),
+  goals: z.array(z.object({
+    id: z.string(),
+    description: z.string(),
+    platforms: z.array(z.nativeEnum(Platform)),
+    priority: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+    keywords: z.array(z.string()),
+  })).optional(),
+}).optional();
 
 const generateSchema = z.object({
   idea: z.string().min(1),
   platforms: z.array(z.nativeEnum(Platform)).min(1),
   tone: z.string().optional(),
   additionalContext: z.string().optional(),
+  brandContext: brandContextSchema,
+  forceMock: z.boolean().optional(),
 });
 
 const improveSchema = z.object({
   content: z.string().min(1),
   platform: z.nativeEnum(Platform),
   instruction: z.string().min(1),
+  forceMock: z.boolean().optional(),
 });
 
 const bestTimesSchema = z.object({
@@ -40,19 +75,24 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { idea, platforms, tone, additionalContext } = validation.data;
+      const { idea, platforms, tone, additionalContext, brandContext, forceMock } = validation.data;
 
       try {
-        const variants = await generatePlatformVariants(
+        const result = await aiStudioGenerate({
           idea,
           platforms,
           tone,
-          additionalContext
-        );
+          additionalContext,
+          brandContext: brandContext as BrandContext | undefined,
+          forceMock,
+        });
 
         return NextResponse.json({
           success: true,
-          variants,
+          variants: result.variants,
+          usedMock: result.usedMock,
+          brandContextUsed: result.brandContextUsed,
+          openAIAvailable: isOpenAIAvailable(),
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("API key")) {
@@ -72,14 +112,16 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { content, platform, instruction } = validation.data;
+      const { content, platform, instruction, forceMock } = validation.data;
 
       try {
-        const improved = await improveContent(content, platform, instruction);
+        const result = await improveContent(content, platform, instruction, forceMock);
 
         return NextResponse.json({
           success: true,
-          content: improved,
+          content: result.content,
+          usedMock: result.isMock,
+          openAIAvailable: isOpenAIAvailable(),
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("API key")) {

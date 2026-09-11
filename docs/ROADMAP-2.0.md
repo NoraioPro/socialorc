@@ -87,6 +87,14 @@ one testable exit criterion — and one named owner, so two agents never build t
 
 ### P2 — Intelligence
 
+| # | Milestone | Owner | Deliverable | Exit test | Blocker |
+|---|---|---|---|---|---|
+| M2.1 | ✅ AI Studio (multi-variant) | new-bot | One idea → per-platform variants with mock-safe fallback, Brand Brain voice integration, UI at `/dashboard/ai-studio` | unit **63/63** (16 AI Studio tests) · e2e **18/18** (gate 400 confirmed) · `npm run test:unit && npm run test:e2e` | — |
+| M2.2 | Brand Brain persistence | — | Store/retrieve Brand Brain config per user in database | brand context persists across sessions | M2.1 |
+| M2.3 | Traction Score (§41) | — | Real-time content momentum indicator | score updates after each publish | — |
+| M2.4 | Campaign Readiness (§42) | — | Pre-launch checklist and health assessment | dashboard shows readiness % | — |
+| M2.5 | Growth Brief (§40) | — | AI-generated daily/weekly performance summary | brief delivered on schedule | — |
+
 Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readiness (§42),
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
