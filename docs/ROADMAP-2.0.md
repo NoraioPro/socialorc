@@ -26,7 +26,7 @@
 | In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **26/26** (real adapters, injected failures) · `npm run test:live` → **27/27** (live callback paths + health; needs a running server) |
 | X + Facebook Page connectors | **Blocked on credentials** | adapters + OAuth callbacks exist (M0.12); `connect` reports exactly which variables are missing (503) |
 | LinkedIn / X / Meta / TikTok / YouTube | **Blocked on credentials** | no developer app exists on the estate; each needs owner-created app + consent |
-| Public HTTPS origin (OAuth redirect) | **Working, ephemeral** | Cloudflare quick tunnel serves the app over HTTPS and the OAuth redirect is built on it; the hostname changes on every tunnel restart, so a named tunnel or Vercel is still needed for anything durable |
+| Public HTTPS origin (OAuth redirect) | **Working, ephemeral** | Cloudflare quick tunnel serves the app over HTTPS and the OAuth redirect is built on it. Two known quirks: it dials `[::1]:3000` before IPv4, so it logs transient `dial tcp [::1]:3000` origin errors whenever the dev server is restarted; and **the hostname changes on every tunnel restart**, which invalidates any redirect URI registered with a provider. Do not restart it casually — use a named tunnel or Vercel for anything durable |
 
 **Reference implementation for all future connectors:** `src/lib/adapters/telegram.ts` +
 `src/app/api/social/telegram/connect/route.ts` (commit `2f2aa3b`, PR #1). It proves both
