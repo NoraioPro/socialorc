@@ -87,6 +87,10 @@ one testable exit criterion — and one named owner, so two agents never build t
 
 ### P2 — Intelligence
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Content Cascade | new-bot | Select an approved/draft post, adapt to other platforms via AI (mock-safe), create drafts | `npm run test:unit` → 16 cascade tests pass; E2E gate still 400; `/api/posts/[id]/cascade` endpoint + UI dialog |
+
 Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readiness (§42),
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
