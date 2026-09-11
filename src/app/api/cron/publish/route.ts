@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
           data: { status: PostStatus.PUBLISHING },
         });
 
-        const adapter = getAdapter(post.platform);
+        const adapter = getAdapter(post.platform, { useMockIfUnconfigured: true });
         const { accessToken } = decryptTokens({
           accessToken: post.socialAccount.accessToken,
           refreshToken: post.socialAccount.refreshToken,

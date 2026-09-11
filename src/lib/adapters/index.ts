@@ -6,6 +6,9 @@ import { instagramAdapter } from "./instagram";
 import { facebookAdapter } from "./facebook";
 import { tiktokAdapter } from "./tiktok";
 import { youtubeAdapter } from "./youtube";
+import { createMockAdapter } from "./mock";
+
+const MOCK_MODE = process.env.MOCK_SOCIAL_ADAPTERS === "true";
 
 export const adapters: Record<Platform, PlatformAdapter> = {
   LINKEDIN: linkedInAdapter,
@@ -16,11 +19,32 @@ export const adapters: Record<Platform, PlatformAdapter> = {
   YOUTUBE: youtubeAdapter,
 };
 
-export function getAdapter(platform: Platform): PlatformAdapter {
+/**
+ * Get adapter for a platform.
+ * 
+ * Behavior:
+ * - If MOCK_SOCIAL_ADAPTERS=true, always returns mock adapter
+ * - If useMockIfUnconfigured=true and platform credentials missing, returns mock adapter
+ * - Otherwise returns real adapter
+ */
+export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured?: boolean }): PlatformAdapter {
   const adapter = adapters[platform];
   if (!adapter) {
     throw new Error(`No adapter found for platform: ${platform}`);
   }
+
+  if (MOCK_MODE) {
+    return createMockAdapter(platform);
+  }
+
+  if (options?.useMockIfUnconfigured) {
+    const validation = adapter.validateCredentials();
+    if (!validation.valid) {
+      console.log(`[${platform}] Using mock adapter (credentials not configured)`);
+      return createMockAdapter(platform);
+    }
+  }
+
   return adapter;
 }
 

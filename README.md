@@ -113,6 +113,22 @@ Visit `http://localhost:3000` and create an account to get started.
 5. Review and approve your content
 6. Schedule for publishing
 
+### Mock/Dev Mode
+
+For local development without real social credentials:
+
+```bash
+# In your .env file
+MOCK_SOCIAL_ADAPTERS="true"
+```
+
+This enables:
+- Mock OAuth flows (connect accounts without real credentials)
+- Mock publishing (posts are logged but not sent anywhere)
+- Full workflow testing: create draft → approve → schedule → publish
+
+Perfect for testing the approval gate and scheduling system locally.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and configure:
