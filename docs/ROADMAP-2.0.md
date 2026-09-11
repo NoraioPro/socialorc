@@ -16,6 +16,7 @@
 | Mock connector path | **Working** | `MOCK_SOCIAL_ADAPTERS=true`, mock OAuth callback → `PUBLISHED` |
 | **Real-network connector** | **Working (1 platform)** | Telegram: real messages ids `16`, `17`, `19` delivered to chat `5896074160` |
 | Durable job queue (retry/backoff/idempotency) | **Working** | failed publish → attempt 1 `retried`, next due +30s; immediate re-run `processed: 0`; attempt 3 dead-letters (`post FAILED`, job `FAILED after 3 attempts`); re-armed published post → `deduped: 1, published: 0`, platform id unchanged |
+| In-repo E2E harness | **Working** | `npm run test:e2e` → 17 assertions passed, 0 failed, exit 0; asserts the gate and the worker's four guarantees with no platform credentials |
 | LinkedIn / X / Meta / TikTok / YouTube | **Blocked on credentials** | no developer app exists on the estate; each needs owner-created app + consent |
 | Public HTTPS origin (OAuth redirect) | **Working, ephemeral** | Cloudflare quick tunnel serves the app over HTTPS and the OAuth redirect is built on it; the hostname changes on every tunnel restart, so a named tunnel or Vercel is still needed for anything durable |
 
@@ -52,7 +53,7 @@ one testable exit criterion.
 | # | Milestone | Deliverable | Exit test | Blocker |
 |---|---|---|---|---|
 | M0.1 | ✅ Telegram real publish | adapter + connect route | message id returned + visible in chat | — |
-| M0.2 | CI-style E2E harness in-repo | `tests/e2e/publish.test.ts` (or script) runnable in CI with mock adapter | `npm run test:e2e` exits 0 | — |
+| M0.2 | ✅ CI-style E2E harness in-repo | `scripts/e2e.mjs` + `npm run test:e2e`: asserts the approval gate and the worker's four guarantees against a live server, using an injected account with an invalid token so no platform credentials are needed | `npm run test:e2e` exits 0 | — |
 | M0.3 | LinkedIn connector live | OAuth flow + real post on the operator's profile | post visible on LinkedIn | **owner: create app + consent** |
 | M0.4 | Public HTTPS origin | Vercel deploy (prod + preview) with `CRON_SECRET`, DB, encryption key | OAuth redirect completes against the deployed URL | **owner: Vercel login** |
 | M0.5 | ✅ Durable job queue | retry with exponential backoff (30s → 60s → dead-letter), idempotency guard on `platformPostId`, oldest-first scheduling, queue counters in the cron response | forced adapter failure retries 3× then dead-letters; re-armed published post is deduped, never re-sent | — |
@@ -98,11 +99,10 @@ identity, reputation integrity, Connector SDK, marketplace.
 
 ## 5. Next five tasks (sprint-ready)
 
-1. **M0.2** — move the E2E publish script into the repo, runnable headless against the mock adapter.
-2. **M0.3** — LinkedIn app created → connector exercised end-to-end → post on profile.
-3. **M0.4** — Vercel deploy with real env vars, cron verified in the cloud.
-4. **M0.5** — job queue retry/backoff + idempotency so a transient API failure can never double-post.
-5. **M0.6** — adapter unit tests + capability flags so P1 connectors land on a tested contract.
+1. **M0.6** — adapter unit tests + capability flags so P1 connectors land on a tested contract (M0.2 and M0.5 are closed).
+2. **M0.3** — LinkedIn app created → connector exercised end-to-end → post on the operator's profile.
+3. **M0.4** — stable OAuth origin: Vercel deploy or a named Cloudflare tunnel, replacing the ephemeral quick tunnel.
+4. **P1 kickoff** — X and Facebook Page connectors built against the hardened contract.
 
 ---
 
