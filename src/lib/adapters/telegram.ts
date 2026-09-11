@@ -1,6 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter } from "./base";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  validateTelegramCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
@@ -20,11 +24,26 @@ const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https
 export class TelegramAdapter extends BasePlatformAdapter {
   platform: Platform = Platform.TELEGRAM;
 
+  /**
+   * Validate Telegram credentials: both presence and token shape.
+   * The bot token must match the format {bot_id}:{35-char-token}.
+   * The chat ID must be a numeric value (possibly negative for groups/channels).
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    if (!process.env.TELEGRAM_BOT_TOKEN) missing.push("TELEGRAM_BOT_TOKEN");
-    if (!process.env.TELEGRAM_CHAT_ID) missing.push("TELEGRAM_CHAT_ID");
-    return { valid: missing.length === 0, missing };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   * Use this when you need to know why credentials are invalid, not just that they are.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateTelegramCredentials();
   }
 
   /** No OAuth: the "authorize" step is a local confirm-and-store route. */

@@ -1,6 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  validateTwitterCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
@@ -9,16 +13,23 @@ const TWITTER_API_URL = "https://api.x.com/2";
 export class TwitterAdapter extends BasePlatformAdapter {
   platform = Platform.TWITTER;
 
+  /**
+   * Validate Twitter/X OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.TWITTER_CLIENT_ID) missing.push("TWITTER_CLIENT_ID");
-    if (!process.env.TWITTER_CLIENT_SECRET) missing.push("TWITTER_CLIENT_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateTwitterCredentials();
   }
 
   private generateCodeVerifier(): string {

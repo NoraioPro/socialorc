@@ -1,6 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  validateLinkedInCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -10,16 +14,23 @@ const LINKEDIN_VERSION = "202406";
 export class LinkedInAdapter extends BasePlatformAdapter {
   platform = Platform.LINKEDIN;
 
+  /**
+   * Validate LinkedIn OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.LINKEDIN_CLIENT_ID) missing.push("LINKEDIN_CLIENT_ID");
-    if (!process.env.LINKEDIN_CLIENT_SECRET) missing.push("LINKEDIN_CLIENT_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateLinkedInCredentials();
   }
 
   getOAuthUrl(state: string): string {
