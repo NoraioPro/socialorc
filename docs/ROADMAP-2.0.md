@@ -131,3 +131,5 @@ Update the status table in §1 and the milestone row whenever a milestone closes
 command and its output that proved it. Vision language belongs in `VISION-2.0.md`; scope
 arguments belong in `PRD.md`; **this file only records what is built, what is next, who owns
 it, and what blocks it.**
+
+| M2.x | Competitor stub | mock competitor cards on command center (no scraping) | `npm run test:unit` competitor tests; dashboard panel | — |
