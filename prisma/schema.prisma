@@ -104,6 +104,7 @@ enum Platform {
   FACEBOOK
   TIKTOK
   YOUTUBE
+  TELEGRAM
 }
 
 // Post/Content model with full workflow states
