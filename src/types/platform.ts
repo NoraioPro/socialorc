@@ -1,5 +1,28 @@
 import { Platform } from "@prisma/client";
 
+/**
+ * What a connector can actually do. Declared per platform so the UI, the
+ * scheduler and the adapters agree without hard-coding platform names anywhere.
+ */
+export interface PlatformCapabilities {
+  /** Accepts text-only posts. */
+  text: boolean;
+  image: boolean;
+  video: boolean;
+  /** More than one media item in a single post. */
+  carousel: boolean;
+  /** Publishing is impossible without media (e.g. Instagram feed, TikTok, YouTube). */
+  mediaRequired: boolean;
+  /** Connects with a stored token instead of an OAuth redirect (e.g. Telegram bots). */
+  tokenBasedAuth: boolean;
+  /** Access tokens can be refreshed without re-consent. */
+  refreshableTokens: boolean;
+  /** How far ahead a post may be scheduled, in days. */
+  schedulingHorizonDays: number;
+  /** Text limit applied when media is attached (platforms often cap captions). */
+  captionMaxWithMedia?: number;
+}
+
 export interface PlatformConfig {
   id: Platform;
   name: string;
@@ -13,6 +36,7 @@ export interface PlatformConfig {
   supportsScheduling: boolean;
   supportsVideo: boolean;
   requiresBusinessAccount?: boolean;
+  capabilities: PlatformCapabilities;
   notes: string[];
 }
 
@@ -87,6 +111,16 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
     supportsScheduling: false,
     supportsVideo: true,
+    capabilities: {
+      text: true,
+      image: true,
+      video: true,
+      carousel: false,
+      mediaRequired: false,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 365,
+    },
     notes: [
       "Personal profile posting via Share on LinkedIn product",
       "Requires w_member_social scope",
@@ -105,6 +139,16 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"],
     supportsScheduling: false,
     supportsVideo: true,
+    capabilities: {
+      text: true,
+      image: true,
+      video: true,
+      carousel: false,
+      mediaRequired: false,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 365,
+    },
     notes: [
       "Free tier: 50 tweets/day",
       "Basic ($200/mo): 50K tweets/mo",
@@ -125,6 +169,17 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportsScheduling: false,
     supportsVideo: true,
     requiresBusinessAccount: true,
+    capabilities: {
+      text: true,
+      image: true,
+      video: true,
+      carousel: true,
+      mediaRequired: true,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 30,
+      captionMaxWithMedia: 2200,
+    },
     notes: [
       "REQUIRES Business or Creator account",
       "Must be linked to a Facebook Page",
@@ -145,6 +200,16 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
     supportsScheduling: true,
     supportsVideo: true,
+    capabilities: {
+      text: true,
+      image: true,
+      video: true,
+      carousel: true,
+      mediaRequired: false,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 180,
+    },
     notes: [
       "Posts to Pages only (not personal profiles)",
       "Requires pages_manage_posts permission",
@@ -163,6 +228,17 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["video/mp4", "video/webm", "video/quicktime"],
     supportsScheduling: false,
     supportsVideo: true,
+    capabilities: {
+      text: false,
+      image: false,
+      video: true,
+      carousel: false,
+      mediaRequired: true,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 10,
+      captionMaxWithMedia: 2200,
+    },
     notes: [
       "Video-only platform",
       "Unaudited apps: private/SELF_ONLY visibility only",
@@ -182,6 +258,17 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["video/mp4", "video/quicktime", "video/x-msvideo"],
     supportsScheduling: true,
     supportsVideo: true,
+    capabilities: {
+      text: false,
+      image: false,
+      video: true,
+      carousel: false,
+      mediaRequired: true,
+      tokenBasedAuth: false,
+      refreshableTokens: true,
+      schedulingHorizonDays: 365,
+      captionMaxWithMedia: 5000,
+    },
     notes: [
       "Video uploads only",
       "1,600 quota units per upload",
@@ -202,6 +289,17 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     supportedMediaTypes: ["image/jpeg", "image/png", "image/webp", "video/mp4"],
     supportsScheduling: true,
     supportsVideo: true,
+    capabilities: {
+      text: true,
+      image: true,
+      video: true,
+      carousel: false,
+      mediaRequired: false,
+      tokenBasedAuth: true,
+      refreshableTokens: false,
+      schedulingHorizonDays: 365,
+      captionMaxWithMedia: 1024,
+    },
     notes: [
       "Bot-token connector (no OAuth handshake)",
       "Publishes to a chat or channel where the bot is a member/admin",
