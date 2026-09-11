@@ -16,9 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Platform } from "@prisma/client";
-import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
+import { countForPlatform } from "@/lib/char-counts";
 
 interface GeneratedVariant {
   platform: Platform;
@@ -173,6 +174,13 @@ export default function CreatePostPage() {
                   onChange={(e) => setIdea(e.target.value)}
                   rows={4}
                 />
+                {selectedPlatforms.length > 0 && (
+                  <PlatformCharCounts
+                    text={idea}
+                    platforms={selectedPlatforms}
+                    title="Remaining if this idea were posted as-is"
+                  />
+                )}
               </div>
 
               <div className="space-y-2">
@@ -247,7 +255,6 @@ export default function CreatePostPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   {variants.map((variant, index) => {
                     const Icon = platformIcons[variant.platform];
-                    const config = PLATFORM_CONFIGS[variant.platform];
                     const isSelected = selectedVariant?.platform === variant.platform;
 
                     return (
@@ -267,7 +274,12 @@ export default function CreatePostPage() {
                             <Badge 
                               variant={variant.withinLimit ? "default" : "destructive"}
                             >
-                              {variant.characterCount}/{config.maxTextLength}
+                              {(() => {
+                                const snap = countForPlatform(variant.content, variant.platform);
+                                return snap.withinLimit
+                                  ? `${snap.remaining} left`
+                                  : `${Math.abs(snap.remaining)} over`;
+                              })()}
                             </Badge>
                           </div>
                         </CardHeader>
@@ -330,8 +342,6 @@ function ManualPostForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedConfig = platform ? PLATFORM_CONFIGS[platform] : null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || !platform) return;
@@ -388,18 +398,7 @@ function ManualPostForm() {
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="content">Content</Label>
-          {selectedConfig && (
-            <span className={`text-xs ${
-              content.length > selectedConfig.maxTextLength 
-                ? "text-red-500" 
-                : "text-muted-foreground"
-            }`}>
-              {content.length}/{selectedConfig.maxTextLength}
-            </span>
-          )}
-        </div>
+        <Label htmlFor="content">Content</Label>
         <Textarea
           id="content"
           placeholder="Write your post content..."
@@ -407,6 +406,15 @@ function ManualPostForm() {
           onChange={(e) => setContent(e.target.value)}
           rows={6}
         />
+        {platform ? (
+          <PlatformCharCounts text={content} platforms={[platform as Platform]} />
+        ) : (
+          <PlatformCharCounts
+            text={content}
+            platforms={Object.values(Platform)}
+            title="Remaining characters by platform"
+          />
+        )}
       </div>
 
       <Button 
