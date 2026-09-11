@@ -4,6 +4,8 @@
 
 SocialOrc is designed for users who want to automate social media posting without the risk of accidental publications. Content is drafted with AI assistance, reviewed and edited by humans, and only published after explicit approval.
 
+> **[Read the Vision](docs/VISION-2.0.md)** | **[View the PRD](docs/PRD.md)**
+
 ## Key Features
 
 - **Hard Approval Gate**: Nothing publishes without explicit user approval
