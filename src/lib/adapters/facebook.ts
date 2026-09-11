@@ -1,6 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  validateFacebookCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const FACEBOOK_AUTH_URL = "https://www.facebook.com/v25.0/dialog/oauth";
 const FACEBOOK_TOKEN_URL = "https://graph.facebook.com/v25.0/oauth/access_token";
@@ -9,16 +13,23 @@ const GRAPH_API_URL = "https://graph.facebook.com/v25.0";
 export class FacebookAdapter extends BasePlatformAdapter {
   platform = Platform.FACEBOOK;
 
+  /**
+   * Validate Facebook OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.FACEBOOK_APP_ID) missing.push("FACEBOOK_APP_ID");
-    if (!process.env.FACEBOOK_APP_SECRET) missing.push("FACEBOOK_APP_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateFacebookCredentials();
   }
 
   getOAuthUrl(state: string): string {
