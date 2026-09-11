@@ -9,6 +9,7 @@ import {
   Clock,
   CheckSquare,
   CalendarDays,
+  ListOrdered,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -23,6 +24,7 @@ const mainNav = [
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
   { name: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
+  { name: "Queue", href: "/dashboard/queue", icon: ListOrdered },
 ];
 
 export function Sidebar() {
