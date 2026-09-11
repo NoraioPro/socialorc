@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# e2e harness artifacts (throwaway db, server logs)
+/tests/e2e/.tmp
+
 # next.js
 /.next/
 /out/
