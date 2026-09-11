@@ -37,6 +37,8 @@ const PLATFORM_PROMPTS: Record<Platform, string> = {
   TIKTOK: `TikTok: Trendy, casual, Gen-Z friendly. Short punchy captions under 150 chars. Use 3-5 trending/relevant hashtags. Include hook in first few words. Think video caption style.`,
   
   YOUTUBE: `YouTube: Title-focused (under 100 chars), descriptive. If for video description, include timestamps placeholder, key points, and call-to-action. Use 3-5 relevant tags. SEO-optimized keywords.`,
+
+  TELEGRAM: `Telegram: Direct, useful, community-first. Up to 4096 chars, but keep channel posts scannable (under 500). Light formatting with clear line breaks, 0-2 hashtags, no engagement-bait. Lead with the takeaway or the link. Captions are capped at 1024 chars when media is attached.`,
 };
 
 export async function generatePlatformVariants(
@@ -176,6 +178,13 @@ export async function suggestBestTimes(platform: Platform): Promise<{
       { day: "Sunday", hour: 11, score: 88 },
       { day: "Wednesday", hour: 15, score: 85 },
     ],
+    TELEGRAM: [
+      { day: "Tuesday", hour: 9, score: 93 },
+      { day: "Wednesday", hour: 9, score: 91 },
+      { day: "Thursday", hour: 18, score: 89 },
+      { day: "Monday", hour: 9, score: 87 },
+      { day: "Friday", hour: 12, score: 84 },
+    ],
   };
 
   const notes: Record<Platform, string> = {
@@ -185,6 +194,7 @@ export async function suggestBestTimes(platform: Platform): Promise<{
     FACEBOOK: "Mid-week, late morning optimal. Avoid posting too early or late.",
     TIKTOK: "Evening hours when users are relaxing. Weekend mornings also perform well.",
     YOUTUBE: "Publish before peak viewing hours (evenings/weekends). Thursday-Saturday optimal.",
+    TELEGRAM: "Notifications land immediately, so cadence matters more than timing. Mid-morning and early evening read best; avoid posting more than once a day.",
   };
 
   return {

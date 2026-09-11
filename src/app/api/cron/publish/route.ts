@@ -4,7 +4,26 @@ import { PostStatus, JobStatus } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { decryptTokens } from "@/lib/encryption";
 
-const MAX_RETRIES = 3;
+/**
+ * Publishing worker (Vercel cron: every 5 minutes, see vercel.json).
+ *
+ * Guarantees this route must hold:
+ *  1. Only SCHEDULED posts are ever published (the approval gate upstream).
+ *  2. A retry is never immediate: failures back off exponentially, so a platform
+ *     outage cannot hot-loop the worker.
+ *  3. Publishing is idempotent: a post that already carries a platformPostId is
+ *     never sent again, even if the previous run crashed after the send.
+ *  4. Exhausted jobs dead-letter (FAILED) with the platform's error preserved.
+ */
+
+const MAX_ATTEMPTS = 3;
+const BACKOFF_BASE_MS = 30_000; // 30s, then 1m, then dead-letter
+const BACKOFF_CAP_MS = 15 * 60_000;
+
+function backoffMs(attempts: number): number {
+  const raw = BACKOFF_BASE_MS * Math.pow(2, Math.max(0, attempts - 1));
+  return Math.min(raw, BACKOFF_CAP_MS);
+}
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -18,11 +37,15 @@ export async function GET(req: NextRequest) {
   const results: {
     processed: number;
     published: number;
+    retried: number;
+    deduped: number;
     failed: number;
     errors: { postId: string; error: string }[];
   } = {
     processed: 0,
     published: 0,
+    retried: 0,
+    deduped: 0,
     failed: 0,
     errors: [],
   };
@@ -32,8 +55,9 @@ export async function GET(req: NextRequest) {
       where: {
         status: JobStatus.PENDING,
         scheduledAt: { lte: now },
-        attempts: { lt: MAX_RETRIES },
+        attempts: { lt: MAX_ATTEMPTS },
       },
+      orderBy: { scheduledAt: "asc" }, // oldest first, so nothing starves
       take: 10,
     });
 
@@ -45,10 +69,12 @@ export async function GET(req: NextRequest) {
           where: { id: job.id },
           data: {
             status: JobStatus.PROCESSING,
-            startedAt: now,
+            startedAt: new Date(),
             attempts: { increment: 1 },
           },
         });
+
+        const attempt = job.attempts + 1;
 
         const post = await prisma.post.findUnique({
           where: { id: job.postId },
@@ -69,6 +95,21 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
+        // Idempotency: already published elsewhere/earlier -> complete the job
+        // without touching the platform again.
+        if (post.platformPostId) {
+          await prisma.scheduledJob.update({
+            where: { id: job.id },
+            data: {
+              status: JobStatus.COMPLETED,
+              completedAt: new Date(),
+              errorMessage: null,
+            },
+          });
+          results.deduped++;
+          continue;
+        }
+
         if (post.status !== PostStatus.SCHEDULED) {
           await prisma.scheduledJob.update({
             where: { id: job.id },
@@ -84,23 +125,20 @@ export async function GET(req: NextRequest) {
         }
 
         if (!post.socialAccount) {
-          await prisma.scheduledJob.update({
-            where: { id: job.id },
-            data: {
-              status: JobStatus.FAILED,
-              completedAt: new Date(),
-              errorMessage: "No social account linked",
-            },
-          });
-
-          await prisma.post.update({
-            where: { id: post.id },
-            data: {
-              status: PostStatus.FAILED,
-              errorMessage: "No social account linked",
-            },
-          });
-
+          await prisma.$transaction([
+            prisma.post.update({
+              where: { id: post.id },
+              data: { status: PostStatus.FAILED, errorMessage: "No social account linked" },
+            }),
+            prisma.scheduledJob.update({
+              where: { id: job.id },
+              data: {
+                status: JobStatus.FAILED,
+                completedAt: new Date(),
+                errorMessage: "No social account linked",
+              },
+            }),
+          ]);
           results.failed++;
           results.errors.push({ postId: job.postId, error: "No social account linked" });
           continue;
@@ -142,75 +180,41 @@ export async function GET(req: NextRequest) {
             }),
             prisma.scheduledJob.update({
               where: { id: job.id },
-              data: {
-                status: JobStatus.COMPLETED,
-                completedAt: new Date(),
-              },
+              data: { status: JobStatus.COMPLETED, completedAt: new Date(), errorMessage: null },
             }),
           ]);
-
           results.published++;
-        } else {
-          const shouldRetry = job.attempts < MAX_RETRIES - 1;
-
-          await prisma.$transaction([
-            prisma.post.update({
-              where: { id: post.id },
-              data: {
-                status: shouldRetry ? PostStatus.SCHEDULED : PostStatus.FAILED,
-                errorMessage: result.error,
-                retryCount: { increment: 1 },
-                lastRetryAt: new Date(),
-              },
-            }),
-            prisma.scheduledJob.update({
-              where: { id: job.id },
-              data: {
-                status: shouldRetry ? JobStatus.PENDING : JobStatus.FAILED,
-                completedAt: shouldRetry ? null : new Date(),
-                errorMessage: result.error,
-              },
-            }),
-          ]);
-
-          if (!shouldRetry) {
-            results.failed++;
-            results.errors.push({ postId: job.postId, error: result.error || "Unknown error" });
-          }
+          continue;
         }
+
+        // Adapter reported failure -> decide retry-with-backoff vs dead-letter.
+        await handleFailure({
+          postId: post.id,
+          jobId: job.id,
+          attempt,
+          error: result.error || "Unknown error",
+          results,
+          now: new Date(),
+        });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const attempt = job.attempts + 1;
 
-        await prisma.$transaction([
-          prisma.post.update({
-            where: { id: job.postId },
-            data: {
-              status: job.attempts >= MAX_RETRIES - 1 ? PostStatus.FAILED : PostStatus.SCHEDULED,
-              errorMessage,
-              retryCount: { increment: 1 },
-              lastRetryAt: new Date(),
-            },
-          }),
-          prisma.scheduledJob.update({
-            where: { id: job.id },
-            data: {
-              status: job.attempts >= MAX_RETRIES - 1 ? JobStatus.FAILED : JobStatus.PENDING,
-              completedAt: job.attempts >= MAX_RETRIES - 1 ? new Date() : null,
-              errorMessage,
-            },
-          }),
-        ]);
-
-        if (job.attempts >= MAX_RETRIES - 1) {
-          results.failed++;
-          results.errors.push({ postId: job.postId, error: errorMessage });
-        }
+        await handleFailure({
+          postId: job.postId,
+          jobId: job.id,
+          attempt,
+          error: errorMessage,
+          results,
+          now: new Date(),
+        });
       }
     }
 
     return NextResponse.json({
       success: true,
       timestamp: now.toISOString(),
+      maxAttempts: MAX_ATTEMPTS,
       ...results,
     });
   } catch (error) {
@@ -219,6 +223,54 @@ export async function GET(req: NextRequest) {
       { error: "Cron job failed", details: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
+  }
+}
+
+async function handleFailure(opts: {
+  postId: string;
+  jobId: string;
+  attempt: number;
+  error: string;
+  results: {
+    retried: number;
+    failed: number;
+    errors: { postId: string; error: string }[];
+  };
+  now: Date;
+}) {
+  const { postId, jobId, attempt, error, results, now } = opts;
+  const exhausted = attempt >= MAX_ATTEMPTS;
+  const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
+
+  await prisma.$transaction([
+    prisma.post.update({
+      where: { id: postId },
+      data: {
+        status: exhausted ? PostStatus.FAILED : PostStatus.SCHEDULED,
+        errorMessage: error,
+        retryCount: { increment: 1 },
+        lastRetryAt: now,
+      },
+    }),
+    prisma.scheduledJob.update({
+      where: { id: jobId },
+      data: {
+        status: exhausted ? JobStatus.FAILED : JobStatus.PENDING,
+        // Backoff: a retry becomes due in the future, never immediately.
+        scheduledAt: exhausted ? now : nextAttemptAt,
+        completedAt: exhausted ? now : null,
+        errorMessage: exhausted
+          ? `${error} (dead-lettered after ${attempt} attempts)`
+          : `${error} (attempt ${attempt}/${MAX_ATTEMPTS}, retry at ${nextAttemptAt.toISOString()})`,
+      },
+    }),
+  ]);
+
+  if (exhausted) {
+    results.failed++;
+    results.errors.push({ postId, error });
+  } else {
+    results.retried++;
   }
 }
 
