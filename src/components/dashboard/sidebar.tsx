@@ -9,8 +9,9 @@ import {
   Clock,
   CheckSquare,
   CalendarDays,
-  Settings,
   LogOut,
+  Brain,
+  Link as LinkIcon,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -84,18 +85,35 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t p-3">
+      <div className="border-t p-3 space-y-1">
+        <div className="px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Settings
+          </p>
+        </div>
         <Link
           href="/settings/accounts"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            pathname.startsWith("/settings")
+            pathname === "/settings/accounts"
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
         >
-          <Settings className="h-4 w-4" />
-          Settings
+          <LinkIcon className="h-4 w-4" />
+          Accounts
+        </Link>
+        <Link
+          href="/settings/brand-brain"
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            pathname === "/settings/brand-brain"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Brain className="h-4 w-4" />
+          Brand Brain
         </Link>
         <Button
           variant="ghost"

@@ -25,6 +25,79 @@ export interface GeneratedVariant {
   withinLimit: boolean;
 }
 
+export interface BrandBrainContext {
+  brandName?: string | null;
+  industry?: string | null;
+  description?: string | null;
+  targetAudience?: string | null;
+  uniqueValue?: string | null;
+  tone?: string | null;
+  personality?: string | null;
+  writingStyle?: string | null;
+  avoidTopics?: string | null;
+  keyPhrases?: string | null;
+  primaryGoal?: string | null;
+  contentPillars?: string | null;
+  callToAction?: string | null;
+  hashtagStrategy?: string | null;
+}
+
+function buildBrandBrainPrompt(brandBrain: BrandBrainContext): string {
+  const parts: string[] = [];
+  
+  if (brandBrain.brandName) {
+    parts.push(`Brand: ${brandBrain.brandName}`);
+  }
+  if (brandBrain.industry) {
+    parts.push(`Industry: ${brandBrain.industry}`);
+  }
+  if (brandBrain.description) {
+    parts.push(`Brand Description: ${brandBrain.description}`);
+  }
+  if (brandBrain.targetAudience) {
+    parts.push(`Target Audience: ${brandBrain.targetAudience}`);
+  }
+  if (brandBrain.uniqueValue) {
+    parts.push(`Unique Value: ${brandBrain.uniqueValue}`);
+  }
+  if (brandBrain.tone) {
+    parts.push(`Tone: ${brandBrain.tone}`);
+  }
+  if (brandBrain.personality) {
+    parts.push(`Brand Personality: ${brandBrain.personality}`);
+  }
+  if (brandBrain.writingStyle) {
+    parts.push(`Writing Style: ${brandBrain.writingStyle}`);
+  }
+  if (brandBrain.keyPhrases) {
+    parts.push(`Key Phrases to Use: ${brandBrain.keyPhrases}`);
+  }
+  if (brandBrain.avoidTopics) {
+    parts.push(`Topics/Words to AVOID: ${brandBrain.avoidTopics}`);
+  }
+  if (brandBrain.primaryGoal) {
+    parts.push(`Primary Goal: ${brandBrain.primaryGoal}`);
+  }
+  if (brandBrain.contentPillars) {
+    parts.push(`Content Pillars: ${brandBrain.contentPillars}`);
+  }
+  if (brandBrain.callToAction) {
+    parts.push(`Preferred CTA: ${brandBrain.callToAction}`);
+  }
+  if (brandBrain.hashtagStrategy) {
+    parts.push(`Hashtag Strategy: ${brandBrain.hashtagStrategy}`);
+  }
+  
+  if (parts.length === 0) {
+    return "";
+  }
+  
+  return `
+## Brand Context (use this to maintain brand consistency)
+${parts.join("\n")}
+`;
+}
+
 const PLATFORM_PROMPTS: Record<Platform, string> = {
   LINKEDIN: `LinkedIn: Professional tone, industry insights, thought leadership. Can use longer form content up to 3000 chars. Include relevant professional hashtags (3-5). Focus on value, expertise, and meaningful engagement.`,
   
@@ -45,23 +118,28 @@ export async function generatePlatformVariants(
   originalIdea: string,
   platforms: Platform[],
   tone?: string,
-  additionalContext?: string
+  additionalContext?: string,
+  brandBrain?: BrandBrainContext
 ): Promise<GeneratedVariant[]> {
   const platformInstructions = platforms
     .map((p) => PLATFORM_PROMPTS[p])
     .join("\n\n");
 
-  const systemPrompt = `You are a social media content expert. Your job is to transform a content idea into platform-optimized posts.
+  const brandContext = brandBrain ? buildBrandBrainPrompt(brandBrain) : "";
+  const effectiveTone = tone || brandBrain?.tone;
 
+  const systemPrompt = `You are a social media content expert. Your job is to transform a content idea into platform-optimized posts.
+${brandContext}
 For each platform, consider:
 - Character limits and formatting constraints
 - Platform-specific tone and style
 - Hashtag best practices
 - Engagement optimization
+${brandContext ? "- Maintain brand voice and avoid topics marked as off-limits" : ""}
 
 ${platformInstructions}
 
-${tone ? `Desired tone: ${tone}` : ""}
+${effectiveTone ? `Desired tone: ${effectiveTone}` : ""}
 ${additionalContext ? `Additional context: ${additionalContext}` : ""}
 
 Respond in JSON format with an array of objects, each containing:
@@ -69,7 +147,7 @@ Respond in JSON format with an array of objects, each containing:
 - content: the optimized post content (main text without hashtags)
 - hashtags: array of hashtags (without # symbol)
 
-Ensure content is properly tailored for each platform's audience and constraints.`;
+Ensure content is properly tailored for each platform's audience and constraints.${brandContext ? " Make sure to incorporate the brand's voice, key phrases, and preferred call-to-action while avoiding any topics marked as off-limits." : ""}`;
 
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",

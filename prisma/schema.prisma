@@ -52,6 +52,7 @@ model User {
   socialAccounts  SocialAccount[]
   posts           Post[]
   mediaAssets     MediaAsset[]
+  brandBrain      BrandBrain?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -247,5 +248,39 @@ model PlatformConstraints {
   supportedMediaTypes Json  // Array of MIME types
   additionalRules Json?    // Platform-specific rules
   
+  updatedAt       DateTime @updatedAt
+}
+
+// Brand Brain: AI-powered brand profile, voice, and goals
+model BrandBrain {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  
+  // Brand Profile
+  brandName       String?
+  industry        String?
+  description     String?
+  targetAudience  String?
+  uniqueValue     String?
+  
+  // Brand Voice
+  tone            String?
+  personality     String?
+  writingStyle    String?
+  avoidTopics     String?
+  keyPhrases      String?
+  
+  // Brand Goals
+  primaryGoal     String?
+  contentPillars  String?
+  callToAction    String?
+  hashtagStrategy String?
+  
+  // Platform-specific overrides (JSON)
+  platformOverrides Json?
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

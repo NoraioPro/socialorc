@@ -87,7 +87,11 @@ one testable exit criterion — and one named owner, so two agents never build t
 
 ### P2 — Intelligence
 
-Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readiness (§42),
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| P2.1 | ✅ Brand Brain | new-bot | BrandBrain model (profile, voice, goals), settings UI at `/settings/brand-brain`, API routes, integration with AI content generation | unit **52/52** · e2e **18/18** · gate 400 confirmed |
+
+**Remaining P2 items:** AI Studio (multi-variant), Traction Score (§41), Campaign Readiness (§42),
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
 
