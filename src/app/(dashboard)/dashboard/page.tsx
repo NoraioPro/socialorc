@@ -5,7 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { PostStatus } from "@prisma/client";
 import Link from "next/link";
-import { FileEdit, Clock, CheckSquare, AlertCircle, CheckCircle2 } from "lucide-react";
+import { FileEdit, CheckSquare, AlertCircle, CheckCircle2, TrendingUp, Lightbulb, Target, ArrowRight } from "lucide-react";
+import { computeTractionScore, computeMetricsFromPosts } from "@/lib/traction-score";
+import { generateGrowthBrief, generateMockPlatformStats } from "@/lib/growth-brief";
 
 const statusColors: Record<PostStatus, string> = {
   DRAFT: "bg-gray-500",
@@ -17,8 +19,22 @@ const statusColors: Record<PostStatus, string> = {
   FAILED: "bg-red-500",
 };
 
+const gradeColors: Record<string, string> = {
+  A: "text-green-500",
+  B: "text-blue-500",
+  C: "text-yellow-500",
+  D: "text-orange-500",
+  F: "text-red-500",
+};
+
+const priorityColors: Record<string, string> = {
+  high: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  low: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+};
+
 async function getStats(userId: string) {
-  const [drafts, pendingApproval, scheduled, published, failed, recentPosts] = await Promise.all([
+  const [drafts, pendingApproval, scheduled, published, failed, recentPosts, allPosts] = await Promise.all([
     prisma.post.count({ where: { userId, status: PostStatus.DRAFT } }),
     prisma.post.count({ where: { userId, status: PostStatus.PENDING_APPROVAL } }),
     prisma.post.count({ where: { userId, status: PostStatus.SCHEDULED } }),
@@ -30,9 +46,19 @@ async function getStats(userId: string) {
       take: 5,
       include: { socialAccount: true },
     }),
+    prisma.post.findMany({
+      where: { userId },
+      select: {
+        status: true,
+        platform: true,
+        createdAt: true,
+        publishedAt: true,
+        approvedAt: true,
+      },
+    }),
   ]);
 
-  return { drafts, pendingApproval, scheduled, published, failed, recentPosts };
+  return { drafts, pendingApproval, scheduled, published, failed, recentPosts, allPosts };
 }
 
 export default async function DashboardPage() {
@@ -40,6 +66,23 @@ export default async function DashboardPage() {
   if (!session?.user?.id) return null;
 
   const stats = await getStats(session.user.id);
+
+  const metrics = computeMetricsFromPosts(stats.allPosts);
+  const tractionScore = computeTractionScore(metrics);
+
+  const platformStats = generateMockPlatformStats(
+    stats.allPosts.map((p) => ({ platform: p.platform, status: p.status }))
+  );
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayPostCount = stats.allPosts.filter((p) => {
+    const postDate = new Date(p.createdAt);
+    postDate.setHours(0, 0, 0, 0);
+    return postDate.getTime() === today.getTime();
+  }).length;
+
+  const growthBrief = generateGrowthBrief(tractionScore, platformStats, todayPostCount);
 
   return (
     <div className="flex flex-col">
@@ -49,7 +92,41 @@ export default async function DashboardPage() {
       />
       
       <div className="flex-1 space-y-6 p-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+          <Card className="lg:col-span-2 bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Traction Score</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-baseline gap-2">
+                <div className="text-4xl font-bold">{tractionScore.score}</div>
+                <div className={`text-2xl font-bold ${gradeColors[tractionScore.grade]}`}>
+                  {tractionScore.grade}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">{tractionScore.summary}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Volume</span>
+                  <span className="font-medium">{tractionScore.components.volume}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Consistency</span>
+                  <span className="font-medium">{tractionScore.components.consistency}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Success Rate</span>
+                  <span className="font-medium">{tractionScore.components.successRate}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Pipeline</span>
+                  <span className="font-medium">{tractionScore.components.pipelineHealth}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Drafts</CardTitle>
@@ -63,23 +140,12 @@ export default async function DashboardPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Approval</CardTitle>
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
               <CheckSquare className="h-4 w-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pendingApproval}</div>
               <p className="text-xs text-muted-foreground">Awaiting review</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Scheduled</CardTitle>
-              <Clock className="h-4 w-4 text-purple-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.scheduled}</div>
-              <p className="text-xs text-muted-foreground">Ready to publish</p>
             </CardContent>
           </Card>
 
@@ -102,6 +168,110 @@ export default async function DashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.failed}</div>
               <p className="text-xs text-muted-foreground">Need attention</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Lightbulb className="h-5 w-5 text-yellow-500" />
+                <CardTitle>Growth Brief</CardTitle>
+              </div>
+              <CardDescription>Daily recommendations to boost your traction</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {growthBrief.recommendations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Great job! No immediate actions needed.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {growthBrief.recommendations.map((rec) => (
+                    <div
+                      key={rec.id}
+                      className="flex items-start gap-3 rounded-lg border p-3"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge className={priorityColors[rec.priority]}>
+                            {rec.priority}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground capitalize">
+                            {rec.category}
+                          </span>
+                        </div>
+                        <p className="font-medium text-sm">{rec.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {rec.description}
+                        </p>
+                        <div className="flex items-center gap-1 mt-2 text-xs text-primary">
+                          <ArrowRight className="h-3 w-3" />
+                          <span>{rec.action}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-primary" />
+                <CardTitle>Daily Goal</CardTitle>
+              </div>
+              <CardDescription>Today&apos;s posting target</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center mb-4">
+                <div className="relative w-24 h-24">
+                  <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 36 36">
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="16"
+                      fill="none"
+                      className="stroke-muted"
+                      strokeWidth="2"
+                    />
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="16"
+                      fill="none"
+                      className="stroke-primary"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeDasharray={`${Math.min((growthBrief.dailyGoal.currentProgress / growthBrief.dailyGoal.postsTarget) * 100, 100)}, 100`}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xl font-bold">
+                      {growthBrief.dailyGoal.currentProgress}/{growthBrief.dailyGoal.postsTarget}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-center text-muted-foreground">
+                {growthBrief.dailyGoal.message}
+              </p>
+
+              {growthBrief.weeklyHighlights.improvementAreas.length > 0 && (
+                <div className="mt-4 pt-4 border-t">
+                  <p className="text-xs font-medium mb-2">Focus Areas:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {growthBrief.weeklyHighlights.improvementAreas.map((area) => (
+                      <Badge key={area} variant="outline" className="text-xs">
+                        {area}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

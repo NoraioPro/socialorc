@@ -91,6 +91,10 @@ Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readi
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Traction Score + Growth Brief | website-dev | heuristic 0–100 score from post activity, daily recommendations on dashboard | `npm run test:unit` → **59/59** (12 traction-score tests pass); dashboard renders score widget + growth brief |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
