@@ -302,6 +302,14 @@ async function run() {
 
     const run2 = await api.call("/api/cron/publish", { cron: true });
     check("nothing is picked up again afterwards", run2.json?.processed === 0, JSON.stringify(run2.json));
+
+    const prismaCheck = dbClient();
+    const account = await prismaCheck.socialAccount.findUnique({
+      where: { platform_platformUserId: { platform: "TELEGRAM", platformUserId: "durability_permanent" } },
+    });
+    await prismaCheck.$disconnect();
+    check("account is flagged needsReconnect", account?.needsReconnect === true, `needsReconnect=${account?.needsReconnect}`);
+    check("account records which failure caused it", /AUTH_INVALID/.test(account?.lastError ?? ""), account?.lastError ?? "");
   });
 
   // ── CASE C: idempotency ─────────────────────────────────────────────────────

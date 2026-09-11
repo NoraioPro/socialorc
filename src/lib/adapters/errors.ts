@@ -81,6 +81,15 @@ export function isPermanent(code: AdapterErrorCode): boolean {
   return PERMANENT.includes(code);
 }
 
+/**
+ * True when the failure is something only a human can fix by re-authorising the
+ * account: expired or rejected credentials, or missing permissions/scopes.
+ * A rejected post or a gone target is NOT this — the account itself is fine.
+ */
+export function requiresReconnect(code: AdapterErrorCode): boolean {
+  return code === "AUTH_INVALID" || code === "AUTH_EXPIRED" || code === "PERMISSION_DENIED";
+}
+
 /** Short, user-facing explanation — never leaks tokens or raw payloads. */
 export function describeAdapterError(code: AdapterErrorCode): string {
   switch (code) {

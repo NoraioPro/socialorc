@@ -85,6 +85,10 @@ model SocialAccount {
   
   isActive        Boolean  @default(true)
   lastSyncAt      DateTime?
+  /** Last connector failure, kept so the UI can explain and offer a reconnect. */
+  lastError       String?
+  /** True when the connector needs human re-authorisation (bad/expired/insufficient credentials). */
+  needsReconnect  Boolean  @default(false)
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   posts           Post[]

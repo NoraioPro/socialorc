@@ -19,8 +19,9 @@
 | Connector contract (capabilities + error taxonomy) | **Working** | `PlatformCapabilities` on 7 platforms; `classifyAdapterError()` splits retryable vs permanent; content rules enforced in `BasePlatformAdapter` for every adapter |
 | Retry policy (classified, not blind) | **Working** | permanent failure (invalid token) dead-letters on attempt **1** with `AUTH_INVALID` and "reconnect the account"; transient failure (unreachable API) retries with backoff then dead-letters after 3 — `npm run test:durability` → 19/19 |
 | Token refresh before publish | **Working** | an expiring token is refreshed and persisted before the send; a token that is expired on a non-refreshable connector dead-letters on attempt 1 as `AUTH_EXPIRED` with "reconnect the account" — unit 28/28 · durability 24/24 |
-| Unit test suite | **Working** | `npm run test:unit` → **28** assertions across platform-config, error-classification, content-validation, token-refresh |
-| In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **24/24** (real adapters, injected failures) |
+| Credential failure signalling | **Working** | an `AUTH_EXPIRED` publish failure triggers one refresh-and-retry; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError`, a successful publish clears them — unit **30/30** · durability **26/26** |
+| Unit test suite | **Working** | `npm run test:unit` → **30** assertions across platform-config, error-classification, content-validation, token-refresh |
+| In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **26/26** (real adapters, injected failures) |
 | LinkedIn / X / Meta / TikTok / YouTube | **Blocked on credentials** | no developer app exists on the estate; each needs owner-created app + consent |
 | Public HTTPS origin (OAuth redirect) | **Working, ephemeral** | Cloudflare quick tunnel serves the app over HTTPS and the OAuth redirect is built on it; the hostname changes on every tunnel restart, so a named tunnel or Vercel is still needed for anything durable |
 
@@ -62,6 +63,8 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M0.6 | ✅ Connector contract | Hermes | capability flags on every platform, normalized error taxonomy, capability-driven content validation, unit suite | `npm run test:unit` → 21 assertions pass; `tsc --noEmit` clean | — |
 | M0.7 | ✅ Classified retry policy | Hermes | worker honors `isRetryable`/`isPermanent`: permanent failures dead-letter on attempt 1, transient ones back off; `permanent` counter in the cron response; `TELEGRAM_API_BASE` override for self-hosted Bot API + fault injection | `npm run test:durability` → **19/19** (transient retry+backoff+dead-letter, permanent immediate dead-letter, dedupe) | — |
 | M0.8 | ✅ Token refresh before publish | Hermes | expiring tokens are refreshed and persisted before the send; expired + non-refreshable dead-letters immediately as `AUTH_EXPIRED`; `needsTokenRefresh`/`canRefresh` are pure and unit-tested | unit **28/28** · durability **24/24** (case D: expired token, attempt 1 dead-letter, actionable message) | — |
+| M0.9 | ✅ Credential failure signalling | Hermes | refresh-and-retry once on an `AUTH_EXPIRED` publish failure; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError` and a successful publish clears them; `requiresReconnect()` is pure and unit-tested | unit **30/30** · durability **26/26** (case B asserts the account flags + reason) | — |
+| M0.10 | Reconnect banner in the UI | **website-dev** | render `needsReconnect`/`lastError` on `/settings/accounts` with a reconnect action; contract is already written by the worker | a flagged account shows a banner and the reconnect flow clears the flag | — |
 | M0.3 | LinkedIn connector live | **Hassan** | OAuth flow + real post on the operator's profile | post visible on LinkedIn | create app + consent |
 | M0.4 | Stable HTTPS origin | **Hassan** | Vercel deploy, or a named Cloudflare tunnel, replacing the ephemeral quick tunnel | OAuth redirect completes against a stable hostname | deploy login |
 
@@ -100,6 +103,7 @@ identity, reputation integrity, Connector SDK, marketplace.
 | Broken IPv6 route on build hosts | server-side `fetch` stalls ~10s then `fetch failed` | run servers with `NODE_OPTIONS=--dns-result-order=ipv4first` |
 | Approval gate regressions | the one thing that must never break | gate assertion is part of both test suites; a bypass is a release blocker |
 | **Two agents in one working copy** | lost edits, stashed work, branch ping-pong (happened: M0.2 was built twice) | **one git worktree per agent** (`git worktree add ../socialorc-<task> -b <agent>/<task>`), one branch per agent, never commit on another agent's branch |
+| **No migration history (`db push` only)** | schema changes are unreviewable, and Prisma refuses a destructive push unattended | adopt `prisma migrate` before the first deploy (M0.4); keep `db push` for throwaway test databases, and treat additive columns on a dev DB as `ALTER TABLE`, not a push |
 | **Green tests on a tree that does not compile** | false "done" (happened: M0.2 shipped on a base failing `tsc` with 4 TELEGRAM map errors) | `npm run typecheck` is part of the Definition of Done and of `npm test`; run it before claiming PASS |
 
 ---
