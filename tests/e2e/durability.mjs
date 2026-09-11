@@ -192,9 +192,13 @@ async function ensureUser() {
   return c;
 }
 
-async function injectPost(api, token, label) {
+async function injectPost(api, token, label, tokenMeta = {}) {
   const prisma = dbClient();
   const user = await prisma.user.findUnique({ where: { email } });
+  const encryptedToken = CryptoJS.AES.encrypt(token, ENCRYPTION_KEY).toString();
+  const encryptedRefresh = tokenMeta.refreshToken
+    ? CryptoJS.AES.encrypt(tokenMeta.refreshToken, ENCRYPTION_KEY).toString()
+    : null;
   const account = await prisma.socialAccount.upsert({
     where: { platform_platformUserId: { platform: "TELEGRAM", platformUserId: `durability_${label}` } },
     create: {
@@ -203,11 +207,15 @@ async function injectPost(api, token, label) {
       platformUserId: `durability_${label}`,
       platformUsername: `durability_${label}`,
       displayName: `Durability ${label}`,
-      accessToken: CryptoJS.AES.encrypt(token, ENCRYPTION_KEY).toString(),
+      accessToken: encryptedToken,
+      refreshToken: encryptedRefresh,
+      tokenExpiresAt: tokenMeta.expiresAt ?? null,
       isActive: true,
     },
     update: {
-      accessToken: CryptoJS.AES.encrypt(token, ENCRYPTION_KEY).toString(),
+      accessToken: encryptedToken,
+      refreshToken: encryptedRefresh,
+      tokenExpiresAt: tokenMeta.expiresAt ?? null,
       isActive: true,
       userId: user.id,
     },
@@ -294,6 +302,14 @@ async function run() {
 
     const run2 = await api.call("/api/cron/publish", { cron: true });
     check("nothing is picked up again afterwards", run2.json?.processed === 0, JSON.stringify(run2.json));
+
+    const prismaCheck = dbClient();
+    const account = await prismaCheck.socialAccount.findUnique({
+      where: { platform_platformUserId: { platform: "TELEGRAM", platformUserId: "durability_permanent" } },
+    });
+    await prismaCheck.$disconnect();
+    check("account is flagged needsReconnect", account?.needsReconnect === true, `needsReconnect=${account?.needsReconnect}`);
+    check("account records which failure caused it", /AUTH_INVALID/.test(account?.lastError ?? ""), account?.lastError ?? "");
   });
 
   // ── CASE C: idempotency ─────────────────────────────────────────────────────
@@ -322,6 +338,25 @@ async function run() {
     const { post } = await jobState(postId);
     check("already-published post is deduped", run.json?.deduped === 1 && run.json?.published === 0, JSON.stringify(run.json));
     check("original platform id is preserved", post?.platformPostId === "durability_already_sent", post?.platformPostId ?? "null");
+  });
+
+  // ── CASE D: expired token that cannot be refreshed -> immediate dead-letter ──
+  console.log(`\nCASE D — expired token on a non-refreshable connector`);
+  await withServer({ TELEGRAM_API_BASE: DEAD_API_BASE }, async () => {
+    const api = await ensureUser();
+    // Telegram bot tokens never expire and cannot be refreshed, so an expired
+    // one is a configuration problem: retrying cannot fix it.
+    const postId = await injectPost(api, "123456:irrelevant", "expired", {
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    const run = await api.call("/api/cron/publish", { cron: true });
+    const { job, post } = await jobState(postId);
+    check("expired token is not retried", run.json?.retried === 0, JSON.stringify(run.json));
+    check("expired token dead-letters on attempt 1", job?.status === "FAILED" && job.attempts === 1, `${job?.status} attempts=${job?.attempts}`);
+    check("classified AUTH_EXPIRED, not a generic failure", /AUTH_EXPIRED/.test(job?.errorMessage ?? ""), job?.errorMessage ?? "");
+    check("operator is told what to do", /reconnect the account/i.test(job?.errorMessage ?? ""), job?.errorMessage ?? "");
+    check("post ends FAILED", post?.status === "FAILED", post?.status);
   });
 
   console.log(`\n${failures.length ? "DURABILITY RESULT: FAIL" : "DURABILITY RESULT: PASS"} — ${passed} checks passed, ${failures.length} failed`);

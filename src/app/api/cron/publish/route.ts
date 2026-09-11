@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
-import { decryptTokens } from "@/lib/encryption";
+import { decryptTokens, encryptTokens } from "@/lib/encryption";
+import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
   classifyAdapterError,
   describeAdapterError,
   isRetryable,
+  requiresReconnect,
   type AdapterErrorCode,
 } from "@/lib/adapters/errors";
 
@@ -159,10 +161,64 @@ export async function GET(req: NextRequest) {
         });
 
         const adapter = getAdapter(post.platform, { useMockIfUnconfigured: true });
-        const { accessToken } = decryptTokens({
+        const stored = decryptTokens({
           accessToken: post.socialAccount.accessToken,
           refreshToken: post.socialAccount.refreshToken,
         });
+        let accessToken = stored.accessToken;
+
+        // Refresh before publishing when the token is at or near expiry: a
+        // publish that dies on an expired token wastes the schedule window, and
+        // on short-lived platforms (TikTok: 24h) it is the normal case.
+        if (needsTokenRefresh(post.socialAccount.tokenExpiresAt)) {
+          const refreshable = canRefresh(
+            Boolean(stored.refreshToken),
+            adapter.config.capabilities.refreshableTokens,
+          );
+
+          if (!refreshable) {
+            await handleFailure({
+              postId: post.id,
+              jobId: job.id,
+              attempt,
+              error: "Stored access token is expired and this connector cannot refresh it",
+              code: "AUTH_EXPIRED",
+              results,
+              now: new Date(),
+            });
+            continue;
+          }
+
+          try {
+            const refreshed = await adapter.refreshAccessToken(stored.refreshToken as string);
+            const encrypted = encryptTokens({
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken ?? stored.refreshToken,
+            });
+            await prisma.socialAccount.update({
+              where: { id: post.socialAccount.id },
+              data: {
+                accessToken: encrypted.accessToken,
+                refreshToken: encrypted.refreshToken,
+                tokenExpiresAt: refreshed.expiresAt ?? null,
+                lastSyncAt: new Date(),
+              },
+            });
+            accessToken = refreshed.accessToken;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown refresh error";
+            await handleFailure({
+              postId: post.id,
+              jobId: job.id,
+              attempt,
+              error: `Token refresh failed: ${message}`,
+              code: classifyAdapterError({ message }),
+              results,
+              now: new Date(),
+            });
+            continue;
+          }
+        }
 
         const mediaUrls = await prisma.postMedia.findMany({
           where: { postId: post.id },
@@ -170,10 +226,47 @@ export async function GET(req: NextRequest) {
           orderBy: { order: "asc" },
         });
 
-        const result = await adapter.createPost(accessToken, {
+        const sendOptions = {
           text: post.content,
           mediaUrls: mediaUrls.map((m) => m.mediaAsset.url),
-        });
+        };
+
+        let result = await adapter.createPost(accessToken, sendOptions);
+        let code: AdapterErrorCode | null = result.success
+          ? null
+          : classifyAdapterError({ message: result.error });
+
+        // One refresh-and-retry when the platform says the token is stale: the
+        // pre-publish check cannot catch a token revoked mid-flight, and a
+        // silent dead-letter here would be blamed on the content.
+        if (
+          !result.success &&
+          code === "AUTH_EXPIRED" &&
+          canRefresh(Boolean(stored.refreshToken), adapter.config.capabilities.refreshableTokens)
+        ) {
+          try {
+            const refreshed = await adapter.refreshAccessToken(stored.refreshToken as string);
+            const encrypted = encryptTokens({
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken ?? stored.refreshToken,
+            });
+            await prisma.socialAccount.update({
+              where: { id: post.socialAccount.id },
+              data: {
+                accessToken: encrypted.accessToken,
+                refreshToken: encrypted.refreshToken,
+                tokenExpiresAt: refreshed.expiresAt ?? null,
+                lastSyncAt: new Date(),
+              },
+            });
+            accessToken = refreshed.accessToken;
+            result = await adapter.createPost(accessToken, sendOptions);
+            code = result.success ? null : classifyAdapterError({ message: result.error });
+          } catch {
+            // Keep the original AUTH_EXPIRED failure; the refresh error itself is
+            // not more informative for the operator.
+          }
+        }
 
         if (result.success) {
           await prisma.$transaction([
@@ -191,6 +284,11 @@ export async function GET(req: NextRequest) {
               where: { id: job.id },
               data: { status: JobStatus.COMPLETED, completedAt: new Date(), errorMessage: null },
             }),
+            // A successful publish proves the credentials work again.
+            prisma.socialAccount.update({
+              where: { id: post.socialAccount.id },
+              data: { needsReconnect: false, lastError: null, lastSyncAt: new Date() },
+            }),
           ]);
           results.published++;
           continue;
@@ -201,9 +299,10 @@ export async function GET(req: NextRequest) {
         await handleFailure({
           postId: post.id,
           jobId: job.id,
+          accountId: post.socialAccount.id,
           attempt,
           error: result.error || "Unknown error",
-          code: classifyAdapterError({ message: result.error }),
+          code: code ?? "UNKNOWN",
           results,
           now: new Date(),
         });
@@ -250,6 +349,7 @@ export async function GET(req: NextRequest) {
 async function handleFailure(opts: {
   postId: string;
   jobId: string;
+  accountId?: string | null;
   attempt: number;
   error: string;
   code: AdapterErrorCode;
@@ -261,7 +361,7 @@ async function handleFailure(opts: {
   };
   now: Date;
 }) {
-  const { postId, jobId, attempt, error, code, results, now } = opts;
+  const { postId, jobId, accountId, attempt, error, code, results, now } = opts;
   const retryable = isRetryable(code) || code === "UNKNOWN";
   const exhausted = !retryable || attempt >= MAX_ATTEMPTS;
   const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
@@ -292,6 +392,16 @@ async function handleFailure(opts: {
         errorMessage: `${error} — ${note}`,
       },
     }),
+    // Credential-shaped failures are not the post's fault: record them on the
+    // account so the UI can offer a reconnect instead of a silent dead letter.
+    ...(accountId && exhausted && requiresReconnect(code)
+      ? [
+          prisma.socialAccount.update({
+            where: { id: accountId },
+            data: { needsReconnect: true, lastError: `${error} (${code})` },
+          }),
+        ]
+      : []),
   ]);
 
   if (exhausted) {

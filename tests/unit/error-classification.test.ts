@@ -6,6 +6,7 @@ import {
   describeAdapterError,
   isPermanent,
   isRetryable,
+  requiresReconnect,
   type AdapterErrorCode,
 } from "../../src/lib/adapters/errors";
 
@@ -62,6 +63,24 @@ test("retry policy splits transient from permanent", () => {
     assert.equal(isPermanent(code), true, `${code} should be permanent`);
     assert.equal(isRetryable(code), false, `${code} should not be retryable`);
   }
+});
+
+test("only credential-shaped failures ask for a human reconnect", () => {
+  // These are the account's fault -> the UI should offer a reconnect.
+  assert.equal(requiresReconnect("AUTH_INVALID"), true);
+  assert.equal(requiresReconnect("AUTH_EXPIRED"), true);
+  assert.equal(requiresReconnect("PERMISSION_DENIED"), true);
+
+  // These are not: a rejected post, a missing chat, a rate limit or a network
+  // blip must never nag the operator to re-authorise a working account.
+  for (const code of ["CONTENT_INVALID", "MEDIA_INVALID", "NOT_FOUND", "RATE_LIMITED", "PLATFORM_UNAVAILABLE", "NETWORK", "UNKNOWN"] as const) {
+    assert.equal(requiresReconnect(code), false, `${code} must not request a reconnect`);
+  }
+});
+
+test("the Telegram failure we saw live maps to a reconnect", () => {
+  const code = classifyAdapterError({ message: "Telegram sendMessage failed: Unauthorized" });
+  assert.equal(requiresReconnect(code), true);
 });
 
 test("every code has a human-readable explanation that leaks nothing", () => {
