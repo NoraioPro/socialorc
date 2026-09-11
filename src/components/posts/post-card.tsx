@@ -23,6 +23,7 @@ import {
 import { format } from "date-fns";
 import Link from "next/link";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { RetryFailedButton } from "@/components/posts/retry-failed-button";
 
 type PostWithRelations = Post & {
   socialAccount: SocialAccount | null;
@@ -148,7 +149,9 @@ export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps)
         )}
       </CardContent>
 
-      {(post.status === "DRAFT" || post.status === "PENDING_APPROVAL") && (
+      {(post.status === "DRAFT" ||
+        post.status === "PENDING_APPROVAL" ||
+        post.status === "FAILED") && (
         <CardFooter className="border-t pt-3">
           <div className="flex w-full gap-2">
             {post.status === "PENDING_APPROVAL" && onApprove && (
@@ -180,6 +183,9 @@ export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps)
                 <Edit className="mr-2 h-4 w-4" />
                 Continue Editing
               </Link>
+            )}
+            {post.status === "FAILED" && post.approvedAt && (
+              <RetryFailedButton postId={post.id} />
             )}
           </div>
         </CardFooter>

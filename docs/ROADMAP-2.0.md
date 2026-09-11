@@ -131,3 +131,5 @@ Update the status table in §1 and the milestone row whenever a milestone closes
 command and its output that proved it. Vision language belongs in `VISION-2.0.md`; scope
 arguments belong in `PRD.md`; **this file only records what is built, what is next, who owns
 it, and what blocks it.**
+
+| M2.x | Failed-publish retry UI | re-queue FAILED (approved only) on scheduled page | unit failed-retry; POST /api/posts/[id]/retry gate 400 | — |
