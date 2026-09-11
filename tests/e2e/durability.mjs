@@ -87,10 +87,12 @@ function dbClient() {
 function prepareDatabase(env) {
   fs.rmSync(TMP, { recursive: true, force: true });
   fs.mkdirSync(TMP, { recursive: true });
-  const push = spawnSync("npx prisma db push", { cwd: ROOT, env, shell: true, encoding: "utf8" });
-  if (push.status !== 0) {
-    console.error(push.stdout ?? "", push.stderr ?? "");
-    throw new Error(`prisma db push failed (${push.status})`);
+  // Apply the committed migrations rather than pushing the schema, so every run
+  // of this suite also proves the migration baseline works on an empty database.
+  const deploy = spawnSync("npx prisma migrate deploy", { cwd: ROOT, env, shell: true, encoding: "utf8" });
+  if (deploy.status !== 0) {
+    console.error(deploy.stdout ?? "", deploy.stderr ?? "");
+    throw new Error(`prisma migrate deploy failed (${deploy.status})`);
   }
 }
 
