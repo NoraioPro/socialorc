@@ -19,6 +19,7 @@ import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { CulturalWarningsBanner } from "@/components/dashboard/cultural-warnings";
 
 interface GeneratedVariant {
   platform: Platform;
@@ -173,6 +174,7 @@ export default function CreatePostPage() {
                   onChange={(e) => setIdea(e.target.value)}
                   rows={4}
                 />
+                <CulturalWarningsBanner text={idea} />
               </div>
 
               <div className="space-y-2">
@@ -407,6 +409,7 @@ function ManualPostForm() {
           onChange={(e) => setContent(e.target.value)}
           rows={6}
         />
+        <CulturalWarningsBanner text={content} />
       </div>
 
       <Button 
