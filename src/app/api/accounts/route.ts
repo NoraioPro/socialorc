@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { Platform } from "@prisma/client";
 import { getAdapterStatus } from "@/lib/adapters";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { getTokenStatus, formatExpiryTime } from "@/lib/adapters/tokens";
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
       where.platform = platform;
     }
 
-    const accounts = await prisma.socialAccount.findMany({
+    const rawAccounts = await prisma.socialAccount.findMany({
       where,
       select: {
         id: true,
@@ -31,14 +32,53 @@ export async function GET(req: NextRequest) {
         profileImageUrl: true,
         isActive: true,
         tokenExpiresAt: true,
+        refreshToken: true,
         lastSyncAt: true,
+        lastError: true,
+        needsReconnect: true,
         createdAt: true,
         updatedAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
 
+    const now = new Date();
     const adapterStatus = getAdapterStatus();
+
+    const accounts = rawAccounts.map((account) => {
+      const config = PLATFORM_CONFIGS[account.platform];
+      const tokenStatus = getTokenStatus(
+        account.tokenExpiresAt,
+        Boolean(account.refreshToken),
+        config.capabilities.refreshableTokens,
+        account.needsReconnect,
+        now,
+      );
+
+      return {
+        id: account.id,
+        platform: account.platform,
+        platformUserId: account.platformUserId,
+        platformUsername: account.platformUsername,
+        displayName: account.displayName,
+        profileImageUrl: account.profileImageUrl,
+        isActive: account.isActive,
+        tokenExpiresAt: account.tokenExpiresAt?.toISOString() ?? null,
+        lastSyncAt: account.lastSyncAt?.toISOString() ?? null,
+        lastError: account.lastError,
+        needsReconnect: account.needsReconnect,
+        createdAt: account.createdAt.toISOString(),
+        updatedAt: account.updatedAt.toISOString(),
+        tokenStatus: {
+          status: tokenStatus.status,
+          expiresInMs: tokenStatus.expiresInMs,
+          expiresInHuman: formatExpiryTime(tokenStatus.expiresInMs),
+          needsRefresh: tokenStatus.needsRefresh,
+          canAutoRefresh: tokenStatus.canAutoRefresh,
+          requiresReconnect: tokenStatus.requiresReconnect,
+        },
+      };
+    });
 
     const platformStatus = Object.values(Platform).map((p) => ({
       platform: p,

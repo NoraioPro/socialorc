@@ -83,7 +83,7 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M1.3 | TikTok connector | website-dev | video publish (SELF_ONLY until audit) | publish visible in TikTok app |
 | M1.4 | Unified calendar + queue | ios-mobile-dev | drag-to-reschedule, timezone correctness | scheduled post fires at the right local time |
 | M1.5 | Unified inbox | ios-mobile-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks |
-| M1.6 | Token lifecycle | website-dev | refresh, expiry alerts, reconnect prompts | expired token triggers refresh, not a failed publish |
+| M1.6 | ✅ Token lifecycle | new-bot | `getTokenStatus()` expiry alerting, UI reconnect banners, unit tests for refresh/expiry/reconnect | unit **64/64** (17 new token lifecycle assertions); e2e **18/18** (gate `400`); expired token → auto-refresh or reconnect-prompt, never fail-publish |
 
 ### P2 — Intelligence
 
