@@ -41,7 +41,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
   }
 
   /** Bot tokens do not expire; a refresh is a no-op re-read of the env token. */
-  async refreshAccessToken(_refreshToken: string): Promise<OAuthTokens> {
+  async refreshAccessToken(): Promise<OAuthTokens> {
     return this.exchangeCodeForTokens();
   }
 
