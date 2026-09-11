@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { PostStatus } from "@prisma/client";
 import Link from "next/link";
 import { FileEdit, Clock, CheckSquare, AlertCircle, CheckCircle2 } from "lucide-react";
+import { NetworkDiscoveryPanel } from "@/components/dashboard/network-discovery-cards";
 
 const statusColors: Record<PostStatus, string> = {
   DRAFT: "bg-gray-500",
@@ -105,6 +106,8 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        <NetworkDiscoveryPanel />
 
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
