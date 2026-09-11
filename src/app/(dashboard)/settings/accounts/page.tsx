@@ -15,8 +15,20 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  AlertTriangle,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+
+interface TokenStatus {
+  status: "valid" | "expiring_soon" | "expiring_urgent" | "expired" | "no_expiry";
+  expiresInMs: number | null;
+  expiresInHuman: string;
+  needsRefresh: boolean;
+  canAutoRefresh: boolean;
+  requiresReconnect: boolean;
+}
 
 interface SocialAccount {
   id: string;
@@ -28,6 +40,9 @@ interface SocialAccount {
   isActive: boolean;
   tokenExpiresAt?: string;
   lastSyncAt?: string;
+  lastError?: string | null;
+  needsReconnect?: boolean;
+  tokenStatus?: TokenStatus;
 }
 
 interface PlatformStatus {
@@ -202,43 +217,134 @@ function AccountsContent() {
 
                     {status.accounts.length > 0 && (
                       <div className="space-y-3">
-                        {status.accounts.map((account) => (
-                          <div
-                            key={account.id}
-                            className="flex items-center justify-between rounded-lg border p-3"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Avatar>
-                                <AvatarImage src={account.profileImageUrl || ""} />
-                                <AvatarFallback>
-                                  {account.displayName?.charAt(0) || "?"}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">
-                                  {account.displayName || account.platformUsername || "Unknown"}
-                                </p>
-                                {account.platformUsername && (
-                                  <p className="text-sm text-muted-foreground">
-                                    @{account.platformUsername}
-                                  </p>
-                                )}
+                        {status.accounts.map((account) => {
+                          const tokenStatus = account.tokenStatus;
+                          const showReconnectBanner = account.needsReconnect || tokenStatus?.requiresReconnect;
+                          const showExpiryWarning = tokenStatus?.status === "expiring_soon" || tokenStatus?.status === "expiring_urgent";
+
+                          return (
+                            <div key={account.id} className="space-y-2">
+                              {showReconnectBanner && (
+                                <div className="rounded-md bg-red-50 border border-red-200 p-3 flex items-start gap-3">
+                                  <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-red-800">
+                                      Reconnection Required
+                                    </p>
+                                    <p className="text-sm text-red-600 mt-1">
+                                      {account.lastError || "This account needs to be reconnected to continue publishing."}
+                                    </p>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      className="mt-2"
+                                      onClick={() => handleConnect(status.platform)}
+                                      disabled={connecting === status.platform}
+                                    >
+                                      {connecting === status.platform ? (
+                                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="mr-2 h-3 w-3" />
+                                      )}
+                                      Reconnect Now
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {!showReconnectBanner && showExpiryWarning && (
+                                <div className={`rounded-md p-3 flex items-start gap-3 ${
+                                  tokenStatus?.status === "expiring_urgent"
+                                    ? "bg-orange-50 border border-orange-200"
+                                    : "bg-yellow-50 border border-yellow-200"
+                                }`}>
+                                  <Clock className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
+                                    tokenStatus?.status === "expiring_urgent"
+                                      ? "text-orange-500"
+                                      : "text-yellow-500"
+                                  }`} />
+                                  <div className="flex-1">
+                                    <p className={`text-sm font-medium ${
+                                      tokenStatus?.status === "expiring_urgent"
+                                        ? "text-orange-800"
+                                        : "text-yellow-800"
+                                    }`}>
+                                      Token {tokenStatus?.status === "expiring_urgent" ? "Expiring Soon" : "Expiring"}
+                                    </p>
+                                    <p className={`text-sm mt-1 ${
+                                      tokenStatus?.status === "expiring_urgent"
+                                        ? "text-orange-600"
+                                        : "text-yellow-600"
+                                    }`}>
+                                      {tokenStatus?.canAutoRefresh
+                                        ? `Token expires in ${tokenStatus.expiresInHuman}. It will be refreshed automatically when needed.`
+                                        : `Token expires in ${tokenStatus?.expiresInHuman}. Reconnect before it expires to avoid failed posts.`}
+                                    </p>
+                                    {!tokenStatus?.canAutoRefresh && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="mt-2"
+                                        onClick={() => handleConnect(status.platform)}
+                                        disabled={connecting === status.platform}
+                                      >
+                                        {connecting === status.platform ? (
+                                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <RefreshCw className="mr-2 h-3 w-3" />
+                                        )}
+                                        Reconnect Now
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between rounded-lg border p-3">
+                                <div className="flex items-center gap-3">
+                                  <Avatar>
+                                    <AvatarImage src={account.profileImageUrl || ""} />
+                                    <AvatarFallback>
+                                      {account.displayName?.charAt(0) || "?"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <p className="font-medium">
+                                      {account.displayName || account.platformUsername || "Unknown"}
+                                    </p>
+                                    {account.platformUsername && (
+                                      <p className="text-sm text-muted-foreground">
+                                        @{account.platformUsername}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {showReconnectBanner ? (
+                                    <Badge variant="destructive">Needs Reconnect</Badge>
+                                  ) : tokenStatus?.status === "expired" ? (
+                                    <Badge variant="destructive">Token Expired</Badge>
+                                  ) : tokenStatus?.status === "expiring_urgent" ? (
+                                    <Badge variant="outline" className="border-orange-300 text-orange-600">
+                                      Expires in {tokenStatus.expiresInHuman}
+                                    </Badge>
+                                  ) : account.isActive ? (
+                                    <Badge variant="default">Active</Badge>
+                                  ) : (
+                                    <Badge variant="secondary">Inactive</Badge>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDisconnect(account.id)}
+                                  >
+                                    <Unlink className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={account.isActive ? "default" : "secondary"}>
-                                {account.isActive ? "Active" : "Inactive"}
-                              </Badge>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDisconnect(account.id)}
-                              >
-                                <Unlink className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 
