@@ -52,6 +52,14 @@ export function TikTokIcon({ className, ...props }: IconProps) {
   );
 }
 
+export function TelegramIcon({ className, ...props }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.26-1.91.177-.184 3.247-2.977 3.307-3.23.008-.027.014-.127-.047-.18-.061-.053-.176-.035-.251-.02-.107.024-1.81 1.15-5.11 3.375-.483.33-.92.49-1.31.482-.43-.01-1.26-.245-1.876-.446-.756-.246-1.356-.376-1.306-.794.026-.217.328-.44.906-.664 3.545-1.545 5.91-2.564 7.09-3.057 3.375-1.4 4.078-1.645 4.535-1.652z" />
+    </svg>
+  );
+}
+
 export const platformIcons: Record<Platform, React.ComponentType<IconProps>> = {
   LINKEDIN: LinkedInIcon,
   TWITTER: TwitterIcon,
@@ -59,6 +67,7 @@ export const platformIcons: Record<Platform, React.ComponentType<IconProps>> = {
   FACEBOOK: FacebookIcon,
   YOUTUBE: YouTubeIcon,
   TIKTOK: TikTokIcon,
+  TELEGRAM: TelegramIcon,
 };
 
 export function PlatformIcon({ platform, className }: { platform: Platform; className?: string }) {

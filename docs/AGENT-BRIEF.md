@@ -5,6 +5,24 @@
 
 ---
 
+## 0. Working alongside other agents (hard rules)
+
+Several agents work this repo at the same time. Respect the lanes or work gets lost:
+
+1. **One git worktree per agent.** Never share a working copy:
+   `git worktree add ../socialorc-<task> -b <agent>/<task>`. Two agents in one checkout
+   means stashed work, branch ping-pong and duplicated milestones — all of which happened.
+2. **One branch per agent.** Before committing, run `git branch --show-current`. If the
+   branch is not yours, stop — do not commit there.
+3. **Check the roadmap's Owner column before starting.** If a milestone already has an owner,
+   do not build it in parallel; pick the next unowned one or ask.
+4. **Never leave uncommitted work in a checkout you are about to switch away from**, and if
+   you must stash someone else's, say where you put it.
+5. **`npm run typecheck` before claiming PASS.** A green suite on a tree that does not compile
+   is not done — that is how M0.2 was briefly reported as finished on a base failing `tsc`.
+
+---
+
 ## 1. The three non-negotiables
 
 1. **The approval gate is sacred.** `DRAFT → SCHEDULED` is blocked in code. Only `APPROVED`
