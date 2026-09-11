@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
-import { decryptTokens } from "@/lib/encryption";
+import { decryptTokens, encryptTokens } from "@/lib/encryption";
+import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
   classifyAdapterError,
   describeAdapterError,
@@ -159,10 +160,64 @@ export async function GET(req: NextRequest) {
         });
 
         const adapter = getAdapter(post.platform, { useMockIfUnconfigured: true });
-        const { accessToken } = decryptTokens({
+        const stored = decryptTokens({
           accessToken: post.socialAccount.accessToken,
           refreshToken: post.socialAccount.refreshToken,
         });
+        let accessToken = stored.accessToken;
+
+        // Refresh before publishing when the token is at or near expiry: a
+        // publish that dies on an expired token wastes the schedule window, and
+        // on short-lived platforms (TikTok: 24h) it is the normal case.
+        if (needsTokenRefresh(post.socialAccount.tokenExpiresAt)) {
+          const refreshable = canRefresh(
+            Boolean(stored.refreshToken),
+            adapter.config.capabilities.refreshableTokens,
+          );
+
+          if (!refreshable) {
+            await handleFailure({
+              postId: post.id,
+              jobId: job.id,
+              attempt,
+              error: "Stored access token is expired and this connector cannot refresh it",
+              code: "AUTH_EXPIRED",
+              results,
+              now: new Date(),
+            });
+            continue;
+          }
+
+          try {
+            const refreshed = await adapter.refreshAccessToken(stored.refreshToken as string);
+            const encrypted = encryptTokens({
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken ?? stored.refreshToken,
+            });
+            await prisma.socialAccount.update({
+              where: { id: post.socialAccount.id },
+              data: {
+                accessToken: encrypted.accessToken,
+                refreshToken: encrypted.refreshToken,
+                tokenExpiresAt: refreshed.expiresAt ?? null,
+                lastSyncAt: new Date(),
+              },
+            });
+            accessToken = refreshed.accessToken;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown refresh error";
+            await handleFailure({
+              postId: post.id,
+              jobId: job.id,
+              attempt,
+              error: `Token refresh failed: ${message}`,
+              code: classifyAdapterError({ message }),
+              results,
+              now: new Date(),
+            });
+            continue;
+          }
+        }
 
         const mediaUrls = await prisma.postMedia.findMany({
           where: { postId: post.id },

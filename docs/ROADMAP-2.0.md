@@ -18,8 +18,9 @@
 | Durable job queue (retry/backoff/idempotency) | **Working** | failed publish → attempt 1 `retried`, next due +30s; immediate re-run `processed: 0`; attempt 3 dead-letters (`post FAILED`, job `FAILED after 3 attempts`); re-armed published post → `deduped: 1, published: 0`, platform id unchanged |
 | Connector contract (capabilities + error taxonomy) | **Working** | `PlatformCapabilities` on 7 platforms; `classifyAdapterError()` splits retryable vs permanent; content rules enforced in `BasePlatformAdapter` for every adapter |
 | Retry policy (classified, not blind) | **Working** | permanent failure (invalid token) dead-letters on attempt **1** with `AUTH_INVALID` and "reconnect the account"; transient failure (unreachable API) retries with backoff then dead-letters after 3 — `npm run test:durability` → 19/19 |
-| Unit test suite | **Working** | `npm run test:unit` → 21 assertions across platform-config, error-classification, content-validation |
-| In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **19/19** (real adapters, injected failures) |
+| Token refresh before publish | **Working** | an expiring token is refreshed and persisted before the send; a token that is expired on a non-refreshable connector dead-letters on attempt 1 as `AUTH_EXPIRED` with "reconnect the account" — unit 28/28 · durability 24/24 |
+| Unit test suite | **Working** | `npm run test:unit` → **28** assertions across platform-config, error-classification, content-validation, token-refresh |
+| In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **24/24** (real adapters, injected failures) |
 | LinkedIn / X / Meta / TikTok / YouTube | **Blocked on credentials** | no developer app exists on the estate; each needs owner-created app + consent |
 | Public HTTPS origin (OAuth redirect) | **Working, ephemeral** | Cloudflare quick tunnel serves the app over HTTPS and the OAuth redirect is built on it; the hostname changes on every tunnel restart, so a named tunnel or Vercel is still needed for anything durable |
 
@@ -60,6 +61,7 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M0.5 | ✅ Durable job queue | Hermes | retry with exponential backoff (30s → 60s → dead-letter), idempotency guard on `platformPostId`, oldest-first scheduling, queue counters | forced adapter failure retries 3× then dead-letters; re-armed published post is deduped | — |
 | M0.6 | ✅ Connector contract | Hermes | capability flags on every platform, normalized error taxonomy, capability-driven content validation, unit suite | `npm run test:unit` → 21 assertions pass; `tsc --noEmit` clean | — |
 | M0.7 | ✅ Classified retry policy | Hermes | worker honors `isRetryable`/`isPermanent`: permanent failures dead-letter on attempt 1, transient ones back off; `permanent` counter in the cron response; `TELEGRAM_API_BASE` override for self-hosted Bot API + fault injection | `npm run test:durability` → **19/19** (transient retry+backoff+dead-letter, permanent immediate dead-letter, dedupe) | — |
+| M0.8 | ✅ Token refresh before publish | Hermes | expiring tokens are refreshed and persisted before the send; expired + non-refreshable dead-letters immediately as `AUTH_EXPIRED`; `needsTokenRefresh`/`canRefresh` are pure and unit-tested | unit **28/28** · durability **24/24** (case D: expired token, attempt 1 dead-letter, actionable message) | — |
 | M0.3 | LinkedIn connector live | **Hassan** | OAuth flow + real post on the operator's profile | post visible on LinkedIn | create app + consent |
 | M0.4 | Stable HTTPS origin | **Hassan** | Vercel deploy, or a named Cloudflare tunnel, replacing the ephemeral quick tunnel | OAuth redirect completes against a stable hostname | deploy login |
 
@@ -107,7 +109,7 @@ identity, reputation integrity, Connector SDK, marketplace.
 1. **M0.3** — LinkedIn app created → connector exercised end-to-end → post on the operator's profile (**needs Hassan**).
 2. **M0.4** — stable OAuth origin (Vercel deploy or named tunnel) (**needs Hassan**).
 3. **M1.1** — X + Facebook Page connectors built on the hardened contract (website-dev).
-4. **Token refresh at publish time** — an expired token currently fails the publish; refresh it and retry instead (prerequisite for TikTok's 24h tokens), reusing the classified retry path.
+4. **M1.6 remainder** — refresh once after an `AUTH_EXPIRED` *publish* failure (the pre-publish refresh path, M0.8, is done) and surface reconnect prompts in the UI.
 
 ---
 
