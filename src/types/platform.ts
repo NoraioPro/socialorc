@@ -190,4 +190,23 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "Resumable uploads recommended for large files",
     ],
   },
+  TELEGRAM: {
+    id: "TELEGRAM",
+    name: "Telegram",
+    icon: "telegram",
+    color: "#229ED9",
+    maxTextLength: 4096,
+    maxMediaCount: 10,
+    maxImageSizeMb: 10,
+    maxVideoSizeMb: 50,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/webp", "video/mp4"],
+    supportsScheduling: true,
+    supportsVideo: true,
+    notes: [
+      "Bot-token connector (no OAuth handshake)",
+      "Publishes to a chat or channel where the bot is a member/admin",
+      "Caption limit is 1024 characters when media is attached",
+      "Real-network reference implementation for token-based connectors",
+    ],
+  },
 };

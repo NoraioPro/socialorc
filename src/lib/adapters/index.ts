@@ -6,6 +6,7 @@ import { instagramAdapter } from "./instagram";
 import { facebookAdapter } from "./facebook";
 import { tiktokAdapter } from "./tiktok";
 import { youtubeAdapter } from "./youtube";
+import { telegramAdapter } from "./telegram";
 import { createMockAdapter } from "./mock";
 
 const MOCK_MODE = process.env.MOCK_SOCIAL_ADAPTERS === "true";
@@ -17,6 +18,7 @@ export const adapters: Record<Platform, PlatformAdapter> = {
   FACEBOOK: facebookAdapter,
   TIKTOK: tiktokAdapter,
   YOUTUBE: youtubeAdapter,
+  TELEGRAM: telegramAdapter,
 };
 
 /**
