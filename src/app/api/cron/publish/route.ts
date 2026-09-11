@@ -3,6 +3,12 @@ import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { decryptTokens } from "@/lib/encryption";
+import {
+  classifyAdapterError,
+  describeAdapterError,
+  isRetryable,
+  type AdapterErrorCode,
+} from "@/lib/adapters/errors";
 
 /**
  * Publishing worker (Vercel cron: every 5 minutes, see vercel.json).
@@ -40,13 +46,16 @@ export async function GET(req: NextRequest) {
     retried: number;
     deduped: number;
     failed: number;
-    errors: { postId: string; error: string }[];
+    /** Failures that were never retried because the error is permanent. */
+    permanent: number;
+    errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   } = {
     processed: 0,
     published: 0,
     retried: 0,
     deduped: 0,
     failed: 0,
+    permanent: 0,
     errors: [],
   };
 
@@ -187,12 +196,14 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // Adapter reported failure -> decide retry-with-backoff vs dead-letter.
+        // Adapter reported failure -> classify it, then either back off and
+        // retry, or dead-letter now if nothing about a retry could help.
         await handleFailure({
           postId: post.id,
           jobId: job.id,
           attempt,
           error: result.error || "Unknown error",
+          code: classifyAdapterError({ message: result.error }),
           results,
           now: new Date(),
         });
@@ -205,6 +216,7 @@ export async function GET(req: NextRequest) {
           jobId: job.id,
           attempt,
           error: errorMessage,
+          code: classifyAdapterError({ message: errorMessage }),
           results,
           now: new Date(),
         });
@@ -226,28 +238,46 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Record a failed publish attempt and decide what happens next.
+ *
+ * Retry policy is driven by the classified error, not by the attempt count
+ * alone: a transient failure (platform down, rate limit, network) backs off and
+ * tries again, while a permanent one (bad credentials, rejected content, gone
+ * target) dead-letters immediately — retrying it only burns the schedule window
+ * and hides the real cause. An unclassified failure is retried, conservatively.
+ */
 async function handleFailure(opts: {
   postId: string;
   jobId: string;
   attempt: number;
   error: string;
+  code: AdapterErrorCode;
   results: {
     retried: number;
     failed: number;
-    errors: { postId: string; error: string }[];
+    permanent: number;
+    errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   };
   now: Date;
 }) {
-  const { postId, jobId, attempt, error, results, now } = opts;
-  const exhausted = attempt >= MAX_ATTEMPTS;
+  const { postId, jobId, attempt, error, code, results, now } = opts;
+  const retryable = isRetryable(code) || code === "UNKNOWN";
+  const exhausted = !retryable || attempt >= MAX_ATTEMPTS;
   const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
+
+  const note = !retryable
+    ? `${describeAdapterError(code)} Not retried (${code}).`
+    : exhausted
+      ? `Dead-lettered after ${attempt} attempts (${code}).`
+      : `Attempt ${attempt}/${MAX_ATTEMPTS}, retry at ${nextAttemptAt.toISOString()} (${code}).`;
 
   await prisma.$transaction([
     prisma.post.update({
       where: { id: postId },
       data: {
         status: exhausted ? PostStatus.FAILED : PostStatus.SCHEDULED,
-        errorMessage: error,
+        errorMessage: `${error} — ${note}`,
         retryCount: { increment: 1 },
         lastRetryAt: now,
       },
@@ -259,16 +289,15 @@ async function handleFailure(opts: {
         // Backoff: a retry becomes due in the future, never immediately.
         scheduledAt: exhausted ? now : nextAttemptAt,
         completedAt: exhausted ? now : null,
-        errorMessage: exhausted
-          ? `${error} (dead-lettered after ${attempt} attempts)`
-          : `${error} (attempt ${attempt}/${MAX_ATTEMPTS}, retry at ${nextAttemptAt.toISOString()})`,
+        errorMessage: `${error} — ${note}`,
       },
     }),
   ]);
 
   if (exhausted) {
     results.failed++;
-    results.errors.push({ postId, error });
+    if (!retryable) results.permanent++;
+    results.errors.push({ postId, error, code });
   } else {
     results.retried++;
   }

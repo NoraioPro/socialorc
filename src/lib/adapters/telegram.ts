@@ -2,7 +2,7 @@ import { Platform } from "@prisma/client";
 import { BasePlatformAdapter } from "./base";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
 
-const TELEGRAM_API = "https://api.telegram.org";
+const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
 /**
  * Telegram adapter.
@@ -12,6 +12,10 @@ const TELEGRAM_API = "https://api.telegram.org";
  * values (see /api/social/telegram/connect). This is the first real-network
  * connector in SocialOrc and doubles as the reference for token-based
  * (non-OAuth) platforms in the future Connector Framework.
+ *
+ * TELEGRAM_API_BASE overrides the API root, which the Telegram Bot API allows
+ * for self-hosted servers and which the durability suite uses to exercise the
+ * unreachable-platform path.
  */
 export class TelegramAdapter extends BasePlatformAdapter {
   platform: Platform = Platform.TELEGRAM;

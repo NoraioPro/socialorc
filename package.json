@@ -9,8 +9,9 @@
     "lint": "eslint",
     "test:e2e": "node tests/e2e/run.mjs",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",
-    "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
-    "typecheck": "tsc --noEmit"
+    "test": "npm run typecheck && npm run test:unit && npm run test:e2e && npm run test:durability",
+    "typecheck": "tsc --noEmit",
+    "test:durability": "node tests/e2e/durability.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
