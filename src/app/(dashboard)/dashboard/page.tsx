@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { PostStatus } from "@prisma/client";
 import Link from "next/link";
 import { FileEdit, Clock, CheckSquare, AlertCircle, CheckCircle2 } from "lucide-react";
+import { CampaignReadinessCard, CampaignReadinessCompact } from "@/components/dashboard/campaign-readiness";
+import { CampaignReadinessInput } from "@/lib/campaign-readiness";
 
 const statusColors: Record<PostStatus, string> = {
   DRAFT: "bg-gray-500",
@@ -18,9 +20,25 @@ const statusColors: Record<PostStatus, string> = {
 };
 
 async function getStats(userId: string) {
-  const [drafts, pendingApproval, scheduled, published, failed, recentPosts] = await Promise.all([
+  const now = new Date();
+  const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const next30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    drafts,
+    pendingApproval,
+    approved,
+    scheduled,
+    published,
+    failed,
+    recentPosts,
+    socialAccounts,
+    scheduledNext7Days,
+    scheduledNext30Days,
+  ] = await Promise.all([
     prisma.post.count({ where: { userId, status: PostStatus.DRAFT } }),
     prisma.post.count({ where: { userId, status: PostStatus.PENDING_APPROVAL } }),
+    prisma.post.count({ where: { userId, status: PostStatus.APPROVED } }),
     prisma.post.count({ where: { userId, status: PostStatus.SCHEDULED } }),
     prisma.post.count({ where: { userId, status: PostStatus.PUBLISHED } }),
     prisma.post.count({ where: { userId, status: PostStatus.FAILED } }),
@@ -30,9 +48,49 @@ async function getStats(userId: string) {
       take: 5,
       include: { socialAccount: true },
     }),
+    prisma.socialAccount.findMany({
+      where: { userId },
+      select: { platform: true, isActive: true, needsReconnect: true },
+    }),
+    prisma.post.count({
+      where: {
+        userId,
+        status: PostStatus.SCHEDULED,
+        scheduledFor: { gte: now, lte: next7Days },
+      },
+    }),
+    prisma.post.count({
+      where: {
+        userId,
+        status: PostStatus.SCHEDULED,
+        scheduledFor: { gte: now, lte: next30Days },
+      },
+    }),
   ]);
 
-  return { drafts, pendingApproval, scheduled, published, failed, recentPosts };
+  const campaignReadinessInput: CampaignReadinessInput = {
+    postCounts: {
+      draft: drafts,
+      pendingApproval,
+      approved,
+      scheduled,
+      published,
+      failed,
+    },
+    connectedAccounts: socialAccounts,
+    scheduledNext7Days,
+    scheduledNext30Days,
+  };
+
+  return {
+    drafts,
+    pendingApproval,
+    scheduled,
+    published,
+    failed,
+    recentPosts,
+    campaignReadinessInput,
+  };
 }
 
 export default async function DashboardPage() {
@@ -49,7 +107,7 @@ export default async function DashboardPage() {
       />
       
       <div className="flex-1 space-y-6 p-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Drafts</CardTitle>
@@ -104,7 +162,11 @@ export default async function DashboardPage() {
               <p className="text-xs text-muted-foreground">Need attention</p>
             </CardContent>
           </Card>
+
+          <CampaignReadinessCompact input={stats.campaignReadinessInput} />
         </div>
+
+        <CampaignReadinessCard input={stats.campaignReadinessInput} />
 
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
