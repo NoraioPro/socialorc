@@ -91,6 +91,10 @@ Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readi
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Global Social Map stub | website-dev | Region cards with mock opportunity scores, `/dashboard/global-map` page, 12 regions across 6 continents, score/helper functions with unit tests | `npm run typecheck` clean · unit **65/65** (including 18 global-map tests) · page renders region cards with scores |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
