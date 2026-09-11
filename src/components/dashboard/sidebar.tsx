@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Settings,
   LogOut,
+  Sparkles,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { platformIcons } from "@/components/icons/platform-icons";
 
 const mainNav = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "AI Studio", href: "/dashboard/ai-studio", icon: Sparkles },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
