@@ -65,6 +65,7 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M0.8 | ✅ Token refresh before publish | Hermes | expiring tokens are refreshed and persisted before the send; expired + non-refreshable dead-letters immediately as `AUTH_EXPIRED`; `needsTokenRefresh`/`canRefresh` are pure and unit-tested | unit **28/28** · durability **24/24** (case D: expired token, attempt 1 dead-letter, actionable message) | — |
 | M0.9 | ✅ Credential failure signalling | Hermes | refresh-and-retry once on an `AUTH_EXPIRED` publish failure; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError` and a successful publish clears them; `requiresReconnect()` is pure and unit-tested | unit **30/30** · durability **26/26** (case B asserts the account flags + reason) | — |
 | M0.10 | Reconnect banner in the UI | **website-dev** | render `needsReconnect`/`lastError` on `/settings/accounts` with a reconnect action; contract is already written by the worker | a flagged account shows a banner and the reconnect flow clears the flag | — |
+| M0.11 | ✅ Migration baseline | Hermes | committed `prisma/migrations/0_init` (10 tables, generated with `migrate diff`), dev DB marked applied, durability suite runs `migrate deploy` from an empty database | `prisma migrate status` → "Database schema is up to date"; a fresh DB built from migrations alone has all 10 tables + `_prisma_migrations` | — |
 | M0.3 | LinkedIn connector live | **Hassan** | OAuth flow + real post on the operator's profile | post visible on LinkedIn | create app + consent |
 | M0.4 | Stable HTTPS origin | **Hassan** | Vercel deploy, or a named Cloudflare tunnel, replacing the ephemeral quick tunnel | OAuth redirect completes against a stable hostname | deploy login |
 
@@ -103,7 +104,7 @@ identity, reputation integrity, Connector SDK, marketplace.
 | Broken IPv6 route on build hosts | server-side `fetch` stalls ~10s then `fetch failed` | run servers with `NODE_OPTIONS=--dns-result-order=ipv4first` |
 | Approval gate regressions | the one thing that must never break | gate assertion is part of both test suites; a bypass is a release blocker |
 | **Two agents in one working copy** | lost edits, stashed work, branch ping-pong (happened: M0.2 was built twice) | **one git worktree per agent** (`git worktree add ../socialorc-<task> -b <agent>/<task>`), one branch per agent, never commit on another agent's branch |
-| **No migration history (`db push` only)** | schema changes are unreviewable, and Prisma refuses a destructive push unattended | adopt `prisma migrate` before the first deploy (M0.4); keep `db push` for throwaway test databases, and treat additive columns on a dev DB as `ALTER TABLE`, not a push |
+| **No migration history (`db push` only)** | schema changes were unreviewable — **fixed**: `prisma/migrations/0_init` baselines the schema and the dev DB is marked applied ("Database schema is up to date") | keep `db push` out of shared databases; new changes go through `migrate diff` → committed SQL → `migrate deploy` (the durability suite now runs `migrate deploy`, so the baseline is re-proven on every test run) |
 | **Green tests on a tree that does not compile** | false "done" (happened: M0.2 shipped on a base failing `tsc` with 4 TELEGRAM map errors) | `npm run typecheck` is part of the Definition of Done and of `npm test`; run it before claiming PASS |
 
 ---
@@ -113,7 +114,7 @@ identity, reputation integrity, Connector SDK, marketplace.
 1. **M0.3** — LinkedIn app created → connector exercised end-to-end → post on the operator's profile (**needs Hassan**).
 2. **M0.4** — stable OAuth origin (Vercel deploy or named tunnel) (**needs Hassan**).
 3. **M1.1** — X + Facebook Page connectors built on the hardened contract (website-dev).
-4. **M1.6 remainder** — refresh once after an `AUTH_EXPIRED` *publish* failure (the pre-publish refresh path, M0.8, is done) and surface reconnect prompts in the UI.
+4. **Migrate the fleet's harness too** — `tests/e2e/run.mjs` still prepares its database with `db push`; switching it to `migrate deploy` (website-dev's file) makes both suites prove the baseline, not just the durability one.
 
 ---
 

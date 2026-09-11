@@ -63,6 +63,13 @@ Blocked:   <what you need, or "nothing">
 
 ## 3. Architecture rules
 
+- **Schema changes go through `prisma/migrations`.** The baseline is
+  `prisma/migrations/0_init`. Generate a new one with
+  `npx prisma migrate diff --from-schema prisma/schema.prisma --to-schema <next> --script`
+  (Prisma 7 renamed these flags — `--to-schema`, not `--to-schema-datamodel`) and commit the SQL.
+  Never `db push` into a shared database: it is unreviewable, and Prisma refuses
+  `--accept-data-loss` unattended anyway. `db push` is for throwaway test databases only —
+  and even there, prefer `migrate deploy` so the migrations stay exercised.
 - **Connectors are adapters, not special cases.** Implement `PlatformAdapter`
   (`src/types/platform.ts`), register it in `src/lib/adapters/index.ts`, add the enum value in
   `prisma/schema.prisma` **and** the entry in `PLATFORM_CONFIGS` (TypeScript enforces
