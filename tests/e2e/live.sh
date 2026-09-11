@@ -77,6 +77,38 @@ for p in TWITTER INSTAGRAM FACEBOOK TIKTOK YOUTUBE; do
   fi
 done
 
+echo "== health endpoint (what a deploy check reads) =="
+code=$(curl -s -o "$TMP/health.json" -w "%{http_code}" --max-time 30 "$BASE/api/health")
+echo "  GET /api/health -> $code"
+HEALTH=$(python - "$TMP/health.json" <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+except Exception as e:
+    print("[FAIL] health returned unparseable JSON: %s" % e); raise SystemExit
+db=d.get("database") or {}
+plats=d.get("platforms") or {}
+conns={c["platform"]: c for c in (d.get("connectors") or [])}
+def chk(name, ok): print(("[PASS] " if ok else "[FAIL] ")+name)
+chk("status is ok on a healthy install", d.get("status")=="ok")
+chk("database reachable", db.get("reachable") is True)
+chk("migrations applied", (db.get("appliedMigrations") or 0) >= 1)
+chk("every platform is enumerated", plats.get("total")==7 and len(conns)==7)
+chk("Telegram reports configured (a real connector works)", conns.get("TELEGRAM",{}).get("configured") is True)
+chk("LinkedIn reports unconfigured", "LINKEDIN" in (plats.get("unconfigured") or []))
+names=[v for c in conns.values() for v in c.get("missing",[])]
+chk("missing entries are variable NAMES, never values", all(isinstance(v,str) and v.isupper() for v in names))
+chk("unconfigured platforms are named", set(plats.get("unconfigured") or []) >= {"LINKEDIN","TWITTER","FACEBOOK","INSTAGRAM","TIKTOK","YOUTUBE"})
+# guard: the response must not contain anything resembling a token
+blob=open(sys.argv[1]).read()
+import re
+chk("no token-shaped strings in the payload", re.search(r"\d{8,12}:[A-Za-z0-9_-]{30,40}", blob) is None)
+PY
+)
+echo "$HEALTH" | sed 's/^/  /'
+pass=$((pass + $(echo "$HEALTH" | grep -c '^\[PASS\]')))
+fail=$((fail + $(echo "$HEALTH" | grep -c '^\[FAIL\]')))
+
 echo
-echo "OAUTH CALLBACK RESULT: $([ "$fail" -eq 0 ] && echo PASS || echo FAIL) — $pass passed, $fail failed"
+echo "LIVE RESULT: $([ "$fail" -eq 0 ] && echo PASS || echo FAIL) — $pass passed, $fail failed"
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
