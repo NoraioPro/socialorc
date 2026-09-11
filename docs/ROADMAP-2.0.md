@@ -91,6 +91,10 @@ Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readi
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
 translation/localization with Cultural Intelligence review (§11–12).
 
+| # | Milestone | Owner | Deliverable | Exit test | Status |
+|---|---|---|---|---|---|
+| M2.1 | Campaign Readiness Score | website-dev | heuristic 0–100 score on dashboard with "start paid amplification" recommendation (mock/fixture, no live ads APIs) | unit **64/64** · `tsc --noEmit` clean · compact + full UI card on `/dashboard` | ✅ **Working** |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
