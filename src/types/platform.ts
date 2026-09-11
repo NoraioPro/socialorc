@@ -87,7 +87,12 @@ export interface PlatformAdapter {
   
   getOAuthUrl(state: string): string;
   
-  exchangeCodeForTokens(code: string): Promise<OAuthTokens>;
+  /**
+   * Exchange the authorization code for tokens. `codeVerifier` carries the PKCE
+   * verifier for providers that need one (X/Twitter); connectors that do not use
+   * PKCE simply ignore it.
+   */
+  exchangeCodeForTokens(code: string, codeVerifier?: string): Promise<OAuthTokens>;
   
   refreshAccessToken(refreshToken: string): Promise<OAuthTokens>;
   
