@@ -19,6 +19,7 @@ import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { LocaleVariantsPanel } from "@/components/dashboard/locale-variants";
 
 interface GeneratedVariant {
   platform: Platform;
@@ -234,6 +235,8 @@ export default function CreatePostPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <LocaleVariantsPanel text={idea} />
 
           {variants.length > 0 && (
             <Card>
