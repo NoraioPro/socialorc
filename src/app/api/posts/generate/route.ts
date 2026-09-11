@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
-import { generatePlatformVariants, improveContent, suggestBestTimes } from "@/lib/ai";
+import { generatePlatformVariants, improveContent, suggestBestTimes, BrandBrainContext } from "@/lib/ai";
 import { Platform } from "@prisma/client";
 import { z } from "zod";
+import prisma from "@/lib/prisma";
 
 const generateSchema = z.object({
   idea: z.string().min(1),
@@ -43,11 +44,35 @@ export async function POST(req: NextRequest) {
       const { idea, platforms, tone, additionalContext } = validation.data;
 
       try {
+        const brandBrain = await prisma.brandBrain.findUnique({
+          where: { userId: session.user.id },
+        });
+
+        const brandBrainContext: BrandBrainContext | undefined = brandBrain
+          ? {
+              brandName: brandBrain.brandName,
+              industry: brandBrain.industry,
+              description: brandBrain.description,
+              targetAudience: brandBrain.targetAudience,
+              uniqueValue: brandBrain.uniqueValue,
+              tone: brandBrain.tone,
+              personality: brandBrain.personality,
+              writingStyle: brandBrain.writingStyle,
+              avoidTopics: brandBrain.avoidTopics,
+              keyPhrases: brandBrain.keyPhrases,
+              primaryGoal: brandBrain.primaryGoal,
+              contentPillars: brandBrain.contentPillars,
+              callToAction: brandBrain.callToAction,
+              hashtagStrategy: brandBrain.hashtagStrategy,
+            }
+          : undefined;
+
         const variants = await generatePlatformVariants(
           idea,
           platforms,
           tone,
-          additionalContext
+          additionalContext,
+          brandBrainContext
         );
 
         return NextResponse.json({
