@@ -164,6 +164,28 @@ unconfigured deployment shows no dead button.
 
 ---
 
+## Sign in with Facebook (fast login)
+
+Uses the **same Meta app** as the connector (`SocialOrc`, App ID
+`1480436753949095`) — one registration serves both sign-in and publishing, so
+there is nothing extra to create.
+
+- In the Meta app: **Facebook Login → Settings** → add to *Valid OAuth Redirect
+  URIs*:
+  - `http://127.0.0.1:3001/api/auth/callback/facebook`
+  - `https://app.socialorc.com/api/auth/callback/facebook`
+- Env: `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET` (already the connector's names),
+  or `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` if you prefer the NextAuth
+  convention. The login reads either.
+- The app may stay **In development** for your own testing; other people cannot
+  sign in with Facebook until the app is live and the login permission reviewed.
+
+The login page renders "Continue with Google" and "Continue with Facebook" only
+for providers whose credentials are present, so an unconfigured deployment shows
+neither button rather than a dead one.
+
+---
+
 ## Verifying one-click connect once values are in
 
 1. `npx tsx scripts/connect-readiness.ts` → the platform flips to `ready` and
