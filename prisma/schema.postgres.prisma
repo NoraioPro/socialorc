@@ -1,0 +1,750 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// NextAuth required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  // Workspace role: ADMIN | MANAGER | EDITOR | CLIENT (see src/lib/roles.ts).
+  // Stored as TEXT because SQLite has no enum; parsed strictly on read.
+  role          String    @default("ADMIN")
+  timezone      String    @default("Europe/Oslo")
+  headline      String?
+  bio           String?
+  location      String?
+  website       String?
+  coverImageUrl String?
+  accounts      Account[]
+  sessions      Session[]
+
+  // SocialOrc relations
+  socialAccounts  SocialAccount[]
+  posts           Post[]
+  mediaAssets     MediaAsset[]
+  brains          Brain[]
+  feedReactions   FeedReaction[]
+  feedComments    FeedComment[]
+  brandBrain      BrandBrain?
+
+  // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
+  // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
+  // rather than a relation that would tie a user's deletion to the workspace's
+  // knowledge.
+  workspaceMembers WorkspaceMember[]
+  conversations   Conversation[]
+
+  // SocialOrc Network relations
+  nativePosts            NativePost[]
+  friendRequestsSent     Friendship[] @relation("FriendshipRequester")
+  friendRequestsReceived Friendship[] @relation("FriendshipAddressee")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A project: the container social accounts are connected into. A user can
+/// run several brains (e.g. one per brand/client), each with its own
+/// independent set of platform connections — connecting "LinkedIn" under one
+/// brain never touches another brain's LinkedIn connection.
+model Brain {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  /// The brain shown by default (e.g. auto-created on first use).
+  isDefault Boolean  @default(false)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts SocialAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Social platform accounts (LinkedIn, X, Instagram, Facebook, TikTok, YouTube)
+model SocialAccount {
+  id              String   @id @default(cuid())
+  userId          String
+  /** Owning workspace. Nullable so the connector path keeps working before a
+   *  workspace is resolved; the migration backfills it for existing rows. */
+  workspaceId     String?
+  /// Which brain (project) this connection belongs to. Resolved on connect when missing.
+  brainId         String?
+  platform        Platform
+  platformUserId  String
+  platformUsername String?
+  displayName     String?
+  profileImageUrl String?
+  
+  // Encrypted OAuth tokens
+  accessToken     String
+  refreshToken    String?
+  tokenExpiresAt  DateTime?
+  
+  /** Platform-specific metadata (JSON) */
+  metadata        Json?
+
+  /** Platform account kind, e.g. tiktok_creator, youtube_channel, facebook_page. */
+  accountType     String?
+  /** Parent resource the account hangs off (Facebook Page, LinkedIn organization). */
+  externalParentId String?
+  /** Granted OAuth scopes, space separated exactly as the provider returned them. */
+  scopes          String?
+  /** Last computed capability report, cached so the UI can answer without a refresh. */
+  capabilities    Json?
+  /** Expiry of the refresh token itself (TikTok: up to 365 days). */
+  refreshTokenExpiresAt DateTime?
+  /** Set when the user disconnects; kept so history and analytics survive. */
+  disconnectedAt  DateTime?
+  
+  isActive        Boolean  @default(true)
+  lastSyncAt      DateTime?
+  /** Last connector failure, kept so the UI can explain and offer a reconnect. */
+  lastError       String?
+  /** True when the connector needs human re-authorisation (bad/expired/insufficient credentials). */
+  needsReconnect  Boolean  @default(false)
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  brain           Brain?   @relation(fields: [brainId], references: [id], onDelete: SetNull)
+  posts           Post[]
+  publishingJobs  PublishingJob[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([platform, platformUserId])
+  @@index([userId])
+  @@index([brainId])
+  @@index([platform])
+  @@index([workspaceId])
+}
+
+enum Platform {
+  LINKEDIN
+  TWITTER
+  INSTAGRAM
+  FACEBOOK
+  TIKTOK
+  YOUTUBE
+  TELEGRAM
+}
+
+// Post/Content model with full workflow states
+model Post {
+  id              String      @id @default(cuid())
+  userId          String
+  socialAccountId String?
+  
+  // Content
+  title           String?
+  content         String
+  platformContent Json?       // Platform-specific formatted content
+  
+  // Status workflow: draft → pending_approval → approved → scheduled → publishing → published | failed
+  status          PostStatus  @default(DRAFT)
+  
+  // Scheduling
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  
+  // Platform targeting
+  platform        Platform
+  
+  // Approval workflow
+  approvedAt      DateTime?
+  approvedBy      String?
+  rejectionReason String?
+  
+  // Publishing results
+  platformPostId  String?
+  platformPostUrl String?
+  errorMessage    String?
+  retryCount      Int         @default(0)
+  lastRetryAt     DateTime?
+  
+  // Media attachments
+  mediaAssets     PostMedia[]
+  
+  // Relations
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+  feedReactions   FeedReaction[]
+  feedComments    FeedComment[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([platform])
+  @@index([scheduledFor])
+  @@index([socialAccountId])
+}
+
+model FeedReaction {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  type      String   @default("LIKE")
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+}
+
+model FeedComment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId])
+  @@index([userId])
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+// Media assets (images, videos)
+model MediaAsset {
+  id          String    @id @default(cuid())
+  userId      String
+  
+  filename    String
+  mimeType    String
+  size        Int
+  url         String
+  blobPath    String?
+  
+  // Image/video metadata
+  width       Int?
+  height      Int?
+  duration    Int?      // Video duration in seconds
+  
+  posts       PostMedia[]
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// Junction table for Post-Media relationship
+model PostMedia {
+  id          String     @id @default(cuid())
+  postId      String
+  mediaAssetId String
+  order       Int        @default(0)
+  
+  post        Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mediaAsset  MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  
+  @@unique([postId, mediaAssetId])
+  @@index([postId])
+  @@index([mediaAssetId])
+}
+
+// Job queue for scheduled posts
+/**
+ * One row per publish attempt against one connected account.
+ *
+ * The queue owns *when*; the provider owns *how*. Keeping both out of `Post`
+ * means a retry, a draft upload and a direct post can all point at the same
+ * piece of content without rewriting it, and `idempotencyKey` guarantees a
+ * retried job cannot post twice.
+ */
+model PublishingJob {
+  id              String    @id @default(cuid())
+  userId          String
+  socialAccountId String
+  /** Optional link back to the SocialOrc content item being published. */
+  postId          String?
+  platform        Platform
+  /** direct | draft_upload — see src/lib/social/types.ts */
+  publishMethod   String
+  /** draft | scheduled | queued | uploading | processing | published | failed | cancelled */
+  status          String
+  scheduledAt     DateTime?
+  /** Caller-supplied key; the unique index is what makes retries safe. */
+  idempotencyKey  String?   @unique
+  /** Platform-side id (TikTok publish_id, YouTube video id, …). */
+  externalPostId  String?
+  attemptCount    Int       @default(0)
+  lastErrorCode   String?
+  lastErrorMessage String?
+  /** Operator-only technical detail: never serialized to the browser. */
+  lastErrorDetail String?
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([userId])
+  @@index([socialAccountId])
+}
+
+model ScheduledJob {
+  id          String        @id @default(cuid())
+  postId      String        @unique
+  status      JobStatus     @default(PENDING)
+  scheduledAt DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  errorMessage String?
+  attempts    Int           @default(0)
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Platform character limits and constraints
+model PlatformConstraints {
+  id              String   @id @default(cuid())
+  platform        Platform @unique
+  maxTextLength   Int
+  maxMediaCount   Int
+  maxVideoSizeMb  Int?
+  maxImageSizeMb  Int?
+  supportedMediaTypes Json  // Array of MIME types
+  additionalRules Json?    // Platform-specific rules
+  
+  updatedAt       DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// OrcBrain — the shared intelligence layer (docs/orcbrain/00-audit-and-plan.md)
+//
+// One brain per workspace, not per agent: agents are roles with instructions and
+// tool permissions over the same knowledge, so what Growth Orc learns is
+// immediately available to Content Orc.
+//
+// `workspaceId` is the isolation boundary. It is resolved server-side from the
+// session + membership, never accepted from a request body.
+// ---------------------------------------------------------------------------
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members         WorkspaceMember[]
+  brandProfile    BrandProfile?
+  sources         BrainSource[]
+  chunks          BrainChunk[]
+  memories        BrainMemory[]
+  insights        BrainInsight[]
+  conversations   Conversation[]
+  agents          AiAgent[]
+  socialAccounts  SocialAccount[]
+}
+
+/** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String   @default("MEMBER")
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+/**
+ * Structured brand knowledge. Scored columns are typed because Brain Health
+ * weighs them; lists stay JSON because they are edited as whole documents.
+ */
+model BrandProfile {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+
+  brandName    String?
+  tagline      String?
+  description  String?
+  industry     String?
+  website      String?
+  markets      String?
+  languages    String?
+  mission      String?
+  vision       String?
+  values       String?
+
+  tone         String?
+  personality  String?
+  writingStyle String?
+  wordsPrefer  String?
+  wordsAvoid   String?
+  emojiStyle   String?
+  ctaStyle     String?
+  humorLevel   Int?
+  formalityLevel Int?
+
+  audiencePrimary     String?
+  audienceSecondary   String?
+  audienceAgeRanges   String?
+  audienceLocations   String?
+  audienceInterests   String?
+  audiencePainPoints  String?
+  audienceMotivations String?
+
+  /** Product[] — name, description, benefits, positioning, urls. */
+  products        Json?
+  /** Goal[] — primary/secondary, kpi, target, horizon. */
+  goals           Json?
+  /** ContentStrategy — pillars, formats, cadence, platforms, avoid. */
+  contentStrategy Json?
+  /** Competitor[] — name, url, handles, strengths, weaknesses. */
+  competitors     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * A knowledge source. `status` is only `ready` once text was extracted and
+ * chunked — a source with no extracted text is `processing` or `failed`, never
+ * silently "Ready".
+ */
+model BrainSource {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** note | website | file | social_account | post | brand_form */
+  type        String
+  title       String
+  sourceUrl   String?
+  blobUrl     String?
+  fileName    String?
+  fileType    String?
+  fileSize    Int?
+  /** uploading | processing | ready | failed */
+  status      String   @default("processing")
+  errorMessage String?
+  extractedText String?
+  metadata    Json?
+  createdBy   String?
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chunks    BrainChunk[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, type])
+}
+
+/** One embedded slice of a source. Deleting a source cascades these away. */
+model BrainChunk {
+  id          String   @id @default(cuid())
+  workspaceId String
+  sourceId    String
+  chunkIndex  Int
+  content     String
+  /** base64 Float32 vector; null until embedded (SQLite has no vector type). */
+  embedding   String?
+  embeddingModel String?
+  tokenCount  Int?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source    BrainSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([sourceId])
+}
+
+/** AI-inferred knowledge. Requires confidence and an explicit approve step. */
+model BrainMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** voice | audience | product | goal | competitor | performance | other */
+  category    String
+  content     String
+  confidence  Float    @default(0.5)
+  /** ai_inference | user | import */
+  source      String   @default("ai_inference")
+  evidence    Json?
+  approved    Boolean  @default(false)
+  dismissed   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, approved])
+}
+
+/**
+ * A derived insight. `evidence` is required in practice: an insight with no
+ * backing data is not rendered (the brief forbids fabricated analytics).
+ */
+model BrainInsight {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** growth | timing | format | audience | competitor | anomaly */
+  insightType String
+  title       String
+  insight     String
+  evidence    Json?
+  confidence  Float    @default(0.5)
+  periodStart DateTime?
+  periodEnd   DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, insightType])
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  /** Agent slug; null means Chief Orc. */
+  agentId     String?
+  title       String   @default("New chat")
+  /** Rolling summary so long conversations need not be replayed in full. */
+  summary     String?
+  pinned      Boolean  @default(false)
+  archived    Boolean  @default(false)
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspaceId, lastMessageAt])
+  @@index([userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  /** user | assistant | tool | system */
+  role           String
+  content        String
+  metadata       Json?
+  model          String?
+  promptTokens   Int?
+  completionTokens Int?
+  agentId        String?
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
+
+  @@index([conversationId, createdAt])
+}
+
+/** A file attached to one message — conversation context, not permanent brain. */
+model MessageAttachment {
+  id            String   @id @default(cuid())
+  messageId     String
+  assetUrl      String?
+  fileName      String?
+  fileType      String?
+  fileSize      Int?
+  /** Set only when the user chose "add permanently to OrcBrain". */
+  brainSourceId String?
+
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+/** An agent charter. Workspace-scoped rows can override the shipped defaults. */
+model AiAgent {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  slug        String
+  name        String
+  role        String
+  description String?
+  systemInstructions String
+  /** Tool names this agent may call. */
+  enabledTools Json?
+  avatar      String?
+  /** active | disabled */
+  status      String   @default("active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slug])
+  @@index([slug])
+}
+
+
+// ---------------------------------------------------------------------------
+// SocialOrc Network — the native social layer (timeline + friendships)
+//
+// Posts are authored by a *user*, not a workspace: the network is platform-wide,
+// unlike OrcBrain which is per-workspace. Visibility is enforced in the timeline
+// query (src/lib/network/timeline.ts), never in the UI.
+// ---------------------------------------------------------------------------
+
+model NativePost {
+  id          String   @id @default(cuid())
+  authorId    String
+  body        String
+  /** PUBLIC | CONNECTIONS | PRIVATE */
+  visibility  String   @default("PUBLIC")
+  /** Soft delete: gone from every timeline, still auditable. */
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt, id])
+  @@index([authorId, createdAt])
+}
+
+/** A mutual friendship: one row per pair, recording who asked whom. */
+model Friendship {
+  id          String   @id @default(cuid())
+  requesterId String
+  addresseeId String
+  /** PENDING | ACCEPTED | DECLINED | BLOCKED */
+  status      String   @default("PENDING")
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+}
+
+// Brand Brain: per-user brand profile, voice, and goals (settings UI)
+model BrandBrain {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+
+  brandName       String?
+  industry        String?
+  description     String?
+  targetAudience  String?
+  uniqueValue     String?
+
+  tone            String?
+  personality     String?
+  writingStyle    String?
+  avoidTopics     String?
+  keyPhrases      String?
+
+  primaryGoal     String?
+  contentPillars  String?
+  callToAction    String?
+  hashtagStrategy String?
+
+  platformOverrides Json?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

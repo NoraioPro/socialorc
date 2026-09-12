@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-import { DEFAULT_ROLE } from "@/lib/roles";
+import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -53,12 +53,19 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    // The first account bootstraps the workspace and owns it. Every account
+    // after that must NOT become an admin just by filling in this public form:
+    // ADMIN carries `users:manage` and `posts:delete`. auth.ts applies the same
+    // least-privilege rule to OAuth sign-ups, for the same reason.
+    const isFirstAccount = (await prisma.user.count()) === 0;
+    const role = isFirstAccount ? DEFAULT_ROLE : selfSignupRole();
+
     const user = await prisma.user.create({
       data: {
         name: typeof name === "string" && name.trim() ? name.trim() : email.split("@")[0],
         email,
         password: hashedPassword,
-        role: DEFAULT_ROLE,
+        role,
         timezone: "Europe/Oslo",
       },
     });

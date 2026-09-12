@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./landing-v1.css";
 import { Providers } from "@/components/providers";
 
 const geistSans = Geist({
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SocialOrc - Smart Social Media Scheduling",
+  title: "SocialOrk - Smart Social Media Scheduling",
   description: "Draft, approve, and schedule social media content across all your platforms with AI assistance.",
 };
 

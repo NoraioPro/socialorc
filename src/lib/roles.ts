@@ -13,6 +13,27 @@ export type Role = (typeof ROLES)[number];
 export const DEFAULT_ROLE: Role = "ADMIN";
 
 /**
+ * Role for a self-serve signup once the workspace already has an owner.
+ *
+ * ADMIN carries `users:manage` and `posts:delete`, and the signup route is
+ * public — granting it on every registration would let anyone who finds the form
+ * manage users and delete posts. So the first account bootstraps the workspace
+ * as its owner (DEFAULT_ROLE) and everyone after that gets least privilege.
+ *
+ * auth.ts applies the same rule to OAuth sign-ups, so both paths agree.
+ * Override with SIGNUP_ROLE.
+ *
+ * Takes the env bag as a parameter (like auth-providers.ts) so this module stays
+ * free of ambient globals and remains trivially testable.
+ */
+export function selfSignupRole(env: NodeJS.ProcessEnv = process.env): Role {
+  const configured = env.SIGNUP_ROLE;
+  return configured && (ROLES as readonly string[]).includes(configured)
+    ? (configured as Role)
+    : "EDITOR";
+}
+
+/**
  * Role assumed for any value we could not validate. Least privilege: an
  * unreadable role must never silently grant approval rights.
  */

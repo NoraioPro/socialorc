@@ -66,7 +66,7 @@ export default function RegisterPage() {
           </div>
         </div>
         <CardTitle className="text-2xl">Create an account</CardTitle>
-        <CardDescription>Get started with SocialOrc</CardDescription>
+        <CardDescription>Get started with SocialOrk</CardDescription>
       </CardHeader>
 
       <form onSubmit={handleSubmit}>
