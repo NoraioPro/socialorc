@@ -20,6 +20,10 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   "posts:delete": "Delete posts",
   "accounts:connect": "Connect social accounts",
   "users:manage": "Manage team members",
+  "engagement:view": "View engagement inbox",
+  "engagement:reply": "Reply to comments and messages",
+  "engagement:react": "React to posts and comments",
+  "engagement:delete": "Delete comments and reactions",
 };
 
 type Profile = { name: string | null; email: string | null; timezone: string; role: string };

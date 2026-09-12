@@ -39,11 +39,7 @@ export function DraftsPostsGrid({ posts }: DraftsPostsGridProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {items.map((post) => (
-        <PostCard
-          key={post.id}
-          post={post}
-          onScheduled={(id) => setItems((prev) => prev.filter((p) => p.id !== id))}
-        />
+        <PostCard key={post.id} post={post} />
       ))}
     </div>
   );
