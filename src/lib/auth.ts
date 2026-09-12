@@ -1,6 +1,8 @@
 import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
+import { googleCredentials } from "@/lib/auth-providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -52,6 +54,24 @@ async function resolveDemoUser(role: Role) {
   });
 }
 
+// Google sign-in is offered only when its credentials exist: an unconfigured
+// deployment must not advertise a provider it cannot serve.
+const google = googleCredentials();
+
+/**
+ * Role for an account created by an OAuth sign-in.
+ *
+ * The schema default is `ADMIN` (set when roles were introduced, when every
+ * existing row was a workspace owner). Inheriting that for self-serve Google
+ * sign-ups would make anyone with a Google account an admin of the workspace
+ * they land in, so OAuth sign-ups get the least-privileged role that can still
+ * use the product. Override deliberately with OAUTH_SIGNUP_ROLE.
+ */
+const OAUTH_SIGNUP_ROLE: Role = (() => {
+  const configured = process.env.OAUTH_SIGNUP_ROLE;
+  return configured && isRole(configured) ? configured : ("EDITOR" as Role);
+})();
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
   session: {
@@ -60,7 +80,39 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/login",
   },
+  events: {
+    /**
+     * A first-time Google sign-in creates the User row through the Prisma
+     * adapter, which applies the *schema* default (`ADMIN`). Nobody should become
+     * an admin by clicking "Continue with Google", so the row is immediately
+     * corrected to OAUTH_SIGNUP_ROLE and can be promoted deliberately after.
+     */
+    async createUser({ user }) {
+      if (!user?.id) return;
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: OAUTH_SIGNUP_ROLE },
+        });
+      } catch (error) {
+        // A missing role update must not break sign-in; log and continue.
+        console.error("[auth] could not set signup role for new OAuth user", error);
+      }
+    },
+  },
   providers: [
+    ...(google
+      ? [
+          GoogleProvider({
+            clientId: google.clientId,
+            clientSecret: google.clientSecret,
+            // Never merge a Google login into an existing password account
+            // automatically: that is how an attacker with a matching email takes
+            // over an account they do not own.
+            allowDangerousEmailAccountLinking: false,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: "credentials",
       credentials: {

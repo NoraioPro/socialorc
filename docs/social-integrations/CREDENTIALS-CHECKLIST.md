@@ -140,6 +140,30 @@ unset until each platform's review actually passes.
 
 ---
 
+## Sign in with Google (fast login)
+
+SocialOrc's own sign-in, distinct from the YouTube connector — but registered in
+the **same** Google Cloud project, so do both in one visit.
+
+- Credentials → **OAuth client ID** → Web application, name `SocialOrc Login`
+  (or reuse the `SocialOrc` client and add both redirect URIs).
+- Redirect URI (exact):
+  - `http://127.0.0.1:3001/api/auth/callback/google`
+  - `https://app.socialorc.com/api/auth/callback/google`
+- Env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+  (`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` also work)
+- Optional: `OAUTH_SIGNUP_ROLE` — the role a brand-new Google sign-up gets.
+  Defaults to `EDITOR`. Do **not** leave it unset expecting admin: the schema
+  default is `ADMIN`, so an unconfigured self-serve signup would otherwise become
+  a workspace admin, which is why the app explicitly corrects the role on user
+  creation.
+
+The login page asks `/api/auth/providers` what NextAuth can serve and renders
+"Continue with Google" **only** when both variables are present, so an
+unconfigured deployment shows no dead button.
+
+---
+
 ## Verifying one-click connect once values are in
 
 1. `npx tsx scripts/connect-readiness.ts` → the platform flips to `ready` and
