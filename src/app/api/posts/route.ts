@@ -88,6 +88,12 @@ export async function POST(req: NextRequest) {
 
     const { title, content, platform, socialAccountId, scheduledFor, platformContent, mediaAssetIds } = validation.data;
 
+    // A post with no account attached can never be scheduled or published - it
+    // strands in DRAFT. The create form does not always carry the choice, and
+    // there is one connected account per platform, so resolve it here rather
+    // than leaving the link null and failing later with "No social account".
+    let resolvedAccountId = socialAccountId;
+
     if (socialAccountId) {
       const account = await prisma.socialAccount.findFirst({
         where: { id: socialAccountId, userId: guard.userId },
@@ -98,6 +104,12 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
+    } else {
+      const account = await prisma.socialAccount.findFirst({
+        where: { userId: guard.userId, platform, isActive: true },
+        orderBy: { createdAt: "asc" },
+      });
+      resolvedAccountId = account?.id;
     }
 
     const post = await prisma.post.create({
@@ -106,7 +118,7 @@ export async function POST(req: NextRequest) {
         title,
         content,
         platform,
-        socialAccountId,
+        socialAccountId: resolvedAccountId,
         scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
         platformContent: platformContent as Prisma.InputJsonValue | undefined,
         status: PostStatus.DRAFT,
