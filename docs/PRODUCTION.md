@@ -92,6 +92,51 @@ an admin. The first account always gets in and becomes the workspace owner
 first becomes the owner, and the only way to get another admin after that is to
 promote one deliberately.
 
+## Social sign-in (Google / Facebook)
+
+Both providers are config-gated: a provider renders a button on `/login` only when
+*both* halves of its credentials exist, so an unconfigured provider can never show a
+button that cannot work (see `src/lib/auth-providers.ts`).
+
+| Provider | Variables | Accepted aliases |
+| --- | --- | --- |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` |
+| Facebook | `FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET` | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` — the same Meta app serves the Facebook *connector*, so one app does both jobs |
+
+Register these redirect URIs with each provider. The match is exact, `www` is
+required (`socialork.com` 308-redirects to it) and a trailing slash breaks it:
+
+```
+https://www.socialork.com/api/auth/callback/google
+https://www.socialork.com/api/auth/callback/facebook
+```
+
+Google needs no app review: the scopes used (`openid email profile`) are
+non-sensitive. Facebook's app only lets admins/devs/testers in while it is in
+**Development** mode — switch it to **Live** before the public uses it.
+
+**The Graph API version.** `next-auth` 4 pins the Facebook consent dialog to Graph
+API **v11.0**, which Meta has retired, so sign-in fails before a user can even
+approve. `src/lib/auth.ts` overrides it to **v24.0** (supported until Feb 2028).
+Meta removes a version roughly two years after release — check the "Versions" table
+in Meta's Graph API changelog and bump it before then.
+
+**Who gets in.**
+
+- New OAuth users are created as `EDITOR`, never `ADMIN`. The Prisma adapter applies
+  the schema default (`ADMIN`), so `events.createUser` corrects the row immediately;
+  `OAUTH_SIGNUP_ROLE` overrides it deliberately.
+- Signing in with an address that already has a *password* account is refused
+  (`OAuthAccountNotLinked`). Silently merging those identities is exactly how someone
+  with a matching address takes over an account.
+- The one exception is Google, which **proves** the address is verified: the `signIn`
+  callback links the account when `profile.email_verified === true`. That callback
+  runs before NextAuth's collision check, which is what lets us avoid
+  `allowDangerousEmailAccountLinking` — it is all-or-nothing and would also merge
+  identities for a provider that never verified the address.
+- Facebook is deliberately excluded from that linking: its Graph API returns no
+  `email_verified` claim, so there is nothing to check.
+
 ## Known gaps
 
 - **Test harnesses**: the e2e and durability suites need `E2E_DATABASE_URL`
