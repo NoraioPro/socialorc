@@ -271,7 +271,7 @@ Respond in JSON format with an array of objects, each containing:
 Ensure content is properly tailored for each platform's audience and constraints while maintaining brand voice.`;
 
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: `Original idea:\n\n${originalIdea}` },
@@ -376,7 +376,7 @@ export async function improveContent(
   const config = PLATFORM_CONFIGS[platform];
   
   const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     messages: [
       {
         role: "system",

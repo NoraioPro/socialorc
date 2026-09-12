@@ -192,7 +192,7 @@ Respond in JSON format:
 Ensure the adaptation respects ${targetPlatform}'s character limit of ${config.maxTextLength}.`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: "Please adapt this content." },
