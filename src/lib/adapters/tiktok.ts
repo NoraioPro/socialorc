@@ -25,6 +25,10 @@ import { planTikTokChunks } from "@/lib/social/media";
 import { capabilitiesFor } from "@/lib/social/capabilities";
 import { appApprovalFor } from "@/lib/social/approval";
 import type { CapabilityReport } from "@/lib/social/types";
+import {
+  validateTikTokCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 /**
  * TikTok provider.
@@ -95,9 +99,23 @@ export interface TikTokStatusResult {
 export class TikTokAdapter extends BasePlatformAdapter {
   platform = Platform.TIKTOK;
 
+  /**
+   * Validate TikTok OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const { configured, missing } = tiktokCredentials();
-    return { valid: configured, missing };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateTikTokCredentials();
   }
 
   /**

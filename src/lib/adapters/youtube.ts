@@ -15,6 +15,10 @@ import {
   EngagementResult,
   SocialComment,
 } from "@/types/platform";
+import {
+  validateYouTubeCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -23,16 +27,23 @@ const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
 export class YouTubeAdapter extends BasePlatformAdapter {
   platform = Platform.YOUTUBE;
 
+  /**
+   * Validate YouTube/Google OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.YOUTUBE_CLIENT_ID) missing.push("YOUTUBE_CLIENT_ID");
-    if (!process.env.YOUTUBE_CLIENT_SECRET) missing.push("YOUTUBE_CLIENT_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateYouTubeCredentials();
   }
 
   getOAuthUrl(state: string): string {

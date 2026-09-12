@@ -138,3 +138,5 @@ export * from "./facebook";
 export * from "./tiktok";
 export * from "./youtube";
 export * from "./base";
+export * from "./credentials";
+export * from "./errors";
