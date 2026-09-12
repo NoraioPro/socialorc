@@ -108,6 +108,10 @@ translation/localization with Cultural Intelligence review (§11–12). The Expe
 |---|---|---|---|---|---|
 | M2.1 | Campaign Readiness Score | website-dev | heuristic 0–100 score on dashboard with "start paid amplification" recommendation (mock/fixture, no live ads APIs) | unit **64/64** · `tsc --noEmit` clean · compact + full UI card on `/dashboard` | ✅ **Working** |
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Traction Score + Growth Brief | website-dev | heuristic 0–100 score from post activity, daily recommendations on dashboard | `npm run test:unit` → **59/59** (12 traction-score tests pass); dashboard renders score widget + growth brief |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
