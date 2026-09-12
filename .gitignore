@@ -48,3 +48,6 @@ next-env.d.ts
 # local sqlite database (the app runs on Supabase now)
 dev.db
 dev.db.bak-*
+
+# keep the example template committable (the rule above hides .env*)
+!.env.example
