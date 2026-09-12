@@ -12,6 +12,7 @@ import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
 
 type Variant = { platform: Platform; content: string };
 const availablePlatforms = Object.values(Platform);
