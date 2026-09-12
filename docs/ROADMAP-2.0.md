@@ -63,11 +63,8 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M0.1 | ✅ Telegram real publish | Hermes | adapter + connect route | message id returned + visible in chat | — |
 | M0.2 | ✅ E2E harness in-repo | website-dev | `tests/e2e/run.mjs` + `npm run test:e2e` (throwaway DB, own server, mock adapters) | **18/18 PASS**; gate `400`; cron auth 401; second cron no double-post | — |
 | M0.5 | ✅ Durable job queue | Hermes | retry with exponential backoff (30s → 60s → dead-letter), idempotency guard on `platformPostId`, oldest-first scheduling, queue counters | forced adapter failure retries 3× then dead-letters; re-armed published post is deduped | — |
-<<<<<<< HEAD
 | M0.6 | ✅ Connector contract | Hermes | capability flags on every platform (expanded: `AuthMethod` type, `nativeScheduling`, `mentions`, `hashtags`, `linkPreview`, `directMessages`, `stories`, `polls`, `threads`), normalized error taxonomy, capability-driven content validation, registry helpers (`getCapabilities`, `filterByCapability`, `platformsByAuthMethod`), unit suite | `npm run test:unit` → **52 assertions pass**; `tsc --noEmit` clean | — |
-=======
 | M0.6 | ✅ Connector contract | Hermes | capability flags on every platform, normalized error taxonomy, capability-driven content validation, `validateCredentials` with token-shape validation (Telegram reference), unit suite | `npm run test:unit` → **76** assertions pass (including credentials-validation suite); `tsc --noEmit` clean | — |
->>>>>>> origin/cursor/new-bot-m0.6-validate-errors-96f5
 | M0.7 | ✅ Classified retry policy | Hermes | worker honors `isRetryable`/`isPermanent`: permanent failures dead-letter on attempt 1, transient ones back off; `permanent` counter in the cron response; `TELEGRAM_API_BASE` override for self-hosted Bot API + fault injection | `npm run test:durability` → **19/19** (transient retry+backoff+dead-letter, permanent immediate dead-letter, dedupe) | — |
 | M0.8 | ✅ Token refresh before publish | Hermes | expiring tokens are refreshed and persisted before the send; expired + non-refreshable dead-letters immediately as `AUTH_EXPIRED`; `needsTokenRefresh`/`canRefresh` are pure and unit-tested | unit **28/28** · durability **24/24** (case D: expired token, attempt 1 dead-letter, actionable message) | — |
 | M0.9 | ✅ Credential failure signalling | Hermes | refresh-and-retry once on an `AUTH_EXPIRED` publish failure; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError` and a successful publish clears them; `requiresReconnect()` is pure and unit-tested | unit **30/30** · durability **26/26** (case B asserts the account flags + reason) | — |
@@ -88,6 +85,9 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M1.4 | ✅ Unified calendar + queue | website-dev | drag-to-reschedule calendar, timezone-aware display, queue view | unit tests include timezone roundtrip + gate checks; `/dashboard/calendar` and `/dashboard/queue` |
 | M1.5 | ✅ Unified inbox | website-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks — inbox UI at `/dashboard/inbox` aggregates mock items from 7 platforms |
 | M1.6 | Token lifecycle | website-dev | refresh, expiry alerts, reconnect prompts | expired token triggers refresh, not a failed publish |
+| M1.4 | Unified calendar + queue | ios-mobile-dev | drag-to-reschedule, timezone correctness | scheduled post fires at the right local time |
+| M1.5 | Unified inbox | ios-mobile-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks |
+| M1.6 | ✅ Token lifecycle | new-bot | `getTokenStatus()` expiry alerting, UI reconnect banners, unit tests for refresh/expiry/reconnect | unit **64/64** (17 new token lifecycle assertions); e2e **18/18** (gate `400`); expired token → auto-refresh or reconnect-prompt, never fail-publish |
 
 ### P2 — Intelligence
 
