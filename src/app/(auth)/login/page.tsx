@@ -37,20 +37,28 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // Fast login is offered only when the provider is genuinely configured:
-  // /api/auth/providers lists what NextAuth can actually serve, so an
-  // unconfigured deployment shows no Google button instead of a dead one.
-  const [oauth, setOauth] = useState<{ google?: boolean }>({});
+  // Fast-login buttons are driven by what NextAuth can actually serve, so a
+  // provider without credentials never renders a button that cannot work.
+  const [oauth, setOauth] = useState<Array<{ id: string; label: string }>>([]);
 
   useEffect(() => {
     let cancelled = false;
+    const LABELS: Record<string, string> = {
+      google: "Continue with Google",
+      facebook: "Continue with Facebook",
+    };
+    const ORDER = ["google", "facebook"];
+
     fetch("/api/auth/providers")
       .then((res) => (res.ok ? res.json() : {}))
       .then((data: Record<string, unknown>) => {
-        if (!cancelled) setOauth({ google: Boolean(data?.google) });
+        if (cancelled) return;
+        setOauth(
+          ORDER.filter((id) => Boolean(data?.[id])).map((id) => ({ id, label: LABELS[id] })),
+        );
       })
       .catch(() => {
-        /* leave it hidden — a button that cannot work is worse than none */
+        /* leave them hidden — a button that cannot work is worse than none */
       });
     return () => {
       cancelled = true;
@@ -117,20 +125,23 @@ function LoginForm() {
             </div>
           )}
 
-          {oauth.google && (
+          {oauth.length > 0 && (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={loading}
-                onClick={() => {
-                  setLoading(true);
-                  void signIn("google", { callbackUrl });
-                }}
-              >
-                Continue with Google
-              </Button>
+              {oauth.map((provider) => (
+                <Button
+                  key={provider.id}
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={loading}
+                  onClick={() => {
+                    setLoading(true);
+                    void signIn(provider.id, { callbackUrl });
+                  }}
+                >
+                  {provider.label}
+                </Button>
+              ))}
               <div className="relative py-1">
                 <Separator />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase text-muted-foreground">

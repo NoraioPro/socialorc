@@ -2,7 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { googleCredentials } from "@/lib/auth-providers";
+import FacebookProvider from "next-auth/providers/facebook";
+import { facebookCredentials, googleCredentials } from "@/lib/auth-providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -54,9 +55,12 @@ async function resolveDemoUser(role: Role) {
   });
 }
 
-// Google sign-in is offered only when its credentials exist: an unconfigured
-// deployment must not advertise a provider it cannot serve.
+// OAuth sign-in is offered only when its credentials exist: an unconfigured
+// deployment must not advertise a provider it cannot serve. Facebook reads the
+// same Meta app credentials as the connector, so one registration serves both
+// sign-in and publishing.
 const google = googleCredentials();
+const facebook = facebookCredentials();
 
 /**
  * Role for an account created by an OAuth sign-in.
@@ -109,6 +113,15 @@ export const authOptions: NextAuthOptions = {
             // Never merge a Google login into an existing password account
             // automatically: that is how an attacker with a matching email takes
             // over an account they do not own.
+            allowDangerousEmailAccountLinking: false,
+          }),
+        ]
+      : []),
+    ...(facebook
+      ? [
+          FacebookProvider({
+            clientId: facebook.clientId,
+            clientSecret: facebook.clientSecret,
             allowDangerousEmailAccountLinking: false,
           }),
         ]
