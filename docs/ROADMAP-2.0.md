@@ -100,6 +100,10 @@ translation/localization with Cultural Intelligence review (§11–12). The Expe
 |---|---|---|---|---|
 | M2.7 | ✅ Experiment flag stub (mock) | new-bot | `src/lib/experiments.ts` — 4 fixture A/B experiments + 4 feature flags with deterministic hash-bucketed assignment (same subject → same arm, no RNG, no clock), weighted variants, kill switch, exposure events that carry a hashed subject only, and a lift/leader result stub; read-only `GET /api/experiments` (session-gated, no write handler). **No live ads APIs and no scraping** — a unit test fails if the lib or the route ever calls `fetch`/`axios`/an ads host, and another if the lib reads the clock. Scheduling is untouched: `evaluateFlag(..., { intent: "SCHEDULE_POST" })` is always `GATE_PRESERVED` | `npx tsc --noEmit` clean · `npm run test:unit` → **69/69** (22 new experiment tests, incl. the offline + determinism guards, the rollout/kill-switch paths and the gate invariant) · `npm run test:e2e` → **18/18** with the approval gate still asserted (`DRAFT` → schedule `400`) · live `GET /api/experiments` → **401** anonymous, **200** for a real session with the fixture registry, the hashed subject and the kill-switch state (17/17 normal, 18/18 with `EXPERIMENTS_KILL_SWITCH="true"`) |
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Global Social Map stub | website-dev | Region cards with mock opportunity scores, `/dashboard/global-map` page, 12 regions across 6 continents, score/helper functions with unit tests | `npm run typecheck` clean · unit **65/65** (including 18 global-map tests) · page renders region cards with scores |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
