@@ -17,6 +17,10 @@ export interface OAuthStateData {
   userId: string;
   platform: string;
   timestamp: number;
+  /** Brain (project) the connection is being created under. */
+  brainId?: string;
+  /** Connect flow opened in a popup; callbacks append popup=1 to redirects. */
+  popup?: boolean;
   /**
    * PKCE code verifier, kept server-side in the state cookie.
    *

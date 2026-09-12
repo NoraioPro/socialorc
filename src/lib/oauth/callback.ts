@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
 import { splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
+import { resolveBrainForUser } from "@/lib/brains";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 
 /**
@@ -19,8 +20,11 @@ import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/
  */
 export function createOAuthCallback(platform: Platform) {
   return async function GET(req: NextRequest) {
+    let popupSuffix = "";
     const failure = (reason: string) =>
-      NextResponse.redirect(new URL(`/settings/accounts?error=${encodeURIComponent(reason)}`, req.url));
+      NextResponse.redirect(
+        new URL(`/settings/accounts?error=${encodeURIComponent(reason)}${popupSuffix}`, req.url),
+      );
 
     try {
       // The session must exist in *this* database: a cookie minted by another
@@ -53,6 +57,7 @@ export function createOAuthCallback(platform: Platform) {
         userId: user.userId,
         platform,
       });
+
       if (!stateCheck.ok) {
         console.error(`${platform} OAuth state rejected:`, stateCheck.reason);
         return failure(
@@ -63,6 +68,9 @@ export function createOAuthCallback(platform: Platform) {
               : "invalid_state",
         );
       }
+
+      popupSuffix = stateCheck.data.popup ? "&popup=1" : "";
+      const brain = await resolveBrainForUser(user.userId, stateCheck.data.brainId);
 
       const adapter = getAdapter(platform);
       // Prefer the server-side verifier (PKCE for TikTok and any newer
@@ -96,6 +104,7 @@ export function createOAuthCallback(platform: Platform) {
 
       const shared = {
         userId: user.userId,
+        brainId: brain.id,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
@@ -125,12 +134,14 @@ export function createOAuthCallback(platform: Platform) {
         update: shared,
       });
 
-      return NextResponse.redirect(
+      const response = NextResponse.redirect(
         new URL(
-          `/settings/accounts?success=${platform.toLowerCase()}_connected&account=${account.id}`,
+          `/settings/accounts?success=${platform.toLowerCase()}_connected&account=${account.id}&brain=${brain.id}${popupSuffix}`,
           req.url,
         ),
       );
+      response.cookies.delete(`oauth_state_${baseState}`);
+      return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error";
       console.error(`${platform} OAuth callback failed:`, message);

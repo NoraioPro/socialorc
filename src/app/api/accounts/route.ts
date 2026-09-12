@@ -5,6 +5,7 @@ import { Platform, PostStatus, JobStatus } from "@prisma/client";
 import { getAdapterStatus, getAdapter } from "@/lib/adapters";
 import { decrypt } from "@/lib/encryption";
 import { PLATFORM_CONFIGS, type PlatformAdapter } from "@/types/platform";
+import { resolveBrainForUser } from "@/lib/brains";
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,8 +16,9 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const platform = searchParams.get("platform")?.toUpperCase() as Platform | undefined;
+    const brain = await resolveBrainForUser(session.user.id, searchParams.get("brainId"));
 
-    const where: { userId: string; platform?: Platform } = { userId: session.user.id };
+    const where: { brainId: string; platform?: Platform } = { brainId: brain.id };
     if (platform && Object.values(Platform).includes(platform)) {
       where.platform = platform;
     }
@@ -53,6 +55,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       accounts,
       platformStatus,
+      brain: { id: brain.id, name: brain.name },
     });
   } catch (error) {
     console.error("Error fetching accounts:", error);

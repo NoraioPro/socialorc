@@ -61,6 +61,9 @@ export function Header({ title, description }: HeaderProps) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem>
+              <Link href="/dashboard/profile" className="w-full">View Profile</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
               <Link href="/settings/accounts" className="w-full">Account Settings</Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

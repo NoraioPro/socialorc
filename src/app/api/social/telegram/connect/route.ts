@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
+import { resolveBrainForUser } from "@/lib/brains";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 
 /**
@@ -14,6 +15,26 @@ import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/
  * callback (a row in SocialAccount), reached through the platform's own flow.
  */
 export async function GET(req: NextRequest) {
+  // The generic /api/social/connect route parks the chosen brain (and whether
+  // this is a popup-window connect) in the same oauth_state_<state> cookie
+  // every connector reads, Telegram included — even though it has no OAuth
+  // exchange of its own to protect with `state`.
+  const { searchParams } = new URL(req.url);
+  const rawState = searchParams.get("state");
+  const stateCookie = rawState ? req.cookies.get(`oauth_state_${rawState}`) : undefined;
+  let requestedBrainId: string | null = null;
+  let popup = false;
+  if (stateCookie) {
+    try {
+      const parsed = JSON.parse(stateCookie.value);
+      requestedBrainId = parsed?.brainId ?? null;
+      popup = Boolean(parsed?.popup);
+    } catch {
+      // Malformed cookie: fall back to the user's default brain below.
+    }
+  }
+  const popupSuffix = popup ? "&popup=1" : "";
+
   try {
     // Signed in *and* present in this database: a session from another checkout
     // (same host, different port, same NEXTAUTH_SECRET) must not reach the write.
@@ -28,7 +49,7 @@ export async function GET(req: NextRequest) {
     if (!validation.valid) {
       return NextResponse.redirect(
         new URL(
-          `/settings/accounts?error=telegram_not_configured&missing=${validation.missing.join(",")}`,
+          `/settings/accounts?error=telegram_not_configured&missing=${validation.missing.join(",")}${popupSuffix}`,
           req.url
         )
       );
@@ -36,6 +57,8 @@ export async function GET(req: NextRequest) {
 
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
     const chatId = process.env.TELEGRAM_CHAT_ID as string;
+
+    const brain = await resolveBrainForUser(user.userId, requestedBrainId);
 
     const info = await telegramAdapter.getAccountInfo(token);
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
@@ -49,6 +72,7 @@ export async function GET(req: NextRequest) {
       },
       create: {
         userId: user.userId,
+        brainId: brain.id,
         platform: Platform.TELEGRAM,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
@@ -60,6 +84,7 @@ export async function GET(req: NextRequest) {
       },
       update: {
         userId: user.userId,
+        brainId: brain.id,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
         accessToken: encrypted.accessToken,
@@ -70,7 +95,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(
       new URL(
-        `/settings/accounts?success=telegram_connected&account=${account.id}&chat=${encodeURIComponent(chatId)}`,
+        `/settings/accounts?success=telegram_connected&account=${account.id}&chat=${encodeURIComponent(chatId)}&brain=${brain.id}${popupSuffix}`,
         req.url
       )
     );
@@ -79,7 +104,10 @@ export async function GET(req: NextRequest) {
     // Never put the raw error in the URL: it can carry connection strings,
     // token fragments and stack traces into history, logs and screenshots.
     return NextResponse.redirect(
-      new URL(`/settings/accounts?error=${safeRedirectCode(error, "telegram_connect_failed")}`, req.url)
+      new URL(
+        `/settings/accounts?error=${safeRedirectCode(error, "telegram_connect_failed")}${popupSuffix}`,
+        req.url,
+      ),
     );
   }
 }
