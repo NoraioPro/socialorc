@@ -33,7 +33,9 @@ function relativeTime(value: string) {
 export default function FeedPage() {
   const [posts, setPosts] = useState<FeedPost[]>([]), [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(""), [posting, setPosting] = useState(false);
-  const [content, setContent] = useState(""), [platform, setPlatform] = useState<Platform>(Platform.LINKEDIN);
+  const [content, setContent] = useState("");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([Platform.LINKEDIN]);
+  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({}), [busy, setBusy] = useState("");
   const loadFeed = useCallback(async () => {
     setLoading(true); setError("");
@@ -44,11 +46,22 @@ export default function FeedPage() {
   useEffect(() => { void loadFeed(); }, [loadFeed]);
   const stats = useMemo(() => ({ total: posts.length, published: posts.filter(post => post.status === "PUBLISHED").length, reactions: posts.reduce((sum, post) => sum + post.feedReactions.length, 0) }), [posts]);
 
+  function togglePlatform(target: Platform) {
+    setSelectedPlatforms(current => current.includes(target) ? current.filter(value => value !== target) : [...current, target]);
+  }
   async function createPost(event: FormEvent) {
-    event.preventDefault(); if (!content.trim()) return; setPosting(true); setError("");
+    event.preventDefault(); if (!content.trim() || selectedPlatforms.length === 0) return; setPosting(true); setError("");
     try {
-      const response = await fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: content.trim(), platform }) });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not create post."); setContent(""); await loadFeed();
+      // One post per selected platform: SocialOrc's Post model is single-platform
+      // (same shape Drafts/Approvals/Scheduled already rely on), so "post to
+      // several platforms at once" fans out into one create call per platform
+      // rather than widening that model.
+      const responses = await Promise.all(selectedPlatforms.map(target =>
+        fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: content.trim(), platform: target }) })
+      ));
+      const failedCount = responses.filter(response => !response.ok).length;
+      if (failedCount > 0) throw new Error(`Could not post to ${failedCount} of ${selectedPlatforms.length} platform${selectedPlatforms.length === 1 ? "" : "s"}.`);
+      setContent(""); await loadFeed();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not create post."); }
     finally { setPosting(false); }
   }
@@ -71,7 +84,23 @@ export default function FeedPage() {
         <section className="feed-side-card"><h3><Award size={15} /> Creator progress</h3><p>Every drafted idea moves your content empire forward.</p><div className="feed-progress"><span style={{ width: `${Math.min(100, stats.total * 10)}%` }} /></div><small>{Math.min(100, stats.total * 10)}% toward your next milestone</small></section>
       </aside>
       <main className="feed-main">
-        <form className="feed-composer" onSubmit={createPost}><div className="feed-composer-top"><span className="feed-avatar">{profile?.image ? <img src={profile.image} alt="" /> : initials(profile?.name)}</span><textarea aria-label="Create a post" value={content} onChange={event => setContent(event.target.value)} maxLength={5000} placeholder="What do you want your audience to know?" /></div><div className="feed-composer-actions"><span><ImageIcon size={15} /> Media is added in Content Forge</span><label><span className="sr-only">Platform</span><select value={platform} onChange={event => setPlatform(event.target.value as Platform)}>{Object.values(Platform).map(value => <option key={value} value={value}>{PLATFORM_CONFIGS[value].name}</option>)}</select><ChevronDown size={12} /></label><button disabled={posting || !content.trim()}>{posting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Post to timeline</button></div></form>
+        <form className="feed-composer" onSubmit={createPost}><div className="feed-composer-top"><span className="feed-avatar">{profile?.image ? <img src={profile.image} alt="" /> : initials(profile?.name)}</span><textarea aria-label="Create a post" value={content} onChange={event => setContent(event.target.value)} maxLength={5000} placeholder="What do you want your audience to know?" /></div><div className="feed-composer-actions"><span><ImageIcon size={15} /> Media is added in Content Forge</span><div className="feed-platform-picker">
+          <button type="button" aria-haspopup="listbox" aria-expanded={platformMenuOpen} onClick={() => setPlatformMenuOpen(open => !open)}>
+            {selectedPlatforms.length === 0 ? "Choose platforms" : selectedPlatforms.length === 1 ? <>{(() => { const Icon = platformIcons[selectedPlatforms[0]]; return <Icon className="h-4 w-4" />; })()}{PLATFORM_CONFIGS[selectedPlatforms[0]].name}</> : <>{selectedPlatforms.slice(0, 3).map(value => { const Icon = platformIcons[value]; return <Icon key={value} className="h-4 w-4" />; })}{selectedPlatforms.length > 3 && <small>+{selectedPlatforms.length - 3}</small>}</>}
+            <ChevronDown size={12} />
+          </button>
+          {platformMenuOpen && <>
+            <div className="feed-platform-backdrop" onClick={() => setPlatformMenuOpen(false)} />
+            <div className="feed-platform-menu" role="listbox" aria-label="Platforms to post to" aria-multiselectable="true">
+              {Object.values(Platform).map(value => {
+                const Icon = platformIcons[value], active = selectedPlatforms.includes(value);
+                return <button type="button" key={value} role="option" aria-selected={active} className={active ? "is-selected" : ""} onClick={() => togglePlatform(value)}>
+                  <Icon className="h-4 w-4" />{PLATFORM_CONFIGS[value].name}{active && <Check size={13} />}
+                </button>;
+              })}
+            </div>
+          </>}
+        </div><button disabled={posting || !content.trim() || selectedPlatforms.length === 0}>{posting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Post to timeline{selectedPlatforms.length > 1 ? ` (${selectedPlatforms.length})` : ""}</button></div></form>
         <nav className="feed-filter" aria-label="Timeline filter"><button aria-current="page">All posts</button><Link href="/dashboard/drafts">Drafts</Link><Link href="/dashboard/scheduled">Scheduled</Link></nav>
         {loading ? <div className="feed-loading"><Loader2 className="animate-spin" /> Loading timeline…</div> : posts.length === 0 ? <section className="feed-empty"><OrcMark className="h-16 w-14" /><h2>Your timeline is ready.</h2><p>Publish your first thought above or use Content Forge for an AI-assisted campaign.</p><Link href="/dashboard/create"><Sparkles size={14} /> Open Content Forge</Link></section> : <div className="feed-stream">{posts.map(post => {
           const PlatformIcon = platformIcons[post.platform], myReaction = post.feedReactions.find(item => item.userId === profile?.id)?.type;

@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
+import { resolveBrainForUser } from "@/lib/brains";
 
 /**
  * Token-based connector handshake for Telegram.
@@ -14,6 +15,26 @@ import { telegramAdapter } from "@/lib/adapters/telegram";
  * callback (a row in SocialAccount), reached through the platform's own flow.
  */
 export async function GET(req: NextRequest) {
+  // The generic /api/social/connect route parks the chosen brain (and whether
+  // this is a popup-window connect) in the same oauth_state_<state> cookie
+  // every connector reads, Telegram included — even though it has no OAuth
+  // exchange of its own to protect with `state`.
+  const { searchParams } = new URL(req.url);
+  const rawState = searchParams.get("state");
+  const stateCookie = rawState ? req.cookies.get(`oauth_state_${rawState}`) : undefined;
+  let requestedBrainId: string | null = null;
+  let popup = false;
+  if (stateCookie) {
+    try {
+      const parsed = JSON.parse(stateCookie.value);
+      requestedBrainId = parsed?.brainId ?? null;
+      popup = Boolean(parsed?.popup);
+    } catch {
+      // Malformed cookie: fall back to the user's default brain below.
+    }
+  }
+  const popupSuffix = popup ? "&popup=1" : "";
+
   try {
     const session = await getAuthSession();
     if (!session?.user?.id) {
@@ -24,7 +45,7 @@ export async function GET(req: NextRequest) {
     if (!validation.valid) {
       return NextResponse.redirect(
         new URL(
-          `/settings/accounts?error=telegram_not_configured&missing=${validation.missing.join(",")}`,
+          `/settings/accounts?error=telegram_not_configured&missing=${validation.missing.join(",")}${popupSuffix}`,
           req.url
         )
       );
@@ -32,6 +53,8 @@ export async function GET(req: NextRequest) {
 
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
     const chatId = process.env.TELEGRAM_CHAT_ID as string;
+
+    const brain = await resolveBrainForUser(session.user.id, requestedBrainId);
 
     const info = await telegramAdapter.getAccountInfo(token);
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
@@ -45,6 +68,7 @@ export async function GET(req: NextRequest) {
       },
       create: {
         userId: session.user.id,
+        brainId: brain.id,
         platform: Platform.TELEGRAM,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
@@ -56,6 +80,7 @@ export async function GET(req: NextRequest) {
       },
       update: {
         userId: session.user.id,
+        brainId: brain.id,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
         accessToken: encrypted.accessToken,
@@ -66,7 +91,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(
       new URL(
-        `/settings/accounts?success=telegram_connected&account=${account.id}&chat=${encodeURIComponent(chatId)}`,
+        `/settings/accounts?success=telegram_connected&account=${account.id}&chat=${encodeURIComponent(chatId)}&brain=${brain.id}${popupSuffix}`,
         req.url
       )
     );
@@ -74,7 +99,7 @@ export async function GET(req: NextRequest) {
     console.error("Telegram connect error:", error);
     const message = error instanceof Error ? error.message : "unknown_error";
     return NextResponse.redirect(
-      new URL(`/settings/accounts?error=telegram_connect_failed&detail=${encodeURIComponent(message)}`, req.url)
+      new URL(`/settings/accounts?error=telegram_connect_failed&detail=${encodeURIComponent(message)}${popupSuffix}`, req.url)
     );
   }
 }

@@ -3,6 +3,7 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
+import { resolveBrainForUser } from "@/lib/brains";
 
 /**
  * Mock OAuth callback for development/testing.
@@ -34,6 +35,21 @@ export async function GET(req: NextRequest) {
     }
 
     const platform = platformParam as Platform;
+    const stateCookie = req.cookies.get(`oauth_state_${state}`);
+    let requestedBrainId: string | null = null;
+    let popup = false;
+    if (stateCookie) {
+      try {
+        const parsed = JSON.parse(stateCookie.value);
+        requestedBrainId = parsed?.brainId ?? null;
+        popup = Boolean(parsed?.popup);
+      } catch {
+        // Malformed cookie: fall back to the user's default brain below.
+      }
+    }
+    const popupSuffix = popup ? "&popup=1" : "";
+    const brain = await resolveBrainForUser(session.user.id, requestedBrainId);
+
     const mockUserId = `mock_${platform.toLowerCase()}_${Date.now()}`;
     const mockTokens = {
       accessToken: `mock_access_token_${platform}_${Date.now()}`,
@@ -51,6 +67,7 @@ export async function GET(req: NextRequest) {
       },
       create: {
         userId: session.user.id,
+        brainId: brain.id,
         platform,
         platformUserId: mockUserId,
         platformUsername: `mock_${platform.toLowerCase()}_user`,
@@ -75,7 +92,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.redirect(
-      new URL(`/settings/accounts?success=${platform.toLowerCase()}_mock_connected`, req.url)
+      new URL(`/settings/accounts?success=${platform.toLowerCase()}_mock_connected${popupSuffix}`, req.url)
     );
   } catch (error) {
     console.error("Mock callback error:", error);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
+import { resolveBrainForUser } from "@/lib/brains";
 import crypto from "crypto";
 
 export async function GET(req: NextRequest) {
@@ -36,11 +37,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const brain = await resolveBrainForUser(session.user.id, searchParams.get("brainId"));
+
     const state = crypto.randomBytes(32).toString("hex");
-    
+
     const stateData = {
       userId: session.user.id,
       platform,
+      brainId: brain.id,
+      // Connect was opened in a popup window, not a full-page navigation —
+      // every callback threads this through so it knows to self-close instead
+      // of rendering the settings page inside the popup.
+      popup: searchParams.get("popup") === "1",
       timestamp: Date.now(),
     };
 
