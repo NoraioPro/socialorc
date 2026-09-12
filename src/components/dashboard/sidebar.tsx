@@ -11,6 +11,8 @@ import {
   Clock,
   CheckSquare,
   MessageSquare,
+  CalendarDays,
+  ListOrdered,
   Settings,
   LogOut,
   Inbox,
@@ -28,6 +30,8 @@ const mainNav = [
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
+  { name: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
+  { name: "Queue", href: "/dashboard/queue", icon: ListOrdered },
   { name: "Engagement", href: "/dashboard/engagement", icon: MessageSquare },
 ];
 

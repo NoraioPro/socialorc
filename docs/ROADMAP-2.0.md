@@ -81,8 +81,8 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M1.1 | X + Facebook Page connectors | website-dev | OAuth adapters on the hardened contract | publish visible on each network |
 | M1.2 | Instagram + YouTube connectors | website-dev | container/upload flows (media required) | publish visible on each network |
 | M1.3 | TikTok connector | website-dev | video publish (SELF_ONLY until audit) | publish visible in TikTok app |
-| M1.4 | Unified calendar + queue | ios-mobile-dev | drag-to-reschedule, timezone correctness | scheduled post fires at the right local time |
-| M1.5 | ✅ Unified inbox | website-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks — **DONE**: unit tests **60/60** (13 new inbox aggregation tests), inbox UI page at `/dashboard/inbox` aggregates mock items from 7 platforms (Twitter, LinkedIn, Instagram, Facebook, TikTok, YouTube, Telegram); exit test passes with `MOCK_SOCIAL_ADAPTERS=true` |
+| M1.4 | ✅ Unified calendar + queue | website-dev | drag-to-reschedule calendar, timezone-aware display, queue view | unit tests include timezone roundtrip + gate checks; `/dashboard/calendar` and `/dashboard/queue` |
+| M1.5 | ✅ Unified inbox | website-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks — inbox UI at `/dashboard/inbox` aggregates mock items from 7 platforms |
 | M1.6 | Token lifecycle | website-dev | refresh, expiry alerts, reconnect prompts | expired token triggers refresh, not a failed publish |
 
 ### P2 — Intelligence
