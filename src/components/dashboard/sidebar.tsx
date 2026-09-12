@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Settings,
   LogOut,
+  Inbox,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { platformIcons } from "@/components/icons/platform-icons";
 const mainNav = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
   { name: "Social Timeline", href: "/dashboard/feed", icon: Newspaper },
+  { name: "Inbox", href: "/dashboard/inbox", icon: Inbox },
   { name: "Create", href: "/dashboard/create", icon: FileEdit },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
