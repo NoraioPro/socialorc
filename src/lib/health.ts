@@ -1,5 +1,5 @@
 import { Platform } from "@prisma/client";
-import { PLATFORM_CONFIGS } from "@/types/platform";
+import { PLATFORM_CONFIGS, AuthMethod } from "@/types/platform";
 
 /**
  * Health reporting, kept as pure functions so the status logic is testable
@@ -16,7 +16,7 @@ export interface PlatformReadiness {
   /** Names of the environment variables that still need a value. */
   missing: string[];
   /** Token-based connectors (Telegram) connect differently from OAuth ones. */
-  auth: "oauth" | "token";
+  auth: AuthMethod;
 }
 
 export interface HealthInput {
@@ -74,7 +74,7 @@ export function platformReadiness(
       name: PLATFORM_CONFIGS[platform].name,
       configured: entry.configured,
       missing: entry.missing,
-      auth: PLATFORM_CONFIGS[platform].capabilities.tokenBasedAuth ? "token" : "oauth",
+      auth: PLATFORM_CONFIGS[platform].capabilities.authMethod,
     };
   });
 }

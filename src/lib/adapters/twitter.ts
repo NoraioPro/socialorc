@@ -1,6 +1,22 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  OAuthTokens,
+  AccountInfo,
+  PostOptions,
+  PostResult,
+  ListCommentsOptions,
+  ListCommentsResult,
+  WriteCommentOptions,
+  ReplyToCommentOptions,
+  DeleteCommentOptions,
+  EngagementResult,
+  SocialComment,
+} from "@/types/platform";
+import {
+  validateTwitterCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
@@ -9,16 +25,23 @@ const TWITTER_API_URL = "https://api.x.com/2";
 export class TwitterAdapter extends BasePlatformAdapter {
   platform = Platform.TWITTER;
 
+  /**
+   * Validate Twitter/X OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.TWITTER_CLIENT_ID) missing.push("TWITTER_CLIENT_ID");
-    if (!process.env.TWITTER_CLIENT_SECRET) missing.push("TWITTER_CLIENT_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateTwitterCredentials();
   }
 
   private generateCodeVerifier(): string {
@@ -208,6 +231,162 @@ export class TwitterAdapter extends BasePlatformAdapter {
         platformPostUrl: `https://x.com/i/status/${data.data.id}`,
         rawResponse: data,
       };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async listComments(
+    accessToken: string,
+    options: ListCommentsOptions,
+  ): Promise<ListCommentsResult> {
+    try {
+      const limit = Math.min(options.limit ?? 25, 100);
+      const params = new URLSearchParams({
+        query: `conversation_id:${options.platformPostId} -is:retweet`,
+        max_results: String(limit),
+        "tweet.fields": "author_id,created_at,conversation_id,in_reply_to_user_id",
+        expansions: "author_id",
+        "user.fields": "username,name,profile_image_url",
+      });
+      if (options.cursor) {
+        params.set("next_token", options.cursor);
+      }
+
+      const response = await fetch(`${TWITTER_API_URL}/tweets/search/recent?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return {
+          success: false,
+          error: errorData.detail || errorData.title || `Twitter API error: ${response.status}`,
+          rawResponse: errorData,
+        };
+      }
+
+      const data = await response.json();
+      const users = new Map<string, Record<string, unknown>>();
+      for (const user of data.includes?.users ?? []) {
+        users.set(user.id as string, user);
+      }
+
+      const items: SocialComment[] = (data.data ?? [])
+        .filter((tweet: { id: string }) => tweet.id !== options.platformPostId)
+        .map((tweet: Record<string, unknown>) => {
+          const author = users.get(tweet.author_id as string);
+          return {
+            id: tweet.id as string,
+            platform: this.platform,
+            platformPostId: options.platformPostId,
+            authorId: (tweet.author_id as string) ?? "unknown",
+            authorName: (author?.name as string) ?? (author?.username as string) ?? "unknown",
+            authorAvatarUrl: author?.profile_image_url as string | undefined,
+            text: (tweet.text as string) ?? "",
+            createdAt: new Date((tweet.created_at as string) ?? Date.now()),
+            permalink: `https://x.com/i/status/${tweet.id as string}`,
+            canReply: true,
+            canReact: false,
+            canDelete: true,
+            raw: tweet,
+          };
+        });
+
+      return {
+        success: true,
+        items,
+        nextCursor: data.meta?.next_token ?? null,
+        rawResponse: data,
+      };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async createComment(
+    accessToken: string,
+    options: WriteCommentOptions,
+  ): Promise<EngagementResult> {
+    return this.replyToComment(accessToken, {
+      commentId: options.platformPostId,
+      text: options.text,
+      platformPostId: options.platformPostId,
+    });
+  }
+
+  async replyToComment(
+    accessToken: string,
+    options: ReplyToCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const response = await fetch(`${TWITTER_API_URL}/tweets`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: options.text,
+          reply: { in_reply_to_tweet_id: options.commentId },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return {
+          success: false,
+          error: errorData.detail || errorData.title || `Twitter API error: ${response.status}`,
+          rawResponse: errorData,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async deleteComment(
+    accessToken: string,
+    options: DeleteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const response = await fetch(`${TWITTER_API_URL}/tweets/${options.commentId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return {
+          success: false,
+          error: errorData.detail || errorData.title || `Twitter API error: ${response.status}`,
+          rawResponse: errorData,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.data?.deleted === true, rawResponse: data };
     } catch (error) {
       if (error instanceof AdapterError) {
         return { success: false, error: error.message, rawResponse: error.rawError };

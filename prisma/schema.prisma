@@ -63,6 +63,7 @@ model User {
   brains          Brain[]
   feedReactions   FeedReaction[]
   feedComments    FeedComment[]
+  brandBrain      BrandBrain?
 
   // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
   // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
@@ -118,9 +119,8 @@ model SocialAccount {
    *  team/brand-knowledge container, brains are the per-project connection
    *  container the current Settings > Integrations UI actually uses. */
   workspaceId     String?
-  /// Which brain (project) this connection belongs to. Required: every
-  /// connection lives inside exactly one brain, never shared across brains.
-  brainId         String
+  /// Which brain (project) this connection belongs to. Resolved on connect when missing.
+  brainId         String?
   platform        Platform
   platformUserId  String
   platformUsername String?
@@ -157,7 +157,7 @@ model SocialAccount {
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  brain           Brain    @relation(fields: [brainId], references: [id], onDelete: Cascade)
+  brain           Brain?   @relation(fields: [brainId], references: [id], onDelete: SetNull)
   posts           Post[]
   publishingJobs  PublishingJob[]
 
@@ -720,4 +720,34 @@ model Friendship {
   @@unique([requesterId, addresseeId])
   @@index([addresseeId, status])
   @@index([requesterId, status])
+}
+
+// Brand Brain: per-user brand profile, voice, and goals (settings UI)
+model BrandBrain {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+
+  brandName       String?
+  industry        String?
+  description     String?
+  targetAudience  String?
+  uniqueValue     String?
+
+  tone            String?
+  personality     String?
+  writingStyle    String?
+  avoidTopics     String?
+  keyPhrases      String?
+
+  primaryGoal     String?
+  contentPillars  String?
+  callToAction    String?
+  hashtagStrategy String?
+
+  platformOverrides Json?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

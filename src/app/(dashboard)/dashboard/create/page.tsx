@@ -12,6 +12,7 @@ import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
 
 type Variant = { platform: Platform; content: string };
 const availablePlatforms = Object.values(Platform);
@@ -101,6 +102,7 @@ export default function CreatePostPage() {
             <div className="variant-editor" id="variant-editor" role="tabpanel" aria-labelledby={`tab-${active}`}>
               <div className="editor-meta"><Label htmlFor="variant-content">{PLATFORM_CONFIGS[active].name} draft</Label><span className={(current?.content.length || 0)>limit?"text-destructive":""}>{current?.content.length || 0} / {limit}</span></div>
               <Textarea id="variant-content" value={current?.content || ""} onChange={e=>edit(e.target.value)} disabled={busy || saving || saved.includes(active)} rows={12} placeholder="Write something worth sharing…" />
+              <PlatformCharCounts text={current?.content ?? ""} platforms={variants.map((v) => v.platform)} />
               {saved.includes(active)&&<p className="studio-muted">Saved. Continue editing this post in Drafts.</p>}
             </div>
             <div className="engine-actions"><Button onClick={()=>save(false)} disabled={saving || busy || !current?.content.trim() || saved.includes(active)}>{saving&&<Loader2 size={14} className="animate-spin"/>}{saved.includes(active)?"Draft saved":"Save selected draft"}</Button><Button variant="outline" onClick={()=>save(true)} disabled={saving || busy || saved.length===variants.length}>Save all drafts ({variants.length-saved.length})</Button></div>

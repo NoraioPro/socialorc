@@ -64,6 +64,7 @@ export function createOAuthCallback(platform: Platform) {
         userId: user.userId,
         platform,
       });
+
       if (!stateCheck.ok) {
         console.error(`${platform} OAuth state rejected:`, stateCheck.reason);
         return failure(

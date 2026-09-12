@@ -10,9 +10,14 @@ import {
   FileEdit,
   Clock,
   CheckSquare,
-
+  MessageSquare,
+  CalendarDays,
+  ListOrdered,
+  Globe2,
+  Sparkles,
   Settings,
   LogOut,
+  Inbox,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -22,11 +27,16 @@ import { platformIcons } from "@/components/icons/platform-icons";
 const mainNav = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
   { name: "Social Timeline", href: "/dashboard/feed", icon: Newspaper },
+  { name: "Inbox", href: "/dashboard/inbox", icon: Inbox },
   { name: "Create", href: "/dashboard/create", icon: FileEdit },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
-
+  { name: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
+  { name: "Queue", href: "/dashboard/queue", icon: ListOrdered },
+  { name: "Engagement", href: "/dashboard/engagement", icon: MessageSquare },
+  { name: "Global Map", href: "/dashboard/global-map", icon: Globe2 },
+  { name: "AI Studio", href: "/dashboard/ai-studio", icon: Sparkles },
 ];
 
 export function Sidebar() {

@@ -112,6 +112,18 @@ describe("roles: permission matrix", () => {
     assert.equal(can("EDITOR", "posts:approve"), false);
     assert.equal(can("EDITOR", "posts:schedule"), false);
     assert.equal(can("EDITOR", "accounts:connect"), false);
+    assert.equal(can("EDITOR", "engagement:reply"), true);
+    assert.equal(can("EDITOR", "engagement:delete"), false);
+  });
+
+  it("maps engagement permissions by role", () => {
+    for (const role of ROLES) {
+      assert.equal(can(role, "engagement:view"), true, `view for ${role}`);
+    }
+    assert.equal(can("CLIENT", "engagement:reply"), false);
+    assert.equal(can("CLIENT", "engagement:react"), false);
+    assert.equal(can("MANAGER", "engagement:delete"), true);
+    assert.equal(can("EDITOR", "engagement:delete"), false);
   });
 });
 

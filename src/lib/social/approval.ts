@@ -24,6 +24,18 @@ export function appOrigin(env: NodeJS.ProcessEnv = process.env): string {
   return env.APP_URL || env.NEXTAUTH_URL || "http://localhost:3000";
 }
 
+/**
+ * OAuth callback URL sent to providers and shown in readiness reports.
+ * Must stay in sync with `redirectUriFor()` in status.ts (same path, same base).
+ */
+export function platformOAuthCallbackUri(
+  platform: Platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const base = appOrigin(env).replace(/\/+$/, "");
+  return `${base}/api/social/${platform.toLowerCase()}/callback`;
+}
+
 export function tiktokRedirectUri(env: NodeJS.ProcessEnv = process.env): string {
   return env.TIKTOK_REDIRECT_URI || `${appOrigin(env)}/api/social/tiktok/callback`;
 }

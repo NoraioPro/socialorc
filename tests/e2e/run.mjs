@@ -19,6 +19,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 import { runPublishE2E } from "./publish.e2e.mjs";
+import { runEngagementE2E } from "./engagement.e2e.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -154,11 +155,12 @@ async function main() {
 
   let ok = false;
   try {
-    const result = await runPublishE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
-    ok = result.ok;
+    const publishResult = await runPublishE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
+    const engagementResult = await runEngagementE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
+    ok = publishResult.ok && engagementResult.ok;
     if (!ok) {
       console.log("\nFailed checks:");
-      for (const r of result.results.filter((x) => !x.ok)) {
+      for (const r of [...publishResult.results, ...engagementResult.results].filter((x) => !x.ok)) {
         console.log(`  - ${r.name}${r.detail ? ` (${r.detail})` : ""}`);
       }
       console.log("--- server log tail ---\n" + logTail.join("").split("\n").slice(-30).join("\n"));
@@ -171,7 +173,11 @@ async function main() {
     stopServer(server);
   }
 
-  console.log(ok ? "\nE2E RESULT: PASS (mock adapter only, approval gate asserted)" : "\nE2E RESULT: FAIL");
+  console.log(
+    ok
+      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement)"
+      : "\nE2E RESULT: FAIL",
+  );
   process.exit(ok ? 0 : 1);
 }
 

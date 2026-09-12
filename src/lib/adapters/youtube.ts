@@ -1,6 +1,24 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  OAuthTokens,
+  AccountInfo,
+  PostOptions,
+  PostResult,
+  ListCommentsOptions,
+  ListCommentsResult,
+  WriteCommentOptions,
+  ReplyToCommentOptions,
+  DeleteCommentOptions,
+  ReactToPostOptions,
+  UnreactToPostOptions,
+  EngagementResult,
+  SocialComment,
+} from "@/types/platform";
+import {
+  validateYouTubeCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -9,16 +27,23 @@ const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
 export class YouTubeAdapter extends BasePlatformAdapter {
   platform = Platform.YOUTUBE;
 
+  /**
+   * Validate YouTube/Google OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.YOUTUBE_CLIENT_ID) missing.push("YOUTUBE_CLIENT_ID");
-    if (!process.env.YOUTUBE_CLIENT_SECRET) missing.push("YOUTUBE_CLIENT_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateYouTubeCredentials();
   }
 
   getOAuthUrl(state: string): string {
@@ -26,7 +51,8 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       client_id: process.env.YOUTUBE_CLIENT_ID || "",
       redirect_uri: this.getRedirectUri(),
       response_type: "code",
-      scope: "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly",
+      scope:
+        "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl",
       access_type: "offline",
       prompt: "consent",
       state,
@@ -224,6 +250,280 @@ export class YouTubeAdapter extends BasePlatformAdapter {
           videoUrl: options.mediaUrls[0],
         },
       };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async listComments(
+    accessToken: string,
+    options: ListCommentsOptions,
+  ): Promise<ListCommentsResult> {
+    try {
+      const limit = Math.min(options.limit ?? 20, 100);
+      const params = new URLSearchParams({
+        part: "snippet,replies",
+        videoId: options.platformPostId,
+        maxResults: String(limit),
+        textFormat: "plainText",
+      });
+      if (options.cursor) {
+        params.set("pageToken", options.cursor);
+      }
+
+      const response = await fetch(`${YOUTUBE_API_URL}/commentThreads?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      const items: SocialComment[] = (data.items ?? []).map((thread: Record<string, unknown>) => {
+        const top = (thread.snippet as Record<string, unknown>).topLevelComment as Record<
+          string,
+          unknown
+        >;
+        const snippet = top.snippet as Record<string, unknown>;
+        return {
+          id: top.id as string,
+          platform: this.platform,
+          platformPostId: options.platformPostId,
+          authorId: (snippet.authorChannelId as { value?: string })?.value ?? "unknown",
+          authorName: (snippet.authorDisplayName as string) ?? "unknown",
+          text: (snippet.textDisplay as string) ?? "",
+          createdAt: new Date((snippet.publishedAt as string) ?? Date.now()),
+          likeCount: snippet.likeCount as number | undefined,
+          replyCount: (thread.snippet as Record<string, unknown>).totalReplyCount as number | undefined,
+          canReply: true,
+          canReact: false,
+          canDelete: true,
+          raw: thread,
+        };
+      });
+
+      return {
+        success: true,
+        items,
+        nextCursor: data.nextPageToken ?? null,
+        rawResponse: data,
+      };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async createComment(
+    accessToken: string,
+    options: WriteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const accountInfo = await this.getAccountInfo(accessToken);
+      const body = {
+        snippet: {
+          channelId: accountInfo.platformUserId,
+          videoId: options.platformPostId,
+          topLevelComment: {
+            snippet: {
+              textOriginal: options.text,
+            },
+          },
+        },
+      };
+
+      const response = await fetch(`${YOUTUBE_API_URL}/commentThreads?part=snippet`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      const commentId = data.snippet?.topLevelComment?.id as string | undefined;
+      return { success: true, commentId, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async replyToComment(
+    accessToken: string,
+    options: ReplyToCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const body = {
+        snippet: {
+          parentId: options.commentId,
+          textOriginal: options.text,
+        },
+      };
+
+      const response = await fetch(`${YOUTUBE_API_URL}/comments?part=snippet`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async deleteComment(
+    accessToken: string,
+    options: DeleteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const response = await fetch(
+        `${YOUTUBE_API_URL}/comments?id=${encodeURIComponent(options.commentId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        return {
+          success: false,
+          error: error || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async reactToPost(
+    accessToken: string,
+    options: ReactToPostOptions,
+  ): Promise<EngagementResult> {
+    if (options.kind !== "like" && options.kind !== "dislike") {
+      return {
+        success: false,
+        error: "YouTube videos.rate only supports like and dislike ratings",
+      };
+    }
+
+    try {
+      const params = new URLSearchParams({
+        id: options.platformPostId,
+        rating: options.kind,
+      });
+      const response = await fetch(`${YOUTUBE_API_URL}/videos/rate?${params.toString()}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return {
+          success: false,
+          error: error || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async unreactToPost(
+    accessToken: string,
+    options: UnreactToPostOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const params = new URLSearchParams({
+        id: options.platformPostId,
+        rating: "none",
+      });
+      const response = await fetch(`${YOUTUBE_API_URL}/videos/rate?${params.toString()}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return {
+          success: false,
+          error: error || `YouTube API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      return { success: true };
     } catch (error) {
       if (error instanceof AdapterError) {
         return { success: false, error: error.message, rawResponse: error.rawError };

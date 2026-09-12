@@ -16,13 +16,13 @@
 | Mock connector path | **Working** | `MOCK_SOCIAL_ADAPTERS=true`, mock OAuth callback → `PUBLISHED` |
 | **Real-network connector** | **Working (1 platform)** | Telegram: real messages ids `16`, `17`, `19` delivered to chat `5896074160` |
 | Durable job queue (retry/backoff/idempotency) | **Working** | failed publish → attempt 1 `retried`, next due +30s; immediate re-run `processed: 0`; attempt 3 dead-letters (`post FAILED`, job `FAILED after 3 attempts`); re-armed published post → `deduped: 1, published: 0`, platform id unchanged |
-| Connector contract (capabilities + error taxonomy) | **Working** | `PlatformCapabilities` on 7 platforms; `classifyAdapterError()` splits retryable vs permanent; content rules enforced in `BasePlatformAdapter` for every adapter |
+| Connector contract (capabilities + error taxonomy) | **Working** | `PlatformCapabilities` on 7 platforms; `classifyAdapterError()` splits retryable vs permanent; content rules enforced in `BasePlatformAdapter` for every adapter; `validateCredentials` now validates token shape/format (not just presence) with per-platform validators |
 | Retry policy (classified, not blind) | **Working** | permanent failure (invalid token) dead-letters on attempt **1** with `AUTH_INVALID` and "reconnect the account"; transient failure (unreachable API) retries with backoff then dead-letters after 3 — `npm run test:durability` → 19/19 |
 | Token refresh before publish | **Working** | an expiring token is refreshed and persisted before the send; a token that is expired on a non-refreshable connector dead-letters on attempt 1 as `AUTH_EXPIRED` with "reconnect the account" — unit 28/28 · durability 24/24 |
 | Credential failure signalling | **Working** | an `AUTH_EXPIRED` publish failure triggers one refresh-and-retry; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError`, a successful publish clears them — unit **30/30** · durability **26/26** |
 | Production build | **Working** | `npm run build` succeeds — 30 routes compiled, including all six OAuth callbacks |
 | Deployment readiness | **Working** | `GET /api/health` reports database reachability, applied migrations, pending jobs and per-connector missing variable NAMES (never values); `npm run build` compiles 30 routes · runbook in `docs/DEPLOY.md` |
-| Unit test suite | **Working** | `npm run test:unit` → **47** assertions across platform-config, error-classification, content-validation, token-refresh, oauth-state, health |
+| Unit test suite | **Working** | `npm run test:unit` → **76** assertions across platform-config, error-classification, content-validation, token-refresh, oauth-state, health, credentials-validation |
 | In-repo E2E harnesses | **Working** | `npm run test:e2e` → **18/18** (happy path, mock adapters, own server + throwaway DB) · `npm run test:durability` → **26/26** (real adapters, injected failures) · `npm run test:live` → **27/27** (live callback paths + health; needs a running server) |
 | X + Facebook Page connectors | **Blocked on credentials** | adapters + OAuth callbacks exist (M0.12); `connect` reports exactly which variables are missing (503) |
 | LinkedIn / X / Meta / TikTok / YouTube | **Blocked on credentials** | no developer app exists on the estate; each needs owner-created app + consent |
@@ -63,7 +63,8 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M0.1 | ✅ Telegram real publish | Hermes | adapter + connect route | message id returned + visible in chat | — |
 | M0.2 | ✅ E2E harness in-repo | website-dev | `tests/e2e/run.mjs` + `npm run test:e2e` (throwaway DB, own server, mock adapters) | **18/18 PASS**; gate `400`; cron auth 401; second cron no double-post | — |
 | M0.5 | ✅ Durable job queue | Hermes | retry with exponential backoff (30s → 60s → dead-letter), idempotency guard on `platformPostId`, oldest-first scheduling, queue counters | forced adapter failure retries 3× then dead-letters; re-armed published post is deduped | — |
-| M0.6 | ✅ Connector contract | Hermes | capability flags on every platform, normalized error taxonomy, capability-driven content validation, unit suite | `npm run test:unit` → 21 assertions pass; `tsc --noEmit` clean | — |
+| M0.6 | ✅ Connector contract | Hermes | capability flags on every platform (expanded: `AuthMethod` type, `nativeScheduling`, `mentions`, `hashtags`, `linkPreview`, `directMessages`, `stories`, `polls`, `threads`), normalized error taxonomy, capability-driven content validation, registry helpers (`getCapabilities`, `filterByCapability`, `platformsByAuthMethod`), unit suite | `npm run test:unit` → **52 assertions pass**; `tsc --noEmit` clean | — |
+| M0.6 | ✅ Connector contract | Hermes | capability flags on every platform, normalized error taxonomy, capability-driven content validation, `validateCredentials` with token-shape validation (Telegram reference), unit suite | `npm run test:unit` → **76** assertions pass (including credentials-validation suite); `tsc --noEmit` clean | — |
 | M0.7 | ✅ Classified retry policy | Hermes | worker honors `isRetryable`/`isPermanent`: permanent failures dead-letter on attempt 1, transient ones back off; `permanent` counter in the cron response; `TELEGRAM_API_BASE` override for self-hosted Bot API + fault injection | `npm run test:durability` → **19/19** (transient retry+backoff+dead-letter, permanent immediate dead-letter, dedupe) | — |
 | M0.8 | ✅ Token refresh before publish | Hermes | expiring tokens are refreshed and persisted before the send; expired + non-refreshable dead-letters immediately as `AUTH_EXPIRED`; `needsTokenRefresh`/`canRefresh` are pure and unit-tested | unit **28/28** · durability **24/24** (case D: expired token, attempt 1 dead-letter, actionable message) | — |
 | M0.9 | ✅ Credential failure signalling | Hermes | refresh-and-retry once on an `AUTH_EXPIRED` publish failure; credential-shaped dead-letters set `SocialAccount.needsReconnect` + `lastError` and a successful publish clears them; `requiresReconnect()` is pure and unit-tested | unit **30/30** · durability **26/26** (case B asserts the account flags + reason) | — |
@@ -81,11 +82,18 @@ one testable exit criterion — and one named owner, so two agents never build t
 | M1.1 | X + Facebook Page connectors | website-dev | OAuth adapters on the hardened contract | publish visible on each network |
 | M1.2 | Instagram + YouTube connectors | website-dev | container/upload flows (media required) | publish visible on each network |
 | M1.3 | TikTok connector | website-dev | video publish (SELF_ONLY until audit) | publish visible in TikTok app |
+| M1.4 | ✅ Unified calendar + queue | website-dev | drag-to-reschedule calendar, timezone-aware display, queue view | unit tests include timezone roundtrip + gate checks; `/dashboard/calendar` and `/dashboard/queue` |
+| M1.5 | ✅ Unified inbox | website-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks — inbox UI at `/dashboard/inbox` aggregates mock items from 7 platforms |
+| M1.6 | Token lifecycle | website-dev | refresh, expiry alerts, reconnect prompts | expired token triggers refresh, not a failed publish |
 | M1.4 | Unified calendar + queue | ios-mobile-dev | drag-to-reschedule, timezone correctness | scheduled post fires at the right local time |
 | M1.5 | Unified inbox | ios-mobile-dev | comments/mentions/messages aggregation | one inbox shows ≥2 networks |
-| M1.6 | Token lifecycle | website-dev | refresh, expiry alerts, reconnect prompts | expired token triggers refresh, not a failed publish |
+| M1.6 | ✅ Token lifecycle | new-bot | `getTokenStatus()` expiry alerting, UI reconnect banners, unit tests for refresh/expiry/reconnect | unit **64/64** (17 new token lifecycle assertions); e2e **18/18** (gate `400`); expired token → auto-refresh or reconnect-prompt, never fail-publish |
 
 ### P2 — Intelligence
+
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Content Cascade | new-bot | Select an approved/draft post, adapt to other platforms via AI (mock-safe), create drafts | `npm run test:unit` → 16 cascade tests pass; E2E gate still 400; `/api/posts/[id]/cascade` endpoint + UI dialog |
 
 Brand Brain → AI Studio (multi-variant), Traction Score (§41), Campaign Readiness (§42),
 Growth Brief (§40), Trend/Competitor agents, Network Discovery + Global Social Map (§6–7),
@@ -95,6 +103,22 @@ translation/localization with Cultural Intelligence review (§11–12). The Expe
 | # | Milestone | Owner | Deliverable | Exit test |
 |---|---|---|---|---|
 | M2.7 | ✅ Experiment flag stub (mock) | new-bot | `src/lib/experiments.ts` — 4 fixture A/B experiments + 4 feature flags with deterministic hash-bucketed assignment (same subject → same arm, no RNG, no clock), weighted variants, kill switch, exposure events that carry a hashed subject only, and a lift/leader result stub; read-only `GET /api/experiments` (session-gated, no write handler). **No live ads APIs and no scraping** — a unit test fails if the lib or the route ever calls `fetch`/`axios`/an ads host, and another if the lib reads the clock. Scheduling is untouched: `evaluateFlag(..., { intent: "SCHEDULE_POST" })` is always `GATE_PRESERVED` | `npx tsc --noEmit` clean · `npm run test:unit` → **69/69** (22 new experiment tests, incl. the offline + determinism guards, the rollout/kill-switch paths and the gate invariant) · `npm run test:e2e` → **18/18** with the approval gate still asserted (`DRAFT` → schedule `400`) · live `GET /api/experiments` → **401** anonymous, **200** for a real session with the fixture registry, the hashed subject and the kill-switch state (17/17 normal, 18/18 with `EXPERIMENTS_KILL_SWITCH="true"`) |
+
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Global Social Map stub | website-dev | Region cards with mock opportunity scores, `/dashboard/global-map` page, 12 regions across 6 continents, score/helper functions with unit tests | `npm run typecheck` clean · unit **65/65** (including 18 global-map tests) · page renders region cards with scores |
+
+| # | Milestone | Owner | Deliverable | Exit test | Status |
+|---|---|---|---|---|---|
+| M2.1 | Campaign Readiness Score | website-dev | heuristic 0–100 score on dashboard with "start paid amplification" recommendation (mock/fixture, no live ads APIs) | unit **64/64** · `tsc --noEmit` clean · compact + full UI card on `/dashboard` | ✅ **Working** |
+
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.1 | ✅ Traction Score + Growth Brief | website-dev | heuristic 0–100 score from post activity, daily recommendations on dashboard | `npm run test:unit` → **59/59** (12 traction-score tests pass); dashboard renders score widget + growth brief |
+
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.6 | ✅ Trend Agent stub (mock) | new-bot | `src/lib/trend-agent/` — 8 fixture trending topics + pure helpers (momentum, viral potential, brand relevance, ranking digest) and a Trend Agent card on `/dashboard`; **no scraping and no live trend APIs** (a unit test fails if the module ever calls `fetch`/`axios`/a client or reads the clock) | `npx tsc --noEmit` clean · `npm run test:unit` → **65/65** (18 new trend-agent tests, incl. the offline + determinism guards) · `npm run test:e2e` → **18/18** with the approval gate still asserted (`DRAFT` → schedule `400`) · `/dashboard` serves the card for a real session (mock badge, ranked topics, "Act now" recommendation) |
 
 ### P3–P5 — as specced
 
@@ -136,3 +160,5 @@ Update the status table in §1 and the milestone row whenever a milestone closes
 command and its output that proved it. Vision language belongs in `VISION-2.0.md`; scope
 arguments belong in `PRD.md`; **this file only records what is built, what is next, who owns
 it, and what blocks it.**
+
+| M2.x | Failed-publish retry UI | re-queue FAILED (approved only) on scheduled page | unit failed-retry; POST /api/posts/[id]/retry gate 400 | — |

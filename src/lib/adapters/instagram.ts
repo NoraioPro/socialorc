@@ -1,6 +1,22 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  OAuthTokens,
+  AccountInfo,
+  PostOptions,
+  PostResult,
+  ListCommentsOptions,
+  ListCommentsResult,
+  WriteCommentOptions,
+  ReplyToCommentOptions,
+  DeleteCommentOptions,
+  EngagementResult,
+} from "@/types/platform";
+import { graphPagingCursor, mapGraphComment } from "./meta-graph-comments";
+import {
+  validateInstagramCredentials,
+  type CredentialValidationResult,
+} from "./credentials";
 
 const FACEBOOK_AUTH_URL = "https://www.facebook.com/v25.0/dialog/oauth";
 const FACEBOOK_TOKEN_URL = "https://graph.facebook.com/v25.0/oauth/access_token";
@@ -9,16 +25,23 @@ const GRAPH_API_URL = "https://graph.facebook.com/v25.0";
 export class InstagramAdapter extends BasePlatformAdapter {
   platform = Platform.INSTAGRAM;
 
+  /**
+   * Validate Instagram/Meta OAuth credentials: both presence and format.
+   */
   validateCredentials(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    
-    if (!process.env.INSTAGRAM_APP_ID) missing.push("INSTAGRAM_APP_ID");
-    if (!process.env.INSTAGRAM_APP_SECRET) missing.push("INSTAGRAM_APP_SECRET");
-    
-    return {
-      valid: missing.length === 0,
-      missing,
-    };
+    const result = this.validateCredentialsExtended();
+    const allIssues = [
+      ...result.missing,
+      ...result.invalid.map((i) => `${i.key} (invalid format)`),
+    ];
+    return { valid: result.valid, missing: allIssues };
+  }
+
+  /**
+   * Extended validation returning detailed error information.
+   */
+  validateCredentialsExtended(): CredentialValidationResult {
+    return validateInstagramCredentials();
   }
 
   getOAuthUrl(state: string): string {
@@ -26,7 +49,8 @@ export class InstagramAdapter extends BasePlatformAdapter {
       client_id: process.env.INSTAGRAM_APP_ID || "",
       redirect_uri: this.getRedirectUri(),
       state,
-      scope: "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
+      scope:
+        "instagram_basic,instagram_content_publish,instagram_manage_comments,pages_read_engagement,pages_show_list",
       response_type: "code",
     });
 
@@ -275,6 +299,185 @@ export class InstagramAdapter extends BasePlatformAdapter {
         platformPostUrl: `https://www.instagram.com/p/${publishData.id}/`,
         rawResponse: publishData,
       };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  private async resolvePageAccessToken(accessToken: string): Promise<string> {
+    const accountInfo = await this.getAccountInfo(accessToken);
+    const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
+    if (!pageAccessToken) {
+      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
+    }
+    return pageAccessToken;
+  }
+
+  async listComments(
+    accessToken: string,
+    options: ListCommentsOptions,
+  ): Promise<ListCommentsResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const limit = Math.min(options.limit ?? 25, 50);
+      const params = new URLSearchParams({
+        access_token: pageAccessToken,
+        fields: "id,text,username,timestamp,like_count,replies",
+        limit: String(limit),
+      });
+      if (options.cursor) {
+        params.set("after", options.cursor);
+      }
+
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.platformPostId}/comments?${params.toString()}`,
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Instagram API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      const items = (data.data ?? []).map((node: Record<string, unknown>) => {
+        const mapped = mapGraphComment(this.platform, options.platformPostId, {
+          id: String(node.id),
+          text: String(node.text ?? ""),
+          timestamp: node.timestamp as string | undefined,
+          like_count: node.like_count as number | undefined,
+          from: {
+            id: String(node.username ?? "instagram"),
+            username: node.username as string | undefined,
+          },
+        });
+        const replies = (node.replies as { data?: unknown[] } | undefined)?.data ?? [];
+        mapped.replyCount = replies.length;
+        return mapped;
+      });
+
+      return {
+        success: true,
+        items,
+        nextCursor: graphPagingCursor(data),
+        rawResponse: data,
+      };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async createComment(
+    accessToken: string,
+    options: WriteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.platformPostId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          message: options.text,
+          access_token: pageAccessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Instagram API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async replyToComment(
+    accessToken: string,
+    options: ReplyToCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.commentId}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          message: options.text,
+          access_token: pageAccessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Instagram API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async deleteComment(
+    accessToken: string,
+    options: DeleteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.commentId}?access_token=${pageAccessToken}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Instagram API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
     } catch (error) {
       if (error instanceof AdapterError) {
         return { success: false, error: error.message, rawResponse: error.rawError };
