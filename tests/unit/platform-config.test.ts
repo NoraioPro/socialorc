@@ -33,6 +33,12 @@ test("every platform declares a complete capability set", () => {
     "mediaRequired",
     "tokenBasedAuth",
     "refreshableTokens",
+    "readComments",
+    "writeComments",
+    "replyToComments",
+    "deleteComments",
+    "reactToPosts",
+    "reactToComments",
   ] as const;
 
   for (const platform of allPlatforms) {

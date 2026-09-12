@@ -1,6 +1,22 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  OAuthTokens,
+  AccountInfo,
+  PostOptions,
+  PostResult,
+  ListCommentsOptions,
+  ListCommentsResult,
+  WriteCommentOptions,
+  ReplyToCommentOptions,
+  DeleteCommentOptions,
+  ReactToPostOptions,
+  UnreactToPostOptions,
+  ReactToCommentOptions,
+  UnreactToCommentOptions,
+  EngagementResult,
+} from "@/types/platform";
+import { graphPagingCursor, mapGraphComment } from "./meta-graph-comments";
 
 const FACEBOOK_AUTH_URL = "https://www.facebook.com/v25.0/dialog/oauth";
 const FACEBOOK_TOKEN_URL = "https://graph.facebook.com/v25.0/oauth/access_token";
@@ -26,7 +42,8 @@ export class FacebookAdapter extends BasePlatformAdapter {
       client_id: process.env.FACEBOOK_APP_ID || "",
       redirect_uri: this.getRedirectUri(),
       state,
-      scope: "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata",
+      scope:
+        "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,pages_manage_engagement",
       response_type: "code",
     });
 
@@ -221,6 +238,322 @@ export class FacebookAdapter extends BasePlatformAdapter {
         platformPostUrl: `https://www.facebook.com/${data.id || data.post_id}`,
         rawResponse: data,
       };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  private async resolvePageAccessToken(accessToken: string): Promise<string> {
+    const accountInfo = await this.getAccountInfo(accessToken);
+    const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
+    if (!pageAccessToken) {
+      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
+    }
+    return pageAccessToken;
+  }
+
+  async listComments(
+    accessToken: string,
+    options: ListCommentsOptions,
+  ): Promise<ListCommentsResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const limit = Math.min(options.limit ?? 25, 100);
+      const params = new URLSearchParams({
+        access_token: pageAccessToken,
+        fields: "id,message,from,created_time,like_count,comment_count,parent",
+        limit: String(limit),
+        filter: "stream",
+      });
+      if (options.cursor) {
+        params.set("after", options.cursor);
+      }
+
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.platformPostId}/comments?${params.toString()}`,
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      const items = (data.data ?? []).map((node: Record<string, unknown>) =>
+        mapGraphComment(this.platform, options.platformPostId, node as never, { canReact: true }),
+      );
+
+      return {
+        success: true,
+        items,
+        nextCursor: graphPagingCursor(data),
+        rawResponse: data,
+      };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async createComment(
+    accessToken: string,
+    options: WriteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.platformPostId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          message: options.text,
+          access_token: pageAccessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async replyToComment(
+    accessToken: string,
+    options: ReplyToCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.commentId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          message: options.text,
+          access_token: pageAccessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: true, commentId: data.id, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async deleteComment(
+    accessToken: string,
+    options: DeleteCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.commentId}?access_token=${pageAccessToken}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async reactToPost(
+    accessToken: string,
+    options: ReactToPostOptions,
+  ): Promise<EngagementResult> {
+    if (options.kind !== "like") {
+      return {
+        success: false,
+        error: "Facebook Page post reactions via Graph API are limited to likes on this connector",
+      };
+    }
+
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.platformPostId}/likes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ access_token: pageAccessToken }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async unreactToPost(
+    accessToken: string,
+    options: UnreactToPostOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.platformPostId}/likes?access_token=${pageAccessToken}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async reactToComment(
+    accessToken: string,
+    options: ReactToCommentOptions,
+  ): Promise<EngagementResult> {
+    if (options.kind !== "like") {
+      return {
+        success: false,
+        error: "Facebook comment reactions via Graph API are limited to likes on this connector",
+      };
+    }
+
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(`${GRAPH_API_URL}/${options.commentId}/likes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ access_token: pageAccessToken }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
+    } catch (error) {
+      if (error instanceof AdapterError) {
+        return { success: false, error: error.message, rawResponse: error.rawError };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  async unreactToComment(
+    accessToken: string,
+    options: UnreactToCommentOptions,
+  ): Promise<EngagementResult> {
+    try {
+      const pageAccessToken = await this.resolvePageAccessToken(accessToken);
+      const response = await fetch(
+        `${GRAPH_API_URL}/${options.commentId}/likes?access_token=${pageAccessToken}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error?.message || `Facebook API error: ${response.status}`,
+          rawResponse: error,
+        };
+      }
+
+      const data = await response.json();
+      return { success: data.success === true, rawResponse: data };
     } catch (error) {
       if (error instanceof AdapterError) {
         return { success: false, error: error.message, rawResponse: error.rawError };

@@ -8,6 +8,7 @@ import {
   PostResult,
   PLATFORM_CONFIGS,
 } from "@/types/platform";
+import { platformOAuthCallbackUri } from "@/lib/social/approval";
 
 export abstract class BasePlatformAdapter implements PlatformAdapter {
   abstract platform: Platform;
@@ -29,8 +30,7 @@ export abstract class BasePlatformAdapter implements PlatformAdapter {
   abstract validateCredentials(): { valid: boolean; missing: string[] };
 
   protected getRedirectUri(): string {
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-    return `${baseUrl}/api/social/${this.platform.toLowerCase()}/callback`;
+    return platformOAuthCallbackUri(this.platform);
   }
 
   /** Best-effort MIME inference from a URL — used only when the extension is known. */

@@ -10,7 +10,7 @@ import {
   FileEdit,
   Clock,
   CheckSquare,
-
+  MessageSquare,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -26,7 +26,7 @@ const mainNav = [
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
-
+  { name: "Engagement", href: "/dashboard/engagement", icon: MessageSquare },
 ];
 
 export function Sidebar() {

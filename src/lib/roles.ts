@@ -27,6 +27,10 @@ export const PERMISSIONS = [
   "posts:delete",
   "accounts:connect",
   "users:manage",
+  "engagement:view",
+  "engagement:reply",
+  "engagement:react",
+  "engagement:delete",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -41,6 +45,10 @@ const MATRIX: Record<Permission, readonly Role[]> = {
   "posts:delete": ["ADMIN"],
   "accounts:connect": ["ADMIN", "MANAGER"],
   "users:manage": ["ADMIN"],
+  "engagement:view": ROLES,
+  "engagement:reply": ["ADMIN", "MANAGER", "EDITOR"],
+  "engagement:react": ["ADMIN", "MANAGER", "EDITOR"],
+  "engagement:delete": ["ADMIN", "MANAGER"],
 };
 
 export interface RoleMeta {
