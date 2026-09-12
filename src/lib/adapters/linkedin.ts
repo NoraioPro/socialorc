@@ -9,7 +9,7 @@ import {
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 const LINKEDIN_API_URL = "https://api.linkedin.com";
-const LINKEDIN_VERSION = "202406";
+const LINKEDIN_VERSION = "202608";
 
 export class LinkedInAdapter extends BasePlatformAdapter {
   platform = Platform.LINKEDIN;
