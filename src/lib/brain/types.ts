@@ -97,12 +97,42 @@ export interface BrainHealth {
   suggestions: BrainHealthItem[];
 }
 
+/** Every tool the platform can offer an agent. */
+export const TOOL_NAMES = [
+  // read
+  "search_brain",
+  "get_brand_profile",
+  "get_social_accounts",
+  "get_social_analytics",
+  "get_recent_posts",
+  "search_content_library",
+  "get_calendar",
+  // create (reversible, in-platform)
+  "generate_content",
+  "create_draft_post",
+  "draft_reply",
+  "create_campaign_draft",
+  "create_schedule_draft",
+  "save_brain_memory",
+  "generate_image",
+  // outward-facing or destructive — all require confirmation
+  "publish_post",
+  "schedule_post",
+  "reply_comment",
+  "generate_video",
+  "send_email",
+  "create_automation",
+] as const;
+
+export type ToolName = (typeof TOOL_NAMES)[number];
+
 /** What an agent is allowed to do, expressed as tool names it may call. */
 export interface AgentToolPermissions {
-  allowed: string[];
+  allowed: ToolName[];
   /** Tools the agent may propose but that always require user confirmation. */
-  requiresConfirmation: string[];
+  requiresConfirmation: ToolName[];
 }
+
 
 export interface AgentCharter {
   slug: string;

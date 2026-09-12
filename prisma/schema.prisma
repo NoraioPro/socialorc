@@ -56,10 +56,12 @@ model User {
   posts           Post[]
   mediaAssets     MediaAsset[]
 
-  // OrcBrain relations
+  // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
+  // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
+  // rather than a relation that would tie a user's deletion to the workspace's
+  // knowledge.
   workspaceMembers WorkspaceMember[]
   conversations   Conversation[]
-  brainSources    BrainSource[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -12,6 +12,7 @@ import { test } from "node:test";
 
 import {
   AiNotConfiguredError,
+  AiRequestError,
   activeModelName,
   embedWithPlan,
   isAiConfigured,
@@ -387,9 +388,10 @@ test("maxChunks bounds how much one source can add to retrieval", async () => {
 });
 
 test("a configured provider that cannot be reached throws instead of returning zeros", async () => {
-  // Key present + embedding model set takes the provider path; the SDK is not
-  // installed in the verification harness, so this must surface as a typed error
-  // rather than silently degrading to placeholder vectors.
+  // The property that matters: a configured provider that fails must surface a
+  // typed error, never silently return placeholder vectors. The message depends
+  // on the environment (missing SDK, 401, network), so assert the type rather
+  // than a vendor string.
   await assert.rejects(
     () =>
       embedWithPlan(["text"], {
@@ -397,8 +399,11 @@ test("a configured provider that cannot be reached throws instead of returning z
         AI_EMBED_MODEL: "text-embedding-3-small",
       } as unknown as NodeJS.ProcessEnv),
     (error: unknown) => {
-      assert.ok(error instanceof Error);
-      assert.match((error as Error).message, /not installed|rejected|Cannot find/i);
+      assert.ok(
+        error instanceof AiRequestError || error instanceof AiNotConfiguredError,
+        `expected a typed AI error, got ${String(error)}`,
+      );
+      assert.ok((error as Error).message.length > 0);
       return true;
     },
   );
