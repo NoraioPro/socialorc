@@ -33,9 +33,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
 # vercel
 .vercel
 
@@ -49,5 +46,10 @@ next-env.d.ts
 dev.db
 dev.db.bak-*
 
-# keep the example template committable (the rule above hides .env*)
-!.env.example
+# Real environment files must never be committed: .env holds the database
+# password and .env.local the OAuth secrets. The template people copy from is
+# .env.example, which is tracked on purpose, so these are listed explicitly
+# rather than with a `.env*` glob.
+.env
+.env.local
+.env.*.local
