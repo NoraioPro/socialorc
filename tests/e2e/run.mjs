@@ -29,7 +29,26 @@ const PORT = Number(process.env.E2E_PORT || 3123);
 const BASE_URL = process.env.E2E_BASE_URL || `http://localhost:${PORT}`;
 const CRON_SECRET = process.env.E2E_CRON_SECRET || `e2e-cron-${Date.now()}`;
 const DB_FILE = process.env.E2E_DB_FILE || path.join("tests", "e2e", ".tmp", "e2e.db");
+// Postgres target for the harness. The app runs on Supabase, so the throwaway
+// database can no longer be a sqlite file: the generated Prisma client is built
+// for postgres and rejects the sqlite adapter. Point this at a LOCAL postgres
+// (the docker container is ideal) — prepareDatabase() resets it destructively.
+const TEST_DATABASE_URL = process.env.E2E_DATABASE_URL || "";
 const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_MS || 240_000);
+
+/** Never let the destructive reset below run against a hosted database. */
+function assertThrowawayDatabase(url) {
+  const hosted = /supabase\.(co|com)|pooler\.|amazonaws\.com|azure\.com|neon\.tech|render\.com|railway\.app/i;
+  if (hosted.test(url)) {
+    throw new Error(
+      "E2E_DATABASE_URL points at a hosted database " +
+        `(${url.replace(/:[^:@/]+@/, ":***@")}).\n` +
+        "This harness applies migrations and writes test rows into whatever it points at.\n" +
+        "Use a local postgres instead, e.g.\n" +
+        "  E2E_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/socialorc_e2e",
+    );
+  }
+}
 const isWindows = process.platform === "win32";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,7 +58,7 @@ function serverEnv() {
   return {
     ...process.env,
     PATH: `${nodeBinDir}${path.delimiter}${process.env.PATH ?? ""}`,
-    DATABASE_URL: `file:./${DB_FILE.split(path.sep).join("/")}`,
+    DATABASE_URL: TEST_DATABASE_URL || `file:./${DB_FILE.split(path.sep).join("/")}`,
     NODE_OPTIONS: "--dns-result-order=ipv4first",
     NODE_ENV: "development",
     NEXTAUTH_URL: BASE_URL,
@@ -55,6 +74,31 @@ function serverEnv() {
 function prepareDatabase(env) {
   fs.rmSync(TMP, { recursive: true, force: true });
   fs.mkdirSync(TMP, { recursive: true });
+
+  if (TEST_DATABASE_URL) {
+    assertThrowawayDatabase(TEST_DATABASE_URL);
+    console.log(
+      `Preparing throwaway postgres database at ${TEST_DATABASE_URL.replace(/:[^:@/]+@/, ":***@")}`,
+    );
+    // Apply the committed migrations. Deliberately NOT `db push --force-reset`:
+    // that drops every table, and Prisma refuses it for an AI agent without an
+    // explicit per-run consent string. Point E2E_DATABASE_URL at a dedicated,
+    // disposable database - a fresh one per run keeps it clean.
+    const deploy = spawnSync("npx prisma migrate deploy", {
+      cwd: ROOT,
+      env,
+      shell: true,
+      encoding: "utf8",
+    });
+    if (deploy.status !== 0) {
+      console.error(deploy.stdout ?? "");
+      console.error(deploy.stderr ?? "");
+      throw new Error(`prisma migrate deploy failed with exit code ${deploy.status}`);
+    }
+    console.log("Postgres migrations applied");
+    return;
+  }
+
   console.log(`Preparing throwaway database at ${DB_FILE}`);
   const push = spawnSync("npx prisma db push", {
     cwd: ROOT,

@@ -25,6 +25,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import CryptoJS from "crypto-js";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,24 @@ const TMP = path.join(HERE, ".tmp");
 const PORT = Number(process.env.E2E_DURABILITY_PORT || 3124);
 const BASE_URL = `http://localhost:${PORT}`;
 const DB_FILE = "tests/e2e/.tmp/durability.db";
+// Postgres target (see run.mjs). The generated client is built for postgres now,
+// so a sqlite file can no longer back this suite. prepareDatabase() resets it
+// destructively, hence the guard below.
+const TEST_DATABASE_URL = process.env.E2E_DATABASE_URL || "";
 const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_MS || 240_000);
+
+/** Never let the destructive reset below run against a hosted database. */
+function assertThrowawayDatabase(url) {
+  const hosted = /supabase\.(co|com)|pooler\.|amazonaws\.com|azure\.com|neon\.tech|render\.com|railway\.app/i;
+  if (hosted.test(url)) {
+    throw new Error(
+      "E2E_DATABASE_URL points at a hosted database " +
+        `(${url.replace(/:[^:@/]+@/, ":***@")}).\n` +
+        "This harness applies migrations and writes test rows into whatever it points at.\n" +
+        "Use a local postgres instead.",
+    );
+  }
+}
 const isWindows = process.platform === "win32";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,7 +86,7 @@ function serverEnv(extra = {}) {
   return {
     ...process.env,
     PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ""}`,
-    DATABASE_URL: `file:./${DB_FILE.split(path.sep).join("/")}`,
+    DATABASE_URL: TEST_DATABASE_URL || `file:./${DB_FILE.split(path.sep).join("/")}`,
     NODE_OPTIONS: "--dns-result-order=ipv4first",
     NODE_ENV: "development",
     NEXTAUTH_URL: BASE_URL,
@@ -83,14 +101,38 @@ function serverEnv(extra = {}) {
 }
 
 function dbClient() {
+  // Match the adapter to the URL scheme, exactly as src/lib/prisma.ts does: the
+  // sqlite adapter cannot open a postgres URL, nor the postgres adapter a file:.
+  const url = TEST_DATABASE_URL || `file:./${DB_FILE.split(path.sep).join("/")}`;
   return new PrismaClient({
-    adapter: new PrismaBetterSqlite3({ url: `file:./${DB_FILE.split(path.sep).join("/")}` }),
+    adapter: /^postgres(ql)?:\/\//i.test(url)
+      ? new PrismaPg({ connectionString: url })
+      : new PrismaBetterSqlite3({ url }),
   });
 }
 
 function prepareDatabase(env) {
   fs.rmSync(TMP, { recursive: true, force: true });
   fs.mkdirSync(TMP, { recursive: true });
+
+  if (TEST_DATABASE_URL) {
+    assertThrowawayDatabase(TEST_DATABASE_URL);
+    // Apply the committed migrations rather than `migrate reset`: the reset is
+    // destructive and Prisma refuses it for an AI agent without an explicit
+    // per-run consent string. A dedicated throwaway database stays clean anyway.
+    const deploy = spawnSync("npx prisma migrate deploy", {
+      cwd: ROOT,
+      env,
+      shell: true,
+      encoding: "utf8",
+    });
+    if (deploy.status !== 0) {
+      console.error(deploy.stdout ?? "", deploy.stderr ?? "");
+      throw new Error(`prisma migrate deploy failed (${deploy.status})`);
+    }
+    return;
+  }
+
   // Apply the committed migrations rather than pushing the schema, so every run
   // of this suite also proves the migration baseline works on an empty database.
   const deploy = spawnSync("npx prisma migrate deploy", { cwd: ROOT, env, shell: true, encoding: "utf8" });
