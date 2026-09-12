@@ -368,7 +368,7 @@ function SettingsContent() {
           <p className="settings-note">Notification preferences (approval requests, publish failures, weekly summaries) are not available yet — nothing is emailed or pushed on your behalf today.</p>
         </Panel>}
         {active === "billing" && <Panel id="billing" title="Billing" subtitle="Plan, usage and payment method." icon={<CreditCard size={18} />}>
-          <p className="settings-note">SocialOrc does not have a paid plan yet — there is nothing to bill, and no payment method is stored.</p>
+          <p className="settings-note">SocialOrk does not have a paid plan yet — there is nothing to bill, and no payment method is stored.</p>
         </Panel>}
         {active === "security" && <Panel id="security" title="Security" subtitle="Account access and data ownership." icon={<ShieldCheck size={18} />}>
           <div className="settings-security-row"><LockKeyhole size={14} /><span>Account session</span><strong>Signed in</strong></div>

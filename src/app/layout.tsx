@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SocialOrc - Smart Social Media Scheduling",
+  title: "SocialOrk - Smart Social Media Scheduling",
   description: "Draft, approve, and schedule social media content across all your platforms with AI assistance.",
 };
 

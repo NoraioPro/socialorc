@@ -163,7 +163,7 @@ export default function LoginPage() {
           </div>
         </div>
         <CardTitle className="text-2xl">Welcome back</CardTitle>
-        <CardDescription>Sign in to your SocialOrc account</CardDescription>
+        <CardDescription>Sign in to your SocialOrk account</CardDescription>
       </CardHeader>
 
       <Suspense fallback={<LoginFormFallback />}>

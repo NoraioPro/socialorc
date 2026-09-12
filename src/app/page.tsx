@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { OrcMark } from "@/components/icons/orc-mark";
-import { ArrowRight, ArrowUpRight, CalendarDays, Layers3, Sparkles, ShieldCheck } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarDays, Sparkles, ShieldCheck } from "lucide-react";
 import { LinkedInIcon, TwitterIcon, InstagramIcon, FacebookIcon, YouTubeIcon, TikTokIcon } from "@/components/icons/platform-icons";
 import { CharacterCrew } from "@/components/landing/character-crew";
+import { BrandLogo } from "@/components/brand-logo";
 
 const platforms = [
   { name: "Instagram", Icon: InstagramIcon }, { name: "LinkedIn", Icon: LinkedInIcon },
@@ -20,7 +20,7 @@ export default function HomePage() {
     <div className="landing">
       <a href="#main-content" className="skip-link">Skip to content</a>
       <header className="site-header site-width">
-        <Link href="/" className="brand"><span className="brand-mark"><OrcMark className="h-9 w-8" /></span>SocialOrc<span className="brand-dot">.</span></Link>
+        <BrandLogo />
         <nav aria-label="Main navigation" className="site-nav"><a href="#how-it-works">How it works</a><a href="#platforms">Platforms</a></nav>
         <div className="header-actions"><Link href="/login" className="sign-in">Sign in</Link><Link href="/register" className="cta cta-small">Get started <ArrowUpRight size={16} /></Link></div>
       </header>
@@ -34,14 +34,14 @@ export default function HomePage() {
             <p className="hero-note"><ShieldCheck size={15} /> Nothing goes live without your approval.</p>
           </div>
           <div className="orc-hero" role="img" aria-label="Orc commander overlooking a dark emerald mountain citadel">
-            <div className="orc-hero-content"><span>SocialOrc intelligence</span><h2>Good content conquers.</h2><p>Your strategy. Your voice. AI at your side.<br />Nothing publishes without your approval.</p></div>
+            <div className="orc-hero-content"><span>SocialOrk intelligence</span><h2>Good content conquers.</h2><p>Your strategy. Your voice. AI at your side.<br />Nothing publishes without your approval.</p></div>
           </div>        </section>
         <section id="platforms" className="platform-section site-width"><p>ALL YOUR FAVORITE CHANNELS, FINALLY TOGETHER</p><div className="platform-list">{platforms.map(({name, Icon}) => <div key={name}><Icon className="h-5 w-5" /><span>{name}</span></div>)}</div></section>
         <section id="how-it-works" className="workflow site-width"><div className="section-heading"><div><span className="eyebrow">FROM FIRST THOUGHT TO FEED</span><h2>Your content.<br />A stronger strategy.</h2></div><p>Less tab-hopping. More making.<br />Give your content a place to come together.</p></div><div className="workflow-grid">{steps.map(({number, Icon, title, text}) => <article key={number}><div className="step-top"><Icon size={23} /><span>{number}</span></div><h3>{title}</h3><p>{text}</p></article>)}</div></section>
         <CharacterCrew />
         <section className="closing site-width"><div><span className="eyebrow">MAKE ROOM FOR YOUR NEXT BIG IDEA</span><h2>Your next campaign<br />starts here.</h2></div><Link href="/register" className="cta cta-light">Forge your first post <ArrowUpRight size={18} /></Link></section>
       </main>
-      <footer className="site-footer site-width"><Link href="/" className="brand"><Layers3 size={20} /> SocialOrc.</Link><p>Thoughtfully planned. Confidently published.</p><span>© {new Date().getFullYear()} SocialOrc</span></footer>
+      <footer className="site-footer site-width"><BrandLogo compact /><p>Thoughtfully planned. Confidently published.</p><span>© {new Date().getFullYear()} SocialOrk</span></footer>
     </div>
   );
 }
