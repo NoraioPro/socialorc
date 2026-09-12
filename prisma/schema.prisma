@@ -63,6 +63,11 @@ model User {
   workspaceMembers WorkspaceMember[]
   conversations   Conversation[]
 
+  // SocialOrc Network relations
+  nativePosts            NativePost[]
+  friendRequestsSent     Friendship[] @relation("FriendshipRequester")
+  friendRequestsReceived Friendship[] @relation("FriendshipAddressee")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -605,3 +610,47 @@ model AiAgent {
   @@index([slug])
 }
 
+
+// ---------------------------------------------------------------------------
+// SocialOrc Network — the native social layer (timeline + friendships)
+//
+// Posts are authored by a *user*, not a workspace: the network is platform-wide,
+// unlike OrcBrain which is per-workspace. Visibility is enforced in the timeline
+// query (src/lib/network/timeline.ts), never in the UI.
+// ---------------------------------------------------------------------------
+
+model NativePost {
+  id          String   @id @default(cuid())
+  authorId    String
+  body        String
+  /** PUBLIC | CONNECTIONS | PRIVATE */
+  visibility  String   @default("PUBLIC")
+  /** Soft delete: gone from every timeline, still auditable. */
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt, id])
+  @@index([authorId, createdAt])
+}
+
+/** A mutual friendship: one row per pair, recording who asked whom. */
+model Friendship {
+  id          String   @id @default(cuid())
+  requesterId String
+  addresseeId String
+  /** PENDING | ACCEPTED | DECLINED | BLOCKED */
+  status      String   @default("PENDING")
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+}
