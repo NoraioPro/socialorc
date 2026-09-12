@@ -2,6 +2,7 @@ import Link from "next/link";
 import { OrcMark } from "@/components/icons/orc-mark";
 import { ArrowRight, ArrowUpRight, CalendarDays, Layers3, Sparkles, ShieldCheck } from "lucide-react";
 import { LinkedInIcon, TwitterIcon, InstagramIcon, FacebookIcon, YouTubeIcon, TikTokIcon } from "@/components/icons/platform-icons";
+import { CharacterCrew } from "@/components/landing/character-crew";
 
 const platforms = [
   { name: "Instagram", Icon: InstagramIcon }, { name: "LinkedIn", Icon: LinkedInIcon },
@@ -37,7 +38,7 @@ export default function HomePage() {
           </div>        </section>
         <section id="platforms" className="platform-section site-width"><p>ALL YOUR FAVORITE CHANNELS, FINALLY TOGETHER</p><div className="platform-list">{platforms.map(({name, Icon}) => <div key={name}><Icon className="h-5 w-5" /><span>{name}</span></div>)}</div></section>
         <section id="how-it-works" className="workflow site-width"><div className="section-heading"><div><span className="eyebrow">FROM FIRST THOUGHT TO FEED</span><h2>Your content.<br />A stronger strategy.</h2></div><p>Less tab-hopping. More making.<br />Give your content a place to come together.</p></div><div className="workflow-grid">{steps.map(({number, Icon, title, text}) => <article key={number}><div className="step-top"><Icon size={23} /><span>{number}</span></div><h3>{title}</h3><p>{text}</p></article>)}</div></section>
-        <section className="character-showcase site-width" aria-labelledby="crew-title"><div className="section-heading"><div><span className="eyebrow">MEET YOUR CREATIVE CREW</span><h2 id="crew-title">One command center.<br />A specialist for every channel.</h2></div><p>Six distinct voices. One shared brand brain. Your content feels native everywhere it lands.</p></div><div className="character-grid">{[{img:'instanova.png',platform:'INSTAGRAM',name:'InstaNova',line:'Make every scroll stop.'},{img:'tokster.png',platform:'TIKTOK',name:'TokSter',line:'Turn trends into momentum.'},{img:'tubethor.png',platform:'YOUTUBE',name:'TubeThor',line:'Build stories people remember.'},{img:'linkluna.png',platform:'LINKEDIN',name:'LinkLuna',line:'Connect ideas to opportunity.'},{img:'xeno.png',platform:'X / TWITTER',name:'Xeno',line:'Join the conversation.'},{img:'orci.png',platform:'SOCIALORC',name:'Orci',line:'Grow a brighter community.'}].map((c)=><article key={c.name} className="character-card"><img src={`/characters/${c.img}`} alt={`${c.name}, SocialOrc ${c.platform} specialist`} /><div><span>{c.platform}</span><h3>{c.name}</h3><p>{c.line}</p></div></article>)}</div><Link href="/register" className="text-link character-link">Meet the full crew <ArrowRight size={16} /></Link></section>
+        <CharacterCrew />
         <section className="closing site-width"><div><span className="eyebrow">MAKE ROOM FOR YOUR NEXT BIG IDEA</span><h2>Your next campaign<br />starts here.</h2></div><Link href="/register" className="cta cta-light">Forge your first post <ArrowUpRight size={18} /></Link></section>
       </main>
       <footer className="site-footer site-width"><Link href="/" className="brand"><Layers3 size={20} /> SocialOrc.</Link><p>Thoughtfully planned. Confidently published.</p><span>© {new Date().getFullYear()} SocialOrc</span></footer>
