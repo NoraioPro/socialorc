@@ -52,7 +52,39 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+/**
+ * A menu label.
+ *
+ * Base UI's `Menu.GroupLabel` reads `MenuGroupContext` and throws
+ * "MenuGroupContext is missing" when it is rendered outside a `Menu.Group` —
+ * which is exactly how a plain label is normally used, and how the header's
+ * account menu used it (a live runtime error on every page that renders the
+ * header). A label is presentational, so it renders a plain element here; use
+ * `DropdownMenuGroupLabel` inside a `DropdownMenuGroup` when the group should
+ * be associated with its label for assistive technology.
+ */
 function DropdownMenuLabel({
+  className,
+  inset,
+  ...props
+}: React.ComponentProps<"div"> & {
+  inset?: boolean
+}) {
+  return (
+    <div
+      data-slot="dropdown-menu-label"
+      data-inset={inset}
+      className={cn(
+        "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/** `Menu.GroupLabel`, for use inside `DropdownMenuGroup` (needs the group context). */
+function DropdownMenuGroupLabel({
   className,
   inset,
   ...props
@@ -61,7 +93,7 @@ function DropdownMenuLabel({
 }) {
   return (
     <MenuPrimitive.GroupLabel
-      data-slot="dropdown-menu-label"
+      data-slot="dropdown-menu-group-label"
       data-inset={inset}
       className={cn(
         "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7",
@@ -255,6 +287,7 @@ export {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
+  DropdownMenuGroupLabel,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,

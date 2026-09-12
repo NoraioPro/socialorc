@@ -1,174 +1,46 @@
 import Link from "next/link";
-import { CheckCircle2, Calendar, Wand2, Shield } from "lucide-react";
-import { 
-  LinkedInIcon, 
-  TwitterIcon, 
-  InstagramIcon, 
-  FacebookIcon, 
-  YouTubeIcon, 
-  TikTokIcon 
-} from "@/components/icons/platform-icons";
+import { OrcMark } from "@/components/icons/orc-mark";
+import { ArrowRight, ArrowUpRight, CalendarDays, Layers3, Sparkles, ShieldCheck } from "lucide-react";
+import { LinkedInIcon, TwitterIcon, InstagramIcon, FacebookIcon, YouTubeIcon, TikTokIcon } from "@/components/icons/platform-icons";
+
+const platforms = [
+  { name: "Instagram", Icon: InstagramIcon }, { name: "LinkedIn", Icon: LinkedInIcon },
+  { name: "TikTok", Icon: TikTokIcon }, { name: "YouTube", Icon: YouTubeIcon },
+  { name: "Facebook", Icon: FacebookIcon }, { name: "X / Twitter", Icon: TwitterIcon },
+];
+const steps = [
+  { number: "01", Icon: Sparkles, title: "Start with a spark.", text: "Turn one idea into drafts tailored to each platform. Let AI help you find the words." },
+  { number: "02", Icon: ShieldCheck, title: "Make it yours.", text: "Fine-tune your message and approve every post. Your voice. Your final say." },
+  { number: "03", Icon: CalendarDays, title: "Find your rhythm.", text: "Choose when to publish and keep your content moving, across all your channels." },
+];
 
 export default function HomePage() {
   return (
-    <div className="flex flex-col min-h-screen">
-      <header className="border-b">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-              S
-            </div>
-            <span className="text-xl font-bold">SocialOrc</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link 
-              href="/login"
-              className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
-            >
-              Sign in
-            </Link>
-            <Link 
-              href="/register"
-              className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Get Started
-            </Link>
-          </div>
-        </div>
+    <div className="landing">
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <header className="site-header site-width">
+        <Link href="/" className="brand"><span className="brand-mark"><OrcMark className="h-9 w-8" /></span>SocialOrc<span className="brand-dot">.</span></Link>
+        <nav aria-label="Main navigation" className="site-nav"><a href="#how-it-works">How it works</a><a href="#platforms">Platforms</a></nav>
+        <div className="header-actions"><Link href="/login" className="sign-in">Sign in</Link><Link href="/register" className="cta cta-small">Get started <ArrowUpRight size={16} /></Link></div>
       </header>
-
-      <main className="flex-1">
-        <section className="py-20 px-4">
-          <div className="container mx-auto max-w-4xl text-center">
-            <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-              Smart Social Media Scheduling with{" "}
-              <span className="text-primary">Human Approval</span>
-            </h1>
-            <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-              Draft content with AI assistance, review and approve before publishing, 
-              and schedule posts across all your platforms. Nothing goes live without your explicit approval.
-            </p>
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link 
-                href="/register"
-                className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                Start Free
-              </Link>
-              <Link 
-                href="/login"
-                className="inline-flex items-center justify-center rounded-lg border px-6 py-3 text-base font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
-              >
-                Sign In
-              </Link>
-            </div>
+      <main id="main-content">
+        <section className="hero site-width">
+          <div className="hero-copy">
+            <div className="eyebrow"><span className="status-dot" /> STRATEGY. CREATIVITY. GROWTH.</div>
+            <h1>Forge content.<br />Command your<br /><span>social empire.</span></h1>
+            <p className="hero-description">Your command center for AI-powered content. Draft with purpose, approve with confidence, and schedule across your social channels.</p>
+            <div className="hero-actions"><Link href="/dashboard" className="cta">Enter the command center <ArrowRight size={18} /></Link><a href="#how-it-works" className="text-link">See how it works <ArrowDownIcon /></a></div>
+            <p className="hero-note"><ShieldCheck size={15} /> Nothing goes live without your approval.</p>
           </div>
-        </section>
-
-        <section className="py-16 px-4 bg-muted/50">
-          <div className="container mx-auto max-w-6xl">
-            <h2 className="text-center text-2xl font-bold mb-12">
-              One Platform for All Your Social Media
-            </h2>
-            <div className="flex flex-wrap items-center justify-center gap-8">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <LinkedInIcon className="h-8 w-8 text-[#0A66C2]" />
-                <span className="font-medium">LinkedIn</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <TwitterIcon className="h-8 w-8" />
-                <span className="font-medium">X (Twitter)</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <InstagramIcon className="h-8 w-8 text-[#E4405F]" />
-                <span className="font-medium">Instagram</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <FacebookIcon className="h-8 w-8 text-[#1877F2]" />
-                <span className="font-medium">Facebook</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <YouTubeIcon className="h-8 w-8 text-[#FF0000]" />
-                <span className="font-medium">YouTube</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <TikTokIcon className="h-8 w-8" />
-                <span className="font-medium">TikTok</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-20 px-4">
-          <div className="container mx-auto max-w-6xl">
-            <h2 className="text-center text-3xl font-bold mb-12">
-              How It Works
-            </h2>
-            <div className="grid md:grid-cols-4 gap-8">
-              <div className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                  <Wand2 className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-2">1. Draft with AI</h3>
-                <p className="text-sm text-muted-foreground">
-                  Describe your idea and get platform-optimized content variants instantly
-                </p>
-              </div>
-              <div className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                  <CheckCircle2 className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-2">2. Review & Approve</h3>
-                <p className="text-sm text-muted-foreground">
-                  Edit, refine, and explicitly approve each post before it can be scheduled
-                </p>
-              </div>
-              <div className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                  <Calendar className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-2">3. Schedule</h3>
-                <p className="text-sm text-muted-foreground">
-                  Pick the perfect time with best-time suggestions for each platform
-                </p>
-              </div>
-              <div className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                  <Shield className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-2">4. Publish Safely</h3>
-                <p className="text-sm text-muted-foreground">
-                  Your content publishes automatically at the scheduled time
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-20 px-4 bg-muted/50">
-          <div className="container mx-auto max-w-4xl text-center">
-            <h2 className="text-3xl font-bold mb-6">
-              Ready to Take Control?
-            </h2>
-            <p className="text-lg text-muted-foreground mb-8">
-              Stop worrying about accidental posts. SocialOrc ensures nothing 
-              goes live without your explicit approval.
-            </p>
-            <Link 
-              href="/register"
-              className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Get Started Free
-            </Link>
-          </div>
-        </section>
+          <div className="orc-hero" role="img" aria-label="Orc commander overlooking a dark emerald mountain citadel">
+            <div className="orc-hero-content"><span>SocialOrc intelligence</span><h2>Good content conquers.</h2><p>Your strategy. Your voice. AI at your side.<br />Nothing publishes without your approval.</p></div>
+          </div>        </section>
+        <section id="platforms" className="platform-section site-width"><p>ALL YOUR FAVORITE CHANNELS, FINALLY TOGETHER</p><div className="platform-list">{platforms.map(({name, Icon}) => <div key={name}><Icon className="h-5 w-5" /><span>{name}</span></div>)}</div></section>
+        <section id="how-it-works" className="workflow site-width"><div className="section-heading"><div><span className="eyebrow">FROM FIRST THOUGHT TO FEED</span><h2>Your content.<br />A stronger strategy.</h2></div><p>Less tab-hopping. More making.<br />Give your content a place to come together.</p></div><div className="workflow-grid">{steps.map(({number, Icon, title, text}) => <article key={number}><div className="step-top"><Icon size={23} /><span>{number}</span></div><h3>{title}</h3><p>{text}</p></article>)}</div></section>
+        <section className="closing site-width"><div><span className="eyebrow">MAKE ROOM FOR YOUR NEXT BIG IDEA</span><h2>Your next campaign<br />starts here.</h2></div><Link href="/register" className="cta cta-light">Forge your first post <ArrowUpRight size={18} /></Link></section>
       </main>
-
-      <footer className="border-t py-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} SocialOrc. All rights reserved.</p>
-        </div>
-      </footer>
+      <footer className="site-footer site-width"><Link href="/" className="brand"><Layers3 size={20} /> SocialOrc.</Link><p>Thoughtfully planned. Confidently published.</p><span>© {new Date().getFullYear()} SocialOrc</span></footer>
     </div>
   );
 }
+function ArrowDownIcon() { return <ArrowRight size={16} className="rotate-90" />; }

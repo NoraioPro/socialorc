@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OrcMark } from "@/components/icons/orc-mark";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -8,7 +9,7 @@ import {
   FileEdit,
   Clock,
   CheckSquare,
-  CalendarDays,
+
   Settings,
   LogOut,
 } from "lucide-react";
@@ -18,34 +19,37 @@ import { Separator } from "@/components/ui/separator";
 import { platformIcons } from "@/components/icons/platform-icons";
 
 const mainNav = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Create", href: "/dashboard/create", icon: FileEdit },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
   { name: "Scheduled", href: "/dashboard/scheduled", icon: Clock },
-  { name: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
+
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-card">
-      <div className="flex h-16 items-center border-b px-6">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            S
+    <div className="app-sidebar flex h-full w-64 flex-col border-r bg-card">
+      <div className="flex h-[88px] shrink-0 items-center border-b px-6">
+        <Link href="/dashboard" aria-label="SocialOrc dashboard" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg font-bold">
+            <OrcMark className="h-9 w-8 text-primary" />
           </div>
-          <span className="text-xl font-bold">SocialOrc</span>
+          <span className="sidebar-wordmark text-xl font-bold tracking-tight">SocialOrc</span>
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav aria-label="Workspace navigation" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-5">
         {mainNav.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
           return (
             <Link
               key={item.name}
               href={item.href}
+              aria-label={item.name}
+              aria-current={isActive ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
@@ -54,14 +58,14 @@ export function Sidebar() {
               )}
             >
               <item.icon className="h-4 w-4" />
-              {item.name}
+              <span className="nav-label">{item.name}</span>
             </Link>
           );
         })}
 
         <Separator className="my-4" />
 
-        <div className="px-3 py-2">
+        <div className="sidebar-label px-3 py-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Platforms
           </p>
@@ -70,7 +74,8 @@ export function Sidebar() {
         {Object.entries(platformIcons).map(([platform, Icon]) => (
           <Link
             key={platform}
-            href={`/dashboard/platform/${platform.toLowerCase()}`}
+            href="/settings/accounts"
+            aria-label={`Connect ${platform}`}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               pathname === `/dashboard/platform/${platform.toLowerCase()}`
@@ -79,14 +84,16 @@ export function Sidebar() {
             )}
           >
             <Icon className="h-4 w-4" />
-            {platform === "TWITTER" ? "X (Twitter)" : platform.charAt(0) + platform.slice(1).toLowerCase()}
+            <span className="nav-label">{platform === "TWITTER" ? "X (Twitter)" : platform.charAt(0) + platform.slice(1).toLowerCase()}</span>
           </Link>
         ))}
       </nav>
 
+      <div className="sidebar-motto">Good content conquers.<small>Let AI do the heavy lifting.</small></div>
       <div className="border-t p-3">
         <Link
           href="/settings/accounts"
+          aria-label="Settings"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
             pathname.startsWith("/settings")
@@ -95,15 +102,16 @@ export function Sidebar() {
           )}
         >
           <Settings className="h-4 w-4" />
-          Settings
+          <span className="nav-label">Settings</span>
         </Link>
         <Button
+          aria-label="Sign out"
           variant="ghost"
           className="w-full justify-start gap-3 px-3 text-muted-foreground hover:text-destructive"
           onClick={() => signOut({ callbackUrl: "/login" })}
         >
           <LogOut className="h-4 w-4" />
-          Sign out
+          <span className="nav-label">Sign out</span>
         </Button>
       </div>
     </div>
