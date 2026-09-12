@@ -1,6 +1,29 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter } from "./base";
-import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
+import {
+  OAuthTokens,
+  AccountInfo,
+  PostOptions,
+  PostResult,
+  ListCommentsOptions,
+  ListCommentsResult,
+  WriteCommentOptions,
+  ReplyToCommentOptions,
+  DeleteCommentOptions,
+  ReactToPostOptions,
+  UnreactToPostOptions,
+  ReactToCommentOptions,
+  UnreactToCommentOptions,
+  EngagementResult,
+} from "@/types/platform";
+import {
+  mockCreateComment,
+  mockDeleteComment,
+  mockFindComment,
+  mockListComments,
+  mockReact,
+  mockReactToPost,
+} from "./mock-engagement-store";
 
 /**
  * Mock adapter for development and testing.
@@ -83,6 +106,92 @@ export class MockAdapter extends BasePlatformAdapter {
         timestamp: new Date().toISOString(),
       },
     };
+  }
+
+  async listComments(
+    _accessToken: string,
+    options: ListCommentsOptions,
+  ): Promise<ListCommentsResult> {
+    const limit = options.limit ?? 25;
+    const page = mockListComments(
+      this.platform,
+      options.platformPostId,
+      options.cursor,
+      limit,
+    );
+    return { success: true, items: page.items, nextCursor: page.nextCursor };
+  }
+
+  async createComment(
+    _accessToken: string,
+    options: WriteCommentOptions,
+  ): Promise<EngagementResult> {
+    const comment = mockCreateComment(this.platform, options.platformPostId, options.text);
+    return { success: true, commentId: comment.id };
+  }
+
+  async replyToComment(
+    _accessToken: string,
+    options: ReplyToCommentOptions,
+  ): Promise<EngagementResult> {
+    const parent = mockFindComment(this.platform, options.commentId);
+    const platformPostId = options.platformPostId ?? parent?.platformPostId;
+    if (!platformPostId) {
+      return { success: false, error: "platformPostId is required when the parent comment is unknown" };
+    }
+    const comment = mockCreateComment(
+      this.platform,
+      platformPostId,
+      options.text,
+      options.commentId,
+    );
+    return { success: true, commentId: comment.id };
+  }
+
+  async deleteComment(
+    _accessToken: string,
+    options: DeleteCommentOptions,
+  ): Promise<EngagementResult> {
+    const found = mockFindComment(this.platform, options.commentId);
+    if (!found) {
+      return { success: false, error: "Comment not found" };
+    }
+    const ok = mockDeleteComment(this.platform, found.platformPostId, options.commentId);
+    return ok ? { success: true } : { success: false, error: "Comment not found" };
+  }
+
+  async reactToPost(
+    _accessToken: string,
+    options: ReactToPostOptions,
+  ): Promise<EngagementResult> {
+    mockReactToPost(this.platform, options.platformPostId, options.kind, true);
+    return { success: true };
+  }
+
+  async unreactToPost(
+    _accessToken: string,
+    options: UnreactToPostOptions,
+  ): Promise<EngagementResult> {
+    const kind = options.kind ?? "like";
+    mockReactToPost(this.platform, options.platformPostId, kind, false);
+    return { success: true };
+  }
+
+  async reactToComment(
+    _accessToken: string,
+    options: ReactToCommentOptions,
+  ): Promise<EngagementResult> {
+    const ok = mockReact(this.platform, options.commentId, options.kind, true);
+    return ok ? { success: true } : { success: false, error: "Comment not found" };
+  }
+
+  async unreactToComment(
+    _accessToken: string,
+    options: UnreactToCommentOptions,
+  ): Promise<EngagementResult> {
+    const kind = options.kind ?? "like";
+    const ok = mockReact(this.platform, options.commentId, kind, false);
+    return ok ? { success: true } : { success: false, error: "Comment not found" };
   }
 }
 

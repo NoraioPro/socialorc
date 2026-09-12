@@ -42,6 +42,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DEAD_API_BASE = process.env.E2E_DEAD_API_BASE || "http://127.0.0.1:9";
 const REAL_API_BASE = "https://api.telegram.org";
 
+// How far ahead `injectPost` schedules. Must exceed Next dev's cold route
+// compilation or /schedule 400s before the post is even scheduled.
+const SCHEDULE_LEAD_MS = Number(process.env.E2E_SCHEDULE_LEAD_MS || 6000);
+
 const ENCRYPTION_KEY = `durability-key-${Date.now()}`;
 const CRON_SECRET = `durability-cron-${Date.now()}`;
 
@@ -99,7 +103,17 @@ function prepareDatabase(env) {
 async function withServer(extraEnv, fn) {
   const env = serverEnv(extraEnv);
   prepareDatabase(env);
-  const server = spawn("npx", ["next", "dev", "-p", String(PORT)], { cwd: ROOT, env, shell: true });
+  // `detached` gives the child its own process group on POSIX so cleanup can
+  // signal the whole tree (sh -> npx -> next dev). Without it, SIGTERM only
+  // reaches the `sh -c` wrapper and `next dev` survives; the survivor then
+  // makes the NEXT case's server fail Next 16's one-dev-server-per-directory
+  // rule, which reads as a mysterious `fetch failed` in the following case.
+  const server = spawn("npx", ["next", "dev", "-p", String(PORT)], {
+    cwd: ROOT,
+    env,
+    shell: true,
+    detached: !isWindows,
+  });
   let log = "";
   server.stdout?.on("data", (d) => (log += d.toString()));
   server.stderr?.on("data", (d) => (log += d.toString()));
@@ -131,10 +145,72 @@ async function withServer(extraEnv, fn) {
   try {
     return await fn();
   } finally {
-    if (server.exitCode === null) {
-      if (isWindows) spawnSync("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore" });
-      else server.kill("SIGTERM");
+    await stopServer(server);
+  }
+}
+
+/**
+ * Tear a dev server down completely.
+ *
+ * `next dev` forks `next-server` into its OWN process group, so neither the
+ * wrapper exiting nor a signal to the wrapper's group reliably reaches it. A
+ * surviving `next-server` keeps `.next/dev/lock`, and that lock is per
+ * DIRECTORY, not per port — so one leak makes every later `next dev` in this
+ * repo refuse to start (the next case here, and the sibling e2e harness even on
+ * a different port). Hence: kill the group, kill the pid Next recorded in its
+ * own lock file, wait for the port to release, then drop the lock.
+ */
+async function stopServer(server) {
+  if (!server) return;
+
+  const lockPath = path.join(ROOT, ".next", "dev", "lock");
+  let lockPid = null;
+  try {
+    lockPid = JSON.parse(fs.readFileSync(lockPath, "utf8")).pid ?? null;
+  } catch {
+    /* no lock file — nothing recorded */
+  }
+
+  const kill = (pid) => {
+    if (!pid || Number.isNaN(pid)) return;
+    try {
+      if (isWindows) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      else process.kill(pid, "SIGKILL");
+    } catch {
+      /* already gone */
     }
+  };
+
+  if (server.exitCode === null) {
+    if (isWindows) {
+      kill(server.pid);
+    } else {
+      // Negative pid = the process group created by `detached`.
+      try {
+        process.kill(-server.pid, "SIGKILL");
+      } catch {
+        kill(server.pid);
+      }
+    }
+  }
+  kill(lockPid);
+
+  if (!isWindows) {
+    // Wait until the port actually frees, or the next case races a dying server.
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      const res = spawnSync("sh", ["-c", `lsof -ti tcp:${PORT} 2>/dev/null`], { encoding: "utf8" });
+      const pids = (res.stdout ?? "").trim();
+      if (!pids) break;
+      for (const pid of pids.split(/\s+/)) kill(Number(pid));
+      await sleep(500);
+    }
+  }
+
+  try {
+    fs.rmSync(lockPath, { force: true });
+  } catch {
+    /* best effort */
   }
 }
 
@@ -235,11 +311,22 @@ async function injectPost(api, token, label, tokenMeta = {}) {
   });
   const id = created.json?.post?.id ?? created.json?.id;
   await api.call(`/api/posts/${id}/approve`, { method: "POST", body: { action: "approve" } });
-  await api.call(`/api/posts/${id}/schedule`, {
+  // The lead has to clear Next dev's on-demand route compilation: /schedule
+  // rejects a scheduledFor that is already past ("must be in the future"), and
+  // a cold compile of the route can easily exceed a 1.5s margin — which made
+  // whole cases fail intermittently with a still-APPROVED post. Assert instead
+  // of silently cascading, so a real regression is not mistaken for this.
+  const scheduledFor = new Date(Date.now() + SCHEDULE_LEAD_MS).toISOString();
+  const scheduled = await api.call(`/api/posts/${id}/schedule`, {
     method: "POST",
-    body: { scheduledFor: new Date(Date.now() + 1500).toISOString() },
+    body: { scheduledFor },
   });
-  await sleep(2000);
+  if (scheduled.status !== 200) {
+    throw new Error(
+      `injectPost(${label}): /schedule failed (${scheduled.status}) ${JSON.stringify(scheduled.json)}`,
+    );
+  }
+  await sleep(SCHEDULE_LEAD_MS + 1500);
   return id;
 }
 
