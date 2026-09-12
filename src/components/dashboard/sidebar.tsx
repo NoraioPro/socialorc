@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
+  Newspaper,
   FileEdit,
   Clock,
   CheckSquare,
@@ -20,6 +21,7 @@ import { platformIcons } from "@/components/icons/platform-icons";
 
 const mainNav = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Social Timeline", href: "/dashboard/feed", icon: Newspaper },
   { name: "Create", href: "/dashboard/create", icon: FileEdit },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },

@@ -46,6 +46,11 @@ model User {
   password      String?
   role          String    @default("ADMIN")
   timezone      String    @default("Europe/Oslo")
+  headline      String?
+  bio           String?
+  location      String?
+  website       String?
+  coverImageUrl String?
   accounts      Account[]
   sessions      Session[]
 
@@ -53,9 +58,32 @@ model User {
   socialAccounts  SocialAccount[]
   posts           Post[]
   mediaAssets     MediaAsset[]
+  brains          Brain[]
+  feedReactions   FeedReaction[]
+  feedComments    FeedComment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// A project: the container social accounts are connected into. A user can
+/// run several brains (e.g. one per brand/client), each with its own
+/// independent set of platform connections — connecting "LinkedIn" under one
+/// brain never touches another brain's LinkedIn connection.
+model Brain {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  /// The brain shown by default (e.g. auto-created on first use).
+  isDefault Boolean  @default(false)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts SocialAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model VerificationToken {
@@ -70,6 +98,9 @@ model VerificationToken {
 model SocialAccount {
   id              String   @id @default(cuid())
   userId          String
+  /// Which brain (project) this connection belongs to. Required: every
+  /// connection lives inside exactly one brain, never shared across brains.
+  brainId         String
   platform        Platform
   platformUserId  String
   platformUsername String?
@@ -88,13 +119,15 @@ model SocialAccount {
   lastSyncAt      DateTime?
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brain           Brain    @relation(fields: [brainId], references: [id], onDelete: Cascade)
   posts           Post[]
-  
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@unique([platform, platformUserId])
   @@index([userId])
+  @@index([brainId])
   @@index([platform])
 }
 
@@ -147,6 +180,8 @@ model Post {
   // Relations
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   socialAccount   SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+  feedReactions   FeedReaction[]
+  feedComments    FeedComment[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -156,6 +191,35 @@ model Post {
   @@index([platform])
   @@index([scheduledFor])
   @@index([socialAccountId])
+}
+
+model FeedReaction {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  type      String   @default("LIKE")
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+}
+
+model FeedComment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId])
+  @@index([userId])
 }
 
 enum PostStatus {
