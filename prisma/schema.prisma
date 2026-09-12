@@ -80,8 +80,21 @@ model SocialAccount {
   refreshToken    String?
   tokenExpiresAt  DateTime?
   
-  // Platform-specific metadata (JSON)
+  /** Platform-specific metadata (JSON) */
   metadata        Json?
+
+  /** Platform account kind, e.g. tiktok_creator, youtube_channel, facebook_page. */
+  accountType     String?
+  /** Parent resource the account hangs off (Facebook Page, LinkedIn organization). */
+  externalParentId String?
+  /** Granted OAuth scopes, space separated exactly as the provider returned them. */
+  scopes          String?
+  /** Last computed capability report, cached so the UI can answer without a refresh. */
+  capabilities    Json?
+  /** Expiry of the refresh token itself (TikTok: up to 365 days). */
+  refreshTokenExpiresAt DateTime?
+  /** Set when the user disconnects; kept so history and analytics survive. */
+  disconnectedAt  DateTime?
   
   isActive        Boolean  @default(true)
   lastSyncAt      DateTime?
@@ -92,6 +105,7 @@ model SocialAccount {
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   posts           Post[]
+  publishingJobs  PublishingJob[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -212,6 +226,48 @@ model PostMedia {
 }
 
 // Job queue for scheduled posts
+/**
+ * One row per publish attempt against one connected account.
+ *
+ * The queue owns *when*; the provider owns *how*. Keeping both out of `Post`
+ * means a retry, a draft upload and a direct post can all point at the same
+ * piece of content without rewriting it, and `idempotencyKey` guarantees a
+ * retried job cannot post twice.
+ */
+model PublishingJob {
+  id              String    @id @default(cuid())
+  userId          String
+  socialAccountId String
+  /** Optional link back to the SocialOrc content item being published. */
+  postId          String?
+  platform        Platform
+  /** direct | draft_upload — see src/lib/social/types.ts */
+  publishMethod   String
+  /** draft | scheduled | queued | uploading | processing | published | failed | cancelled */
+  status          String
+  scheduledAt     DateTime?
+  /** Caller-supplied key; the unique index is what makes retries safe. */
+  idempotencyKey  String?   @unique
+  /** Platform-side id (TikTok publish_id, YouTube video id, …). */
+  externalPostId  String?
+  attemptCount    Int       @default(0)
+  lastErrorCode   String?
+  lastErrorMessage String?
+  /** Operator-only technical detail: never serialized to the browser. */
+  lastErrorDetail String?
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([userId])
+  @@index([socialAccountId])
+}
+
 model ScheduledJob {
   id          String        @id @default(cuid())
   postId      String        @unique

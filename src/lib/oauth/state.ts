@@ -17,6 +17,18 @@ export interface OAuthStateData {
   userId: string;
   platform: string;
   timestamp: number;
+  /**
+   * PKCE code verifier, kept server-side in the state cookie.
+   *
+   * It must NOT travel in the `state` parameter: anything that can read the
+   * redirect URL (browser history, proxy logs, referrer headers) would then
+   * learn the value that is supposed to prove the token exchange comes from the
+   * client that started the flow. X still packs its verifier into the state
+   * string (`<state>:<verifier>`) for backwards compatibility; TikTok and newer
+   * connectors put it here instead.
+   */
+  verifier?: string;
+  codeChallengeMethod?: "S256" | "plain";
 }
 
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
@@ -30,6 +42,17 @@ export function splitState(rawState: string): { baseState: string; verifier: str
     baseState: rawState.slice(0, separator),
     verifier: rawState.slice(separator + 1) || null,
   };
+}
+
+/** Read the PKCE verifier the connect route parked with the state cookie. */
+export function verifierFromStateCookie(rawCookieValue: string | undefined | null): string | null {
+  if (!rawCookieValue) return null;
+  try {
+    const data = JSON.parse(rawCookieValue) as OAuthStateData;
+    return typeof data?.verifier === "string" && data.verifier.length > 0 ? data.verifier : null;
+  } catch {
+    return null;
+  }
 }
 
 export function validateOAuthState(

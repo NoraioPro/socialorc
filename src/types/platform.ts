@@ -1,4 +1,5 @@
 import { Platform } from "@prisma/client";
+import type { CapabilityReport } from "@/lib/social/types";
 
 /**
  * What a connector can actually do. Declared per platform so the UI, the
@@ -55,6 +56,23 @@ export interface OAuthTokens {
   expiresAt?: Date | null;
   tokenType?: string;
   scope?: string;
+  /** When the refresh token itself expires (TikTok's `refresh_expires_in`). */
+  refreshExpiresAt?: Date | null;
+  /** Some providers return the account id with the token (TikTok's `open_id`). */
+  externalAccountId?: string;
+}
+
+/**
+ * What a connector returns when it starts an authorization: the URL to send the
+ * user to, plus anything that must stay server-side. TikTok (and PKCE in
+ * general) needs the verifier kept out of the browser, so it travels with the
+ * state cookie instead of inside `state`.
+ */
+export interface AuthorizationRequest {
+  url: string;
+  /** PKCE code verifier — never sent to the provider or to the browser. */
+  verifier?: string;
+  codeChallengeMethod?: "S256" | "plain";
 }
 
 export interface AccountInfo {
@@ -87,11 +105,6 @@ export interface PlatformAdapter {
   
   getOAuthUrl(state: string): string;
   
-  /**
-   * Exchange the authorization code for tokens. `codeVerifier` carries the PKCE
-   * verifier for providers that need one (X/Twitter); connectors that do not use
-   * PKCE simply ignore it.
-   */
   exchangeCodeForTokens(code: string, codeVerifier?: string): Promise<OAuthTokens>;
   
   refreshAccessToken(refreshToken: string): Promise<OAuthTokens>;
@@ -101,6 +114,20 @@ export interface PlatformAdapter {
   createPost(accessToken: string, options: PostOptions): Promise<PostResult>;
   
   validateCredentials(): { valid: boolean; missing: string[] };
+
+  /**
+   * Preferred over `getOAuthUrl` when implemented: returns the authorization
+   * URL and the PKCE verifier separately so the caller can park the verifier in
+   * the state cookie. Connectors without PKCE omit this.
+   */
+  createAuthorizationRequest?(state: string): AuthorizationRequest;
+
+  /**
+   * Per-account capability report (granted scopes + account type + app
+   * approval). Connectors implement it as they are migrated to the provider
+   * contract; the UI must treat an absent report as "nothing available".
+   */
+  getCapabilities?(input: { scopes: string[]; accountType?: string | null }): CapabilityReport;
 }
 
 export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {

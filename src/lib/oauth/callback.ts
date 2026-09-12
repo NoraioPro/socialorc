@@ -4,7 +4,7 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
-import { splitState, validateOAuthState } from "@/lib/oauth/state";
+import { splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
 
 /**
  * One OAuth callback, shared by every redirect-based connector.
@@ -43,8 +43,9 @@ export function createOAuthCallback(platform: Platform) {
       if (!code || !rawState) return failure("missing_params");
 
       const { baseState, verifier } = splitState(rawState);
+      const stateCookieValue = req.cookies.get(`oauth_state_${baseState}`)?.value;
 
-      const stateCheck = validateOAuthState(req.cookies.get(`oauth_state_${baseState}`)?.value, {
+      const stateCheck = validateOAuthState(stateCookieValue, {
         userId: session.user.id,
         platform,
       });
@@ -60,9 +61,34 @@ export function createOAuthCallback(platform: Platform) {
       }
 
       const adapter = getAdapter(platform);
-      const tokens = await adapter.exchangeCodeForTokens(code, verifier ?? undefined);
+      // Prefer the server-side verifier (PKCE for TikTok and any newer
+      // connector); fall back to the one X packs into the state string.
+      const codeVerifier = verifierFromStateCookie(stateCookieValue) ?? verifier ?? undefined;
+      const tokens = await adapter.exchangeCodeForTokens(code, codeVerifier);
       const info = await adapter.getAccountInfo(tokens.accessToken);
       const encrypted = encryptTokens(tokens);
+
+      // Capabilities and scopes are stored with the connection: "connected" and
+      // "allowed to publish" are different facts and the UI needs both.
+      const scopes = tokens.scope ?? null;
+      const accountType =
+        (info.metadata?.accountType as string | undefined) ?? null;
+      let capabilities: object | undefined;
+      if (adapter.getCapabilities) {
+        try {
+          const report = adapter.getCapabilities({
+            scopes: scopes ? scopes.split(/[\s,]+/).filter(Boolean) : [],
+            accountType,
+          });
+          capabilities = {
+            capabilities: report.capabilities,
+            limitations: report.limitations,
+            computedAt: new Date().toISOString(),
+          };
+        } catch (error) {
+          console.error(`${platform} capability computation failed:`, error instanceof Error ? error.message : error);
+        }
+      }
 
       const shared = {
         userId: session.user.id,
@@ -73,9 +99,15 @@ export function createOAuthCallback(platform: Platform) {
         accessToken: encrypted.accessToken,
         refreshToken: encrypted.refreshToken,
         tokenExpiresAt: tokens.expiresAt ?? null,
+        refreshTokenExpiresAt: tokens.refreshExpiresAt ?? null,
         metadata: (info.metadata ?? undefined) as object | undefined,
+        accountType,
+        externalParentId: info.metadata?.externalParentId as string | undefined,
+        scopes,
+        capabilities,
         isActive: true,
         lastSyncAt: new Date(),
+        disconnectedAt: null,
         // Re-connecting is the operator's answer to a reconnect prompt.
         needsReconnect: false,
         lastError: null,
