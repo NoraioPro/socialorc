@@ -63,6 +63,7 @@ model User {
   brains          Brain[]
   feedReactions   FeedReaction[]
   feedComments    FeedComment[]
+  brandBrain      BrandBrain?
 
   // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
   // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
@@ -716,4 +717,34 @@ model Friendship {
   @@unique([requesterId, addresseeId])
   @@index([addresseeId, status])
   @@index([requesterId, status])
+}
+
+// Brand Brain: per-user brand profile, voice, and goals (settings UI)
+model BrandBrain {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+
+  brandName       String?
+  industry        String?
+  description     String?
+  targetAudience  String?
+  uniqueValue     String?
+
+  tone            String?
+  personality     String?
+  writingStyle    String?
+  avoidTopics     String?
+  keyPhrases      String?
+
+  primaryGoal     String?
+  contentPillars  String?
+  callToAction    String?
+  hashtagStrategy String?
+
+  platformOverrides Json?
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
