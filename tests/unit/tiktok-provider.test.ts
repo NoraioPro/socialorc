@@ -131,15 +131,15 @@ test("a missing client key is reported as a provider problem, not a broken URL",
 
 test("redirect URI prefers the explicit env var and falls back to APP_URL", () => {
   assert.equal(
-    tiktokRedirectUri({ TIKTOK_REDIRECT_URI: "https://x.test/cb" } as NodeJS.ProcessEnv),
+    tiktokRedirectUri({ TIKTOK_REDIRECT_URI: "https://x.test/cb" } as unknown as NodeJS.ProcessEnv),
     "https://x.test/cb",
   );
   assert.equal(
-    tiktokRedirectUri({ APP_URL: "https://dev.socialorc.test" } as NodeJS.ProcessEnv),
+    tiktokRedirectUri({ APP_URL: "https://dev.socialorc.test" } as unknown as NodeJS.ProcessEnv),
     "https://dev.socialorc.test/api/social/tiktok/callback",
   );
   assert.equal(
-    tiktokCredentials({} as NodeJS.ProcessEnv).configured,
+    tiktokCredentials({} as unknown as NodeJS.ProcessEnv).configured,
     false,
     "no credentials configured must not look configured",
   );
@@ -384,7 +384,7 @@ test("toSocialError keeps a SocialError and wraps anything else", () => {
 /* ---------------------------------------------- app approval configuration */
 
 test("approval flags default to false — an optimistic default breaks publishing", () => {
-  assert.deepEqual(appApprovalFor("TIKTOK", {} as NodeJS.ProcessEnv), {
+  assert.deepEqual(appApprovalFor("TIKTOK", {} as unknown as NodeJS.ProcessEnv), {
     directPublish: false,
     draftUpload: false,
   });
@@ -392,11 +392,11 @@ test("approval flags default to false — an optimistic default breaks publishin
     appApprovalFor("TIKTOK", {
       TIKTOK_DIRECT_POST_APPROVED: "true",
       TIKTOK_UPLOAD_APPROVED: "true",
-    } as NodeJS.ProcessEnv),
+    } as unknown as NodeJS.ProcessEnv),
     { directPublish: true, draftUpload: true },
   );
   assert.equal(
-    appApprovalFor("TIKTOK", { TIKTOK_DIRECT_POST_APPROVED: "yes" } as NodeJS.ProcessEnv).directPublish,
+    appApprovalFor("TIKTOK", { TIKTOK_DIRECT_POST_APPROVED: "yes" } as unknown as NodeJS.ProcessEnv).directPublish,
     false,
     "only the literal \"true\" counts",
   );

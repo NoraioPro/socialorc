@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
+import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 
 /**
  * Token-based connector handshake for Telegram.
@@ -15,9 +15,13 @@ import { telegramAdapter } from "@/lib/adapters/telegram";
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.redirect(new URL("/login?error=unauthorized", req.url));
+    // Signed in *and* present in this database: a session from another checkout
+    // (same host, different port, same NEXTAUTH_SECRET) must not reach the write.
+    const user = await resolveSessionUser();
+    if (!user.ok) {
+      const redirect = sessionProblemRedirect(user.code);
+      console.error("Telegram connect rejected:", user.code);
+      return NextResponse.redirect(new URL(redirect.path, req.url));
     }
 
     const validation = telegramAdapter.validateCredentials();
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
         },
       },
       create: {
-        userId: session.user.id,
+        userId: user.userId,
         platform: Platform.TELEGRAM,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
@@ -55,7 +59,7 @@ export async function GET(req: NextRequest) {
         metadata: { chatId, tokenType: "bot", isBot: true },
       },
       update: {
-        userId: session.user.id,
+        userId: user.userId,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
         accessToken: encrypted.accessToken,
@@ -72,9 +76,10 @@ export async function GET(req: NextRequest) {
     );
   } catch (error) {
     console.error("Telegram connect error:", error);
-    const message = error instanceof Error ? error.message : "unknown_error";
+    // Never put the raw error in the URL: it can carry connection strings,
+    // token fragments and stack traces into history, logs and screenshots.
     return NextResponse.redirect(
-      new URL(`/settings/accounts?error=telegram_connect_failed&detail=${encodeURIComponent(message)}`, req.url)
+      new URL(`/settings/accounts?error=${safeRedirectCode(error, "telegram_connect_failed")}`, req.url)
     );
   }
 }
