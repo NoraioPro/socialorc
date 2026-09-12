@@ -13,6 +13,8 @@ import {
   MessageSquare,
   CalendarDays,
   ListOrdered,
+  Globe2,
+  Sparkles,
   Settings,
   LogOut,
   Inbox,
@@ -33,6 +35,8 @@ const mainNav = [
   { name: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
   { name: "Queue", href: "/dashboard/queue", icon: ListOrdered },
   { name: "Engagement", href: "/dashboard/engagement", icon: MessageSquare },
+  { name: "Global Map", href: "/dashboard/global-map", icon: Globe2 },
+  { name: "AI Studio", href: "/dashboard/ai-studio", icon: Sparkles },
 ];
 
 export function Sidebar() {

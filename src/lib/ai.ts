@@ -7,6 +7,24 @@ import {
   buildBrandContextPrompt,
 } from "@/types/brand-brain";
 
+/** Per-user brand profile stored in `BrandBrain` (settings), distinct from workspace OrcBrain. */
+export interface BrandBrainContext {
+  brandName?: string | null;
+  industry?: string | null;
+  description?: string | null;
+  targetAudience?: string | null;
+  uniqueValue?: string | null;
+  tone?: string | null;
+  personality?: string | null;
+  writingStyle?: string | null;
+  avoidTopics?: string | null;
+  keyPhrases?: string | null;
+  primaryGoal?: string | null;
+  contentPillars?: string | null;
+  callToAction?: string | null;
+  hashtagStrategy?: string | null;
+}
+
 let _openai: OpenAI | null = null;
 
 /**
