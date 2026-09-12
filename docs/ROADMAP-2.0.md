@@ -104,6 +104,10 @@ translation/localization with Cultural Intelligence review (§11–12). The Expe
 |---|---|---|---|---|
 | M2.1 | ✅ Global Social Map stub | website-dev | Region cards with mock opportunity scores, `/dashboard/global-map` page, 12 regions across 6 continents, score/helper functions with unit tests | `npm run typecheck` clean · unit **65/65** (including 18 global-map tests) · page renders region cards with scores |
 
+| # | Milestone | Owner | Deliverable | Exit test | Status |
+|---|---|---|---|---|---|
+| M2.1 | Campaign Readiness Score | website-dev | heuristic 0–100 score on dashboard with "start paid amplification" recommendation (mock/fixture, no live ads APIs) | unit **64/64** · `tsc --noEmit` clean · compact + full UI card on `/dashboard` | ✅ **Working** |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
