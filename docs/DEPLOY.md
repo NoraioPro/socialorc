@@ -46,6 +46,9 @@ Per connector (only the ones you are enabling): `LINKEDIN_CLIENT_ID` /
 
 Optional: `OPENAI_API_KEY` (AI drafting), `BLOB_READ_WRITE_TOKEN` (media),
 `TELEGRAM_API_BASE` (self-hosted Bot API).
+Optional P2 experiment flags (stub, on by default): `EXPERIMENTS_ENABLED="false"`
+turns every flag off, `EXPERIMENTS_KILL_SWITCH="true"` forces all decisions off and
+says so in `GET /api/experiments`. Neither can affect the approval gate.
 `MOCK_SOCIAL_ADAPTERS` must be **`false`** in production.
 
 ---
