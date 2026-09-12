@@ -3,8 +3,9 @@ import { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
-import { splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
+import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
+import { resolveBrainForUser } from "@/lib/brains";
 
 /**
  * One OAuth callback, shared by every redirect-based connector.
@@ -19,8 +20,18 @@ import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/
  */
 export function createOAuthCallback(platform: Platform) {
   return async function GET(req: NextRequest) {
-    const failure = (reason: string) =>
-      NextResponse.redirect(new URL(`/settings/accounts?error=${encodeURIComponent(reason)}`, req.url));
+    // Read as early as possible (before state validation can even run) so a
+    // popup that fails early still knows to self-close instead of rendering
+    // the settings page inside itself — see src/lib/oauth/state.ts.
+    const earlyState = req.nextUrl.searchParams.get("state");
+    const earlyPopup = Boolean(
+      peekStateCookie(earlyState ? req.cookies.get(`oauth_state_${splitState(earlyState).baseState}`)?.value : null)
+        .popup,
+    );
+    const failure = (reason: string, popup = earlyPopup) =>
+      NextResponse.redirect(
+        new URL(`/settings/accounts?error=${encodeURIComponent(reason)}${popup ? "&popup=1" : ""}`, req.url),
+      );
 
     try {
       // The session must exist in *this* database: a cookie minted by another
@@ -64,6 +75,9 @@ export function createOAuthCallback(platform: Platform) {
         );
       }
 
+      const popup = Boolean(stateCheck.data.popup);
+      const brain = await resolveBrainForUser(user.userId, stateCheck.data.brainId);
+
       const adapter = getAdapter(platform);
       // Prefer the server-side verifier (PKCE for TikTok and any newer
       // connector); fall back to the one X packs into the state string.
@@ -96,6 +110,7 @@ export function createOAuthCallback(platform: Platform) {
 
       const shared = {
         userId: user.userId,
+        brainId: brain.id,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
@@ -125,12 +140,14 @@ export function createOAuthCallback(platform: Platform) {
         update: shared,
       });
 
-      return NextResponse.redirect(
+      const response = NextResponse.redirect(
         new URL(
-          `/settings/accounts?success=${platform.toLowerCase()}_connected&account=${account.id}`,
+          `/settings/accounts?success=${platform.toLowerCase()}_connected&account=${account.id}&brain=${brain.id}${popup ? "&popup=1" : ""}`,
           req.url,
         ),
       );
+      response.cookies.delete(`oauth_state_${baseState}`);
+      return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error";
       console.error(`${platform} OAuth callback failed:`, message);

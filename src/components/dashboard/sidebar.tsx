@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
+  Newspaper,
   FileEdit,
   Clock,
   CheckSquare,
@@ -20,6 +21,7 @@ import { platformIcons } from "@/components/icons/platform-icons";
 
 const mainNav = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Social Timeline", href: "/dashboard/feed", icon: Newspaper },
   { name: "Create", href: "/dashboard/create", icon: FileEdit },
   { name: "Drafts", href: "/dashboard/drafts", icon: FileEdit },
   { name: "Approvals", href: "/dashboard/approvals", icon: CheckSquare },
@@ -74,11 +76,11 @@ export function Sidebar() {
         {Object.entries(platformIcons).map(([platform, Icon]) => (
           <Link
             key={platform}
-            href="/settings/accounts"
+            href="/settings/accounts?tab=integrations"
             aria-label={`Connect ${platform}`}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              pathname === `/dashboard/platform/${platform.toLowerCase()}`
+              pathname === "/settings/accounts"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}

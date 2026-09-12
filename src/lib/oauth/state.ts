@@ -29,6 +29,20 @@ export interface OAuthStateData {
    */
   verifier?: string;
   codeChallengeMethod?: "S256" | "plain";
+  /** Which brain (project, src/lib/brains.ts) this connection should belong to. */
+  brainId?: string;
+  /** Connect was opened in a popup window rather than a full-page navigation. */
+  popup?: boolean;
+}
+
+/** Best-effort peek at the state cookie for fields needed before/without full validation. */
+export function peekStateCookie(rawCookieValue: string | undefined | null): Partial<OAuthStateData> {
+  if (!rawCookieValue) return {};
+  try {
+    return JSON.parse(rawCookieValue) as Partial<OAuthStateData>;
+  } catch {
+    return {};
+  }
 }
 
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
