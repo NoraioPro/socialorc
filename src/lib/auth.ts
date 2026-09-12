@@ -123,6 +123,14 @@ export const authOptions: NextAuthOptions = {
             clientId: facebook.clientId,
             clientSecret: facebook.clientSecret,
             allowDangerousEmailAccountLinking: false,
+            // next-auth 4 pins the consent dialog to Graph API v11.0, which Meta
+            // has since removed, so the default URL fails before a user can even
+            // approve. v24.0 is supported until Feb 2028 -- bump this before then
+            // (see the "Versions" table in Meta's Graph API changelog).
+            authorization: {
+              url: "https://www.facebook.com/v24.0/dialog/oauth",
+              params: { scope: "email" },
+            },
           }),
         ]
       : []),
