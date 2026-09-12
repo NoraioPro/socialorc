@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { Platform } from "@prisma/client";
-import { getAdapterStatus } from "@/lib/adapters";
-import { PLATFORM_CONFIGS } from "@/types/platform";
+import { Platform, PostStatus, JobStatus } from "@prisma/client";
+import { getAdapterStatus, getAdapter } from "@/lib/adapters";
+import { decrypt } from "@/lib/encryption";
+import { PLATFORM_CONFIGS, type PlatformAdapter } from "@/types/platform";
 
 export async function GET(req: NextRequest) {
   try {
@@ -81,6 +82,7 @@ export async function DELETE(req: NextRequest) {
 
     const account = await prisma.socialAccount.findFirst({
       where: { id: accountId, userId: session.user.id },
+      include: { posts: { select: { id: true, status: true } } },
     });
 
     if (!account) {
@@ -90,9 +92,54 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    // Disconnecting has to stop future publishing, not just drop the row:
+    // otherwise the cron worker keeps a PENDING job whose account no longer
+    // exists and dead-letters a post the user believes they cancelled.
+    const postIds = account.posts.map((post) => post.id);
+    const cancelledJobs = postIds.length
+      ? await prisma.scheduledJob.deleteMany({
+          where: {
+            postId: { in: postIds },
+            status: { in: [JobStatus.PENDING, JobStatus.PROCESSING] },
+          },
+        })
+      : { count: 0 };
+
+    // Content is the user's, so it survives: scheduled posts return to APPROVED
+    // and can be pointed at another account instead of vanishing.
+    const releasedPosts = postIds.length
+      ? await prisma.post.updateMany({
+          where: { id: { in: postIds }, status: PostStatus.SCHEDULED },
+          data: { status: PostStatus.APPROVED, scheduledFor: null },
+        })
+      : { count: 0 };
+
+    // Best-effort revocation at the platform. A provider outage must not leave
+    // the user unable to disconnect, so this is logged rather than thrown.
+    let revokedAtPlatform = false;
+    try {
+      const adapter = getAdapter(account.platform) as PlatformAdapter & {
+        revokeAccess?: (accessToken: string) => Promise<void>;
+      };
+      if (typeof adapter.revokeAccess === "function") {
+        await adapter.revokeAccess(decrypt(account.accessToken));
+        revokedAtPlatform = true;
+      }
+    } catch (error) {
+      console.error(
+        `Disconnect: ${account.platform} revocation failed for account ${account.id}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+
     await prisma.socialAccount.delete({ where: { id: accountId } });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      revokedAtPlatform,
+      cancelledJobs: cancelledJobs.count,
+      releasedPosts: releasedPosts.count,
+    });
   } catch (error) {
     console.error("Error disconnecting account:", error);
     return NextResponse.json(

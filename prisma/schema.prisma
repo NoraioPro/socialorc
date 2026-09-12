@@ -44,6 +44,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
+  role          String    @default("ADMIN")
   timezone      String    @default("Europe/Oslo")
   accounts      Account[]
   sessions      Session[]
