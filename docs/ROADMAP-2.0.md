@@ -112,6 +112,10 @@ translation/localization with Cultural Intelligence review (§11–12). The Expe
 |---|---|---|---|---|
 | M2.1 | ✅ Traction Score + Growth Brief | website-dev | heuristic 0–100 score from post activity, daily recommendations on dashboard | `npm run test:unit` → **59/59** (12 traction-score tests pass); dashboard renders score widget + growth brief |
 
+| # | Milestone | Owner | Deliverable | Exit test |
+|---|---|---|---|---|
+| M2.6 | ✅ Trend Agent stub (mock) | new-bot | `src/lib/trend-agent/` — 8 fixture trending topics + pure helpers (momentum, viral potential, brand relevance, ranking digest) and a Trend Agent card on `/dashboard`; **no scraping and no live trend APIs** (a unit test fails if the module ever calls `fetch`/`axios`/a client or reads the clock) | `npx tsc --noEmit` clean · `npm run test:unit` → **65/65** (18 new trend-agent tests, incl. the offline + determinism guards) · `npm run test:e2e` → **18/18** with the approval gate still asserted (`DRAFT` → schedule `400`) · `/dashboard` serves the card for a real session (mock badge, ranked topics, "Act now" recommendation) |
+
 ### P3–P5 — as specced
 
 Network beta (§14–29: interest graph, goal feed, feed modes, XP/levels/badges, communities,
