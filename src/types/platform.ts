@@ -2,24 +2,59 @@ import { Platform } from "@prisma/client";
 import type { CapabilityReport } from "@/lib/social/types";
 
 /**
+ * Authentication method discriminator.
+ * 
+ * - `oauth`: Browser redirect flow (LinkedIn, Twitter, Instagram, Facebook, TikTok, YouTube)
+ * - `token`: Static token stored directly (Telegram bot tokens, future Discord/Slack bots)
+ * 
+ * This distinction drives:
+ * - UI: OAuth shows "Connect via..." button; token shows credential input form
+ * - Refresh: OAuth tokens typically expire and refresh; bot tokens are permanent
+ * - Reconnect flow: OAuth re-runs the consent flow; token re-prompts for the secret
+ */
+export type AuthMethod = "oauth" | "token";
+
+/**
  * What a connector can actually do. Declared per platform so the UI, the
  * scheduler and the adapters agree without hard-coding platform names anywhere.
+ * 
+ * Capability flags are read by:
+ * - Content validation (BasePlatformAdapter.validatePostContent)
+ * - Token refresh logic (canRefresh in tokens.ts)
+ * - Health reporting (platformReadiness in health.ts)
+ * - UI feature toggles (to show/hide scheduling, media upload, etc.)
  */
 export interface PlatformCapabilities {
   /** Accepts text-only posts. */
   text: boolean;
+  /** Accepts image attachments. */
   image: boolean;
+  /** Accepts video attachments. */
   video: boolean;
-  /** More than one media item in a single post. */
+  /** More than one media item in a single post (carousel/gallery). */
   carousel: boolean;
   /** Publishing is impossible without media (e.g. Instagram feed, TikTok, YouTube). */
   mediaRequired: boolean;
-  /** Connects with a stored token instead of an OAuth redirect (e.g. Telegram bots). */
+  
+  /**
+   * Authentication method used by this platform.
+   * Replaces the boolean `tokenBasedAuth` with a discriminated type.
+   */
+  authMethod: AuthMethod;
+  
+  /**
+   * @deprecated Use `authMethod === "token"` instead.
+   * Kept for backward compatibility during M0.6 transition.
+   * Connects with a stored token instead of an OAuth redirect (e.g. Telegram bots).
+   */
   tokenBasedAuth: boolean;
-  /** Access tokens can be refreshed without re-consent. */
+  
+  /** Access tokens can be refreshed without re-consent (OAuth platforms typically true). */
   refreshableTokens: boolean;
+  
   /** How far ahead a post may be scheduled, in days. */
   schedulingHorizonDays: number;
+  
   /** Text limit applied when media is attached (platforms often cap captions). */
   captionMaxWithMedia?: number;
   /** List comments on the account's own posts via the platform API. */
@@ -34,6 +69,22 @@ export interface PlatformCapabilities {
   reactToPosts: boolean;
   /** Like or react to comments on the account's posts. */
   reactToComments: boolean;
+  /** Platform supports native scheduling (server-side scheduled posts). */
+  nativeScheduling: boolean;
+  /** Platform supports @mentions in post text. */
+  mentions: boolean;
+  /** Platform supports #hashtags in post text. */
+  hashtags: boolean;
+  /** Platform generates link previews from URLs in text. */
+  linkPreview: boolean;
+  /** Platform supports direct/private messages (for future inbox features). */
+  directMessages: boolean;
+  /** Platform supports stories/ephemeral content (24h posts). */
+  stories: boolean;
+  /** Platform supports polls in posts. */
+  polls: boolean;
+  /** Platform supports threading/reply chains. */
+  threads: boolean;
 }
 
 export interface PlatformConfig {
@@ -297,6 +348,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: false,
       mediaRequired: false,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 365,
@@ -306,6 +358,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: false,
       reactToPosts: false,
       reactToComments: false,
+      nativeScheduling: false,
+      mentions: true,
+      hashtags: true,
+      linkPreview: true,
+      directMessages: true,
+      stories: false,
+      polls: true,
+      threads: false,
     },
     notes: [
       "Personal profile posting via Share on LinkedIn product",
@@ -332,6 +392,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: false,
       mediaRequired: false,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 365,
@@ -341,6 +402,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: true,
       reactToPosts: false,
       reactToComments: false,
+      nativeScheduling: false,
+      mentions: true,
+      hashtags: true,
+      linkPreview: true,
+      directMessages: true,
+      stories: false,
+      polls: true,
+      threads: true,
     },
     notes: [
       "Free tier: 50 tweets/day",
@@ -370,6 +439,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: true,
       mediaRequired: true,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 30,
@@ -380,6 +450,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: true,
       reactToPosts: false,
       reactToComments: false,
+      nativeScheduling: false,
+      mentions: true,
+      hashtags: true,
+      linkPreview: false,
+      directMessages: true,
+      stories: true,
+      polls: false,
+      threads: false,
     },
     notes: [
       "REQUIRES Business or Creator account",
@@ -409,6 +487,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: true,
       mediaRequired: false,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 180,
@@ -418,6 +497,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: true,
       reactToPosts: true,
       reactToComments: true,
+      nativeScheduling: true,
+      mentions: true,
+      hashtags: true,
+      linkPreview: true,
+      directMessages: true,
+      stories: true,
+      polls: true,
+      threads: false,
     },
     notes: [
       "Posts to Pages only (not personal profiles)",
@@ -444,6 +531,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: false,
       mediaRequired: true,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 10,
@@ -454,6 +542,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: false,
       reactToPosts: false,
       reactToComments: false,
+      nativeScheduling: false,
+      mentions: true,
+      hashtags: true,
+      linkPreview: false,
+      directMessages: true,
+      stories: false,
+      polls: false,
+      threads: false,
     },
     notes: [
       "Video-only platform",
@@ -481,6 +577,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: false,
       mediaRequired: true,
+      authMethod: "oauth",
       tokenBasedAuth: false,
       refreshableTokens: true,
       schedulingHorizonDays: 365,
@@ -491,6 +588,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: true,
       reactToPosts: true,
       reactToComments: false,
+      nativeScheduling: true,
+      mentions: false,
+      hashtags: true,
+      linkPreview: false,
+      directMessages: false,
+      stories: false,
+      polls: false,
+      threads: false,
     },
     notes: [
       "Video uploads only",
@@ -520,6 +625,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       video: true,
       carousel: false,
       mediaRequired: false,
+      authMethod: "token",
       tokenBasedAuth: true,
       refreshableTokens: false,
       schedulingHorizonDays: 365,
@@ -530,6 +636,14 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       deleteComments: true,
       reactToPosts: true,
       reactToComments: true,
+      nativeScheduling: true,
+      mentions: true,
+      hashtags: true,
+      linkPreview: true,
+      directMessages: true,
+      stories: false,
+      polls: true,
+      threads: true,
     },
     notes: [
       "Bot-token connector (no OAuth handshake)",
