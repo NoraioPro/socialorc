@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
+import type { Permission } from "@/lib/roles";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 
@@ -8,17 +9,22 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
     const action = body.action || "approve";
 
+    // Submitting a draft for review is an editor action; approving or
+    // rejecting it is a manager/admin action. Gate per action, not per route.
+    const requiredPermission: Permission =
+      action === "submit" ? "posts:submit" : "posts:approve";
+
+    const guard = await requirePermission(requiredPermission);
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
+
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: guard.userId },
     });
 
     if (!post) {
@@ -38,7 +44,7 @@ export async function POST(
         data: {
           status: PostStatus.APPROVED,
           approvedAt: new Date(),
-          approvedBy: session.user.id,
+          approvedBy: guard.userId,
           rejectionReason: null,
         },
         include: {

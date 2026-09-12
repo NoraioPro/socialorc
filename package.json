@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "node tests/e2e/run.mjs",
+    "test:e2e:roles": "node tests/e2e/roles.e2e.mjs",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e && npm run test:durability",
     "typecheck": "tsc --noEmit",

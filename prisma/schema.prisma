@@ -44,6 +44,9 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
+  // Workspace role: ADMIN | MANAGER | EDITOR | CLIENT (see src/lib/roles.ts).
+  // Stored as TEXT because SQLite has no enum; parsed strictly on read.
+  role          String    @default("ADMIN")
   timezone      String    @default("Europe/Oslo")
   accounts      Account[]
   sessions      Session[]

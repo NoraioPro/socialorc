@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { z } from "zod";
@@ -13,9 +13,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const guard = await requirePermission("posts:schedule");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { id } = await params;
@@ -30,7 +30,7 @@ export async function POST(
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: guard.userId },
       include: { socialAccount: true },
     });
 
@@ -113,15 +113,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const guard = await requirePermission("posts:schedule");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { id } = await params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: guard.userId },
     });
 
     if (!post) {

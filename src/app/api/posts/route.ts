@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus, Platform, Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -69,9 +69,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Anyone signed in can read the workspace list, but only roles with
+    // posts:create may add content (a CLIENT account is read-only).
+    const guard = await requirePermission("posts:create");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const body = await req.json();
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     if (socialAccountId) {
       const account = await prisma.socialAccount.findFirst({
-        where: { id: socialAccountId, userId: session.user.id },
+        where: { id: socialAccountId, userId: guard.userId },
       });
       if (!account) {
         return NextResponse.json(
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
 
     const post = await prisma.post.create({
       data: {
-        userId: session.user.id,
+        userId: guard.userId,
         title,
         content,
         platform,
