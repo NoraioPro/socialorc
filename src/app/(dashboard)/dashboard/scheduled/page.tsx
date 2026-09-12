@@ -2,7 +2,7 @@ import { Header } from "@/components/dashboard/header";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
-import { PostCard } from "@/components/posts/post-card";
+import { DeletablePostGrid } from "@/components/posts/deletable-post-grid";
 import { format } from "date-fns";
 import { canRetryFailedPublish } from "@/lib/failed-retry";
 
@@ -81,11 +81,7 @@ export default async function ScheduledPage() {
                 bypass approval for drafts.
               </p>
             </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {retryableFailed.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
-            </div>
+            <DeletablePostGrid posts={retryableFailed} />
           </section>
         )}
 
@@ -96,11 +92,7 @@ export default async function ScheduledPage() {
                 ? "Unscheduled"
                 : format(new Date(date), "EEEE, MMMM d, yyyy")}
             </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {datePosts.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
-            </div>
+            <DeletablePostGrid posts={datePosts} />
           </div>
         ))}
       </div>

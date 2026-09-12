@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { getOrCreateDefaultBrain } from "@/lib/brains";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -46,11 +45,42 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Brain not found" }, { status: 404 });
   }
 
+  // Deleting the only brain used to succeed and then immediately recreate an
+  // empty "Default", which reads as "delete did nothing" while quietly
+  // detaching every connected account. Refuse instead and say why.
+  const brainCount = await prisma.brain.count({ where: { userId: session.user.id } });
+  if (brainCount <= 1) {
+    return NextResponse.json(
+      {
+        error:
+          "This is your only brain, so it cannot be deleted — you would have nowhere to connect platforms. Create another brain first.",
+      },
+      { status: 400 }
+    );
+  }
+
+  // SocialAccount.brainId is SetNull, so a plain delete orphans the accounts:
+  // they survive in the database but belong to no brain and vanish from the UI.
+  // Move them to the brain the user is about to land on instead.
+  const fallback = await prisma.brain.findFirst({
+    where: { userId: session.user.id, id: { not: id } },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+  });
+
+  if (!fallback) {
+    return NextResponse.json({ error: "No other brain to move connected accounts to." }, { status: 400 });
+  }
+
+  const moved = await prisma.socialAccount.updateMany({
+    where: { brainId: id, userId: session.user.id },
+    data: { brainId: fallback.id },
+  });
+
   await prisma.brain.delete({ where: { id } });
 
-  // A user always needs somewhere to connect platforms to — recreate the
-  // default if that was the last brain standing.
-  const fallback = await getOrCreateDefaultBrain(session.user.id);
-
-  return NextResponse.json({ success: true, fallbackBrainId: fallback.id });
+  return NextResponse.json({
+    success: true,
+    fallbackBrainId: fallback.id,
+    movedAccounts: moved.count,
+  });
 }

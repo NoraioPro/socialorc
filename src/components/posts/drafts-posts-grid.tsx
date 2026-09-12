@@ -17,6 +17,26 @@ interface DraftsPostsGridProps {
 
 export function DraftsPostsGrid({ posts }: DraftsPostsGridProps) {
   const [items, setItems] = useState(posts);
+  const [error, setError] = useState<string | null>(null);
+
+  // The card has always rendered a Delete item; without a handler it did
+  // nothing. Removing it from the list optimistically keeps the grid honest
+  // while the request is in flight, and the item comes back if the server says no.
+  const onDelete = async (id: string) => {
+    const previous = items;
+    setItems(current => current.filter(post => post.id !== id));
+    setError(null);
+    try {
+      const res = await fetch(`/api/posts/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not delete this post.");
+      }
+    } catch (err) {
+      setItems(previous);
+      setError(err instanceof Error ? err.message : "Could not delete this post.");
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -37,10 +57,15 @@ export function DraftsPostsGrid({ posts }: DraftsPostsGridProps) {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {items.map((post) => (
-        <PostCard key={post.id} post={post} />
-      ))}
-    </div>
+    <>
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-destructive">{error}</p>
+      )}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {items.map((post) => (
+          <PostCard key={post.id} post={post} onDelete={onDelete} />
+        ))}
+      </div>
+    </>
   );
 }
