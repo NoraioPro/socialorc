@@ -25,6 +25,14 @@ function messageForError(error: string | null): string | null {
       return "Your browser dropped the sign-in cookie. Make sure NEXTAUTH_URL matches the address you are browsing (for local dev: http://localhost:3000) and try again.";
     case "SessionRequired":
       return "Please sign in to continue.";
+    case "OAuthAccountNotLinked":
+      // The provider did not vouch for the address, so we would not merge it into
+      // the existing password account (see the signIn callback in src/lib/auth.ts).
+      return "That email already belongs to an account created with a password. Sign in with your password, or continue with a different provider account.";
+    case "OAuthCreateAccount":
+      return "We could not finish creating your account. Please try again.";
+    case "AccessDenied":
+      return "That account was denied access.";
     default:
       return `Sign-in failed (${error}). Check the server log for details.`;
   }

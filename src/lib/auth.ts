@@ -197,6 +197,73 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    /**
+     * Link a Google sign-in to an account that already exists with the same
+     * address.
+     *
+     * NextAuth refuses that by default (`OAuthAccountNotLinked`) and its opt-out,
+     * `allowDangerousEmailAccountLinking`, is all-or-nothing: it would also merge
+     * identities for a provider that hands back an address it never verified.
+     * This callback runs *before* NextAuth's collision check, so we can link the
+     * account ourselves and require the provider's own proof that the user owns
+     * the address before doing it -- which is what makes merging safe here.
+     *
+     * Facebook is deliberately excluded: its Graph API returns an address with no
+     * `email_verified` claim, so there is nothing to check it against.
+     */
+    async signIn({ profile, account }) {
+      if (account?.provider !== "google" || !account.providerAccountId) {
+        return true;
+      }
+
+      const claims = profile as
+        | { email?: unknown; email_verified?: unknown }
+        | undefined;
+      const email =
+        typeof claims?.email === "string"
+          ? claims.email.trim().toLowerCase()
+          : null;
+
+      // No address, or Google is not vouching for it: leave it to NextAuth.
+      if (!email || claims?.email_verified !== true) {
+        return true;
+      }
+
+      const [existing, alreadyLinked] = await Promise.all([
+        prisma.user.findUnique({ where: { email }, select: { id: true } }),
+        prisma.account.findFirst({
+          where: {
+            provider: account.provider,
+            providerAccountId: account.providerAccountId,
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      // Nothing to reconcile: no such account to attach to, or this Google
+      // identity is already linked (NextAuth matches it and skips the check).
+      if (!existing || alreadyLinked) {
+        return true;
+      }
+
+      await prisma.account.create({
+        data: {
+          userId: existing.id,
+          type: account.type,
+          provider: account.provider,
+          providerAccountId: account.providerAccountId,
+          refresh_token: account.refresh_token ?? null,
+          access_token: account.access_token ?? null,
+          expires_at: account.expires_at ?? null,
+          token_type: account.token_type ?? null,
+          scope: account.scope ?? null,
+          id_token: account.id_token ?? null,
+          session_state: (account.session_state as string | null) ?? null,
+        },
+      });
+
+      return true;
+    },
     async session({ session, token }) {
       if (token && session.user) {
         const role: Role = isRole(token.role) ? token.role : DEFAULT_ROLE;
