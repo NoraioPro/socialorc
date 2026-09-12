@@ -50,7 +50,9 @@ export async function GET(req: NextRequest) {
     const popupSuffix = popup ? "&popup=1" : "";
     const brain = await resolveBrainForUser(session.user.id, requestedBrainId);
 
-    const mockUserId = `mock_${platform.toLowerCase()}_${Date.now()}`;
+    // Keep one demo account per platform and brain. A timestamp here created a
+    // duplicate account every time someone clicked Connect or Reconnect.
+    const mockUserId = `mock_${session.user.id}_${brain.id}_${platform.toLowerCase()}`;
     const mockTokens = {
       accessToken: `mock_access_token_${platform}_${Date.now()}`,
       refreshToken: `mock_refresh_token_${platform}_${Date.now()}`,
