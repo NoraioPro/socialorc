@@ -128,3 +128,18 @@ The system works without live social credentials in mock/dev mode:
 - Mock adapter simulates successful publishing
 
 This allows full workflow testing without connecting real accounts.
+
+## TikTok (Social Connection Layer — first provider)
+
+Docs: `docs/social-integrations/tiktok.md` · provider: `src/lib/adapters/tiktok.ts`
+
+| Variable | Where to Get | Notes |
+|----------|--------------|-------|
+| `TIKTOK_CLIENT_KEY` | TikTok developer portal → Manage apps | "Client key" |
+| `TIKTOK_CLIENT_SECRET` | Same screen | Server-side only, never `NEXT_PUBLIC_*` |
+| `TIKTOK_REDIRECT_URI` | Optional | Defaults to `APP_URL/api/social/tiktok/callback`; must match the portal exactly |
+| `TIKTOK_PKCE_METHOD` | Optional | `S256` (default) or `plain` if TikTok rejects S256 |
+| `TIKTOK_UPLOAD_APPROVED` | Set after enabling Content Posting API upload | `true` unlocks `draftUpload` |
+| `TIKTOK_DIRECT_POST_APPROVED` | Set only after TikTok approves Direct Post | `true` unlocks `directPublish`; until then TikTok allows SELF_ONLY only |
+
+Scopes requested: `user.info.basic`, `user.info.profile`, `video.upload`, `video.publish`.

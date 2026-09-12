@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Platform } from "@prisma/client";
-import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
-import { splitState, validateOAuthState } from "@/lib/oauth/state";
+import { splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
+import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 
 /**
  * One OAuth callback, shared by every redirect-based connector.
@@ -23,9 +23,13 @@ export function createOAuthCallback(platform: Platform) {
       NextResponse.redirect(new URL(`/settings/accounts?error=${encodeURIComponent(reason)}`, req.url));
 
     try {
-      const session = await getAuthSession();
-      if (!session?.user?.id) {
-        return NextResponse.redirect(new URL("/login?error=unauthorized", req.url));
+      // The session must exist in *this* database: a cookie minted by another
+      // local server on the same host (different port, same NEXTAUTH_SECRET)
+      // would otherwise reach the write and die as a foreign-key violation.
+      const user = await resolveSessionUser();
+      if (!user.ok) {
+        console.error(`${platform} OAuth callback rejected:`, user.code);
+        return NextResponse.redirect(new URL(sessionProblemRedirect(user.code).path, req.url));
       }
 
       const { searchParams } = new URL(req.url);
@@ -43,9 +47,10 @@ export function createOAuthCallback(platform: Platform) {
       if (!code || !rawState) return failure("missing_params");
 
       const { baseState, verifier } = splitState(rawState);
+      const stateCookieValue = req.cookies.get(`oauth_state_${baseState}`)?.value;
 
-      const stateCheck = validateOAuthState(req.cookies.get(`oauth_state_${baseState}`)?.value, {
-        userId: session.user.id,
+      const stateCheck = validateOAuthState(stateCookieValue, {
+        userId: user.userId,
         platform,
       });
       if (!stateCheck.ok) {
@@ -60,12 +65,37 @@ export function createOAuthCallback(platform: Platform) {
       }
 
       const adapter = getAdapter(platform);
-      const tokens = await adapter.exchangeCodeForTokens(code, verifier ?? undefined);
+      // Prefer the server-side verifier (PKCE for TikTok and any newer
+      // connector); fall back to the one X packs into the state string.
+      const codeVerifier = verifierFromStateCookie(stateCookieValue) ?? verifier ?? undefined;
+      const tokens = await adapter.exchangeCodeForTokens(code, codeVerifier);
       const info = await adapter.getAccountInfo(tokens.accessToken);
       const encrypted = encryptTokens(tokens);
 
+      // Capabilities and scopes are stored with the connection: "connected" and
+      // "allowed to publish" are different facts and the UI needs both.
+      const scopes = tokens.scope ?? null;
+      const accountType =
+        (info.metadata?.accountType as string | undefined) ?? null;
+      let capabilities: object | undefined;
+      if (adapter.getCapabilities) {
+        try {
+          const report = adapter.getCapabilities({
+            scopes: scopes ? scopes.split(/[\s,]+/).filter(Boolean) : [],
+            accountType,
+          });
+          capabilities = {
+            capabilities: report.capabilities,
+            limitations: report.limitations,
+            computedAt: new Date().toISOString(),
+          };
+        } catch (error) {
+          console.error(`${platform} capability computation failed:`, error instanceof Error ? error.message : error);
+        }
+      }
+
       const shared = {
-        userId: session.user.id,
+        userId: user.userId,
         platformUserId: info.platformUserId,
         platformUsername: info.platformUsername,
         displayName: info.displayName,
@@ -73,9 +103,15 @@ export function createOAuthCallback(platform: Platform) {
         accessToken: encrypted.accessToken,
         refreshToken: encrypted.refreshToken,
         tokenExpiresAt: tokens.expiresAt ?? null,
+        refreshTokenExpiresAt: tokens.refreshExpiresAt ?? null,
         metadata: (info.metadata ?? undefined) as object | undefined,
+        accountType,
+        externalParentId: info.metadata?.externalParentId as string | undefined,
+        scopes,
+        capabilities,
         isActive: true,
         lastSyncAt: new Date(),
+        disconnectedAt: null,
         // Re-connecting is the operator's answer to a reconnect prompt.
         needsReconnect: false,
         lastError: null,
@@ -98,7 +134,7 @@ export function createOAuthCallback(platform: Platform) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error";
       console.error(`${platform} OAuth callback failed:`, message);
-      return failure(`${platform.toLowerCase()}_connect_failed`);
+      return failure(safeRedirectCode(error, `${platform.toLowerCase()}_connect_failed`));
     }
   };
 }

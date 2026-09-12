@@ -37,17 +37,31 @@ export async function GET(req: NextRequest) {
     }
 
     const state = crypto.randomBytes(32).toString("hex");
-    
-    const stateData = {
+
+    // Prefer the explicit authorization request when the connector implements
+    // it: it hands back the PKCE verifier separately so it can be parked in the
+    // state cookie instead of being embedded in the URL (see src/lib/oauth/state.ts).
+    const authorization = adapter.createAuthorizationRequest?.(state);
+    const url = authorization?.url ?? adapter.getOAuthUrl(state);
+
+    const stateData: {
+      userId: string;
+      platform: Platform;
+      timestamp: number;
+      verifier?: string;
+      codeChallengeMethod?: "S256" | "plain";
+    } = {
       userId: session.user.id,
       platform,
       timestamp: Date.now(),
     };
 
-    const response = NextResponse.json({
-      url: adapter.getOAuthUrl(state),
-      state,
-    });
+    if (authorization?.verifier) {
+      stateData.verifier = authorization.verifier;
+      stateData.codeChallengeMethod = authorization.codeChallengeMethod;
+    }
+
+    const response = NextResponse.json({ url, state });
 
     response.cookies.set(`oauth_state_${state}`, JSON.stringify(stateData), {
       httpOnly: true,
