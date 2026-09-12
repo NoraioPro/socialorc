@@ -56,6 +56,11 @@ model User {
   posts           Post[]
   mediaAssets     MediaAsset[]
 
+  // OrcBrain relations
+  workspaceMembers WorkspaceMember[]
+  conversations   Conversation[]
+  brainSources    BrainSource[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -72,6 +77,9 @@ model VerificationToken {
 model SocialAccount {
   id              String   @id @default(cuid())
   userId          String
+  /** Owning workspace. Nullable so the connector path keeps working before a
+   *  workspace is resolved; the migration backfills it for existing rows. */
+  workspaceId     String?
   platform        Platform
   platformUserId  String
   platformUsername String?
@@ -107,6 +115,7 @@ model SocialAccount {
   needsReconnect  Boolean  @default(false)
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   posts           Post[]
   publishingJobs  PublishingJob[]
   
@@ -116,6 +125,7 @@ model SocialAccount {
   @@unique([platform, platformUserId])
   @@index([userId])
   @@index([platform])
+  @@index([workspaceId])
 }
 
 enum Platform {
@@ -308,3 +318,288 @@ model PlatformConstraints {
   
   updatedAt       DateTime @updatedAt
 }
+
+// ---------------------------------------------------------------------------
+// OrcBrain — the shared intelligence layer (docs/orcbrain/00-audit-and-plan.md)
+//
+// One brain per workspace, not per agent: agents are roles with instructions and
+// tool permissions over the same knowledge, so what Growth Orc learns is
+// immediately available to Content Orc.
+//
+// `workspaceId` is the isolation boundary. It is resolved server-side from the
+// session + membership, never accepted from a request body.
+// ---------------------------------------------------------------------------
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members         WorkspaceMember[]
+  brandProfile    BrandProfile?
+  sources         BrainSource[]
+  chunks          BrainChunk[]
+  memories        BrainMemory[]
+  insights        BrainInsight[]
+  conversations   Conversation[]
+  agents          AiAgent[]
+  socialAccounts  SocialAccount[]
+}
+
+/** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String   @default("MEMBER")
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+/**
+ * Structured brand knowledge. Scored columns are typed because Brain Health
+ * weighs them; lists stay JSON because they are edited as whole documents.
+ */
+model BrandProfile {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+
+  brandName    String?
+  tagline      String?
+  description  String?
+  industry     String?
+  website      String?
+  markets      String?
+  languages    String?
+  mission      String?
+  vision       String?
+  values       String?
+
+  tone         String?
+  personality  String?
+  writingStyle String?
+  wordsPrefer  String?
+  wordsAvoid   String?
+  emojiStyle   String?
+  ctaStyle     String?
+  humorLevel   Int?
+  formalityLevel Int?
+
+  audiencePrimary     String?
+  audienceSecondary   String?
+  audienceAgeRanges   String?
+  audienceLocations   String?
+  audienceInterests   String?
+  audiencePainPoints  String?
+  audienceMotivations String?
+
+  /** Product[] — name, description, benefits, positioning, urls. */
+  products        Json?
+  /** Goal[] — primary/secondary, kpi, target, horizon. */
+  goals           Json?
+  /** ContentStrategy — pillars, formats, cadence, platforms, avoid. */
+  contentStrategy Json?
+  /** Competitor[] — name, url, handles, strengths, weaknesses. */
+  competitors     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * A knowledge source. `status` is only `ready` once text was extracted and
+ * chunked — a source with no extracted text is `processing` or `failed`, never
+ * silently "Ready".
+ */
+model BrainSource {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** note | website | file | social_account | post | brand_form */
+  type        String
+  title       String
+  sourceUrl   String?
+  blobUrl     String?
+  fileName    String?
+  fileType    String?
+  fileSize    Int?
+  /** uploading | processing | ready | failed */
+  status      String   @default("processing")
+  errorMessage String?
+  extractedText String?
+  metadata    Json?
+  createdBy   String?
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chunks    BrainChunk[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, type])
+}
+
+/** One embedded slice of a source. Deleting a source cascades these away. */
+model BrainChunk {
+  id          String   @id @default(cuid())
+  workspaceId String
+  sourceId    String
+  chunkIndex  Int
+  content     String
+  /** base64 Float32 vector; null until embedded (SQLite has no vector type). */
+  embedding   String?
+  embeddingModel String?
+  tokenCount  Int?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source    BrainSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([sourceId])
+}
+
+/** AI-inferred knowledge. Requires confidence and an explicit approve step. */
+model BrainMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** voice | audience | product | goal | competitor | performance | other */
+  category    String
+  content     String
+  confidence  Float    @default(0.5)
+  /** ai_inference | user | import */
+  source      String   @default("ai_inference")
+  evidence    Json?
+  approved    Boolean  @default(false)
+  dismissed   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, approved])
+}
+
+/**
+ * A derived insight. `evidence` is required in practice: an insight with no
+ * backing data is not rendered (the brief forbids fabricated analytics).
+ */
+model BrainInsight {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /** growth | timing | format | audience | competitor | anomaly */
+  insightType String
+  title       String
+  insight     String
+  evidence    Json?
+  confidence  Float    @default(0.5)
+  periodStart DateTime?
+  periodEnd   DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, insightType])
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  /** Agent slug; null means Chief Orc. */
+  agentId     String?
+  title       String   @default("New chat")
+  /** Rolling summary so long conversations need not be replayed in full. */
+  summary     String?
+  pinned      Boolean  @default(false)
+  archived    Boolean  @default(false)
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspaceId, lastMessageAt])
+  @@index([userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  /** user | assistant | tool | system */
+  role           String
+  content        String
+  metadata       Json?
+  model          String?
+  promptTokens   Int?
+  completionTokens Int?
+  agentId        String?
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
+
+  @@index([conversationId, createdAt])
+}
+
+/** A file attached to one message — conversation context, not permanent brain. */
+model MessageAttachment {
+  id            String   @id @default(cuid())
+  messageId     String
+  assetUrl      String?
+  fileName      String?
+  fileType      String?
+  fileSize      Int?
+  /** Set only when the user chose "add permanently to OrcBrain". */
+  brainSourceId String?
+
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+/** An agent charter. Workspace-scoped rows can override the shipped defaults. */
+model AiAgent {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  slug        String
+  name        String
+  role        String
+  description String?
+  systemInstructions String
+  /** Tool names this agent may call. */
+  enabledTools Json?
+  avatar      String?
+  /** active | disabled */
+  status      String   @default("active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slug])
+  @@index([slug])
+}
+
