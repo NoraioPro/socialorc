@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { OrcMark } from "@/components/icons/orc-mark";
+import { BrandLogo } from "@/components/brand-logo";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -45,12 +45,7 @@ export function Sidebar() {
   return (
     <div className="app-sidebar flex h-full w-64 flex-col border-r bg-card">
       <div className="flex h-[88px] shrink-0 items-center border-b px-6">
-        <Link href="/dashboard" aria-label="SocialOrc dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg font-bold">
-            <OrcMark className="h-9 w-8 text-primary" />
-          </div>
-          <span className="sidebar-wordmark text-xl font-bold tracking-tight">SocialOrc</span>
-        </Link>
+        <BrandLogo href="/dashboard" compact className="sidebar-brand" />
       </div>
 
       <nav aria-label="Workspace navigation" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-5">
