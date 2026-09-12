@@ -53,9 +53,12 @@ export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured
 export function getAdapterStatus(): Record<Platform, { configured: boolean; missing: string[] }> {
   const status: Record<Platform, { configured: boolean; missing: string[] }> = {} as Record<Platform, { configured: boolean; missing: string[] }>;
   
-  for (const [platform, adapter] of Object.entries(adapters)) {
+  for (const platform of Object.keys(adapters) as Platform[]) {
+    // Match the adapter used by the connection endpoint. In local mock mode,
+    // every platform is intentionally connectable without production secrets.
+    const adapter = getAdapter(platform);
     const validation = adapter.validateCredentials();
-    status[platform as Platform] = {
+    status[platform] = {
       configured: validation.valid,
       missing: validation.missing,
     };
