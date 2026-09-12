@@ -61,11 +61,19 @@ publishes nowhere. Each platform needs its credentials plus
 This is the last real blocker to a useful deployment, and it is configuration
 rather than code.
 
-### 6. Apply migrations as a release step
+### 6. Migrations run automatically at deploy
+
+`build` runs `scripts/migrate-deploy.mjs`, which applies pending migrations
+before `next build`. It uses `DIRECT_URL` — the session pooler on port **5432**,
+since PgBouncer's transaction mode (6543) cannot run DDL. To run them by hand:
 
 ```bash
 DATABASE_URL="<session pooler, port 5432>" npx prisma migrate deploy
 ```
+
+A failing migration fails the deploy, so code never ships against a schema that
+has not been migrated. Without `DIRECT_URL` the step is skipped with a note
+rather than attempted against the pooler.
 
 The Prisma client is generated during `npm install` (`postinstall`) and again at
 the start of `build`, so the deployed client always matches the configured
