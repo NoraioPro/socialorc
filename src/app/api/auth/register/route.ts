@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
+import { signupDecision } from "@/lib/signup-policy";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -53,12 +54,28 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // The first account bootstraps the workspace and owns it. Every account
-    // after that must NOT become an admin just by filling in this public form:
-    // ADMIN carries `users:manage` and `posts:delete`. auth.ts applies the same
-    // least-privilege rule to OAuth sign-ups, for the same reason.
-    const isFirstAccount = (await prisma.user.count()) === 0;
-    const role = isFirstAccount ? DEFAULT_ROLE : selfSignupRole();
+    // One count, two decisions: whether this signup is allowed at all, and which
+    // role it gets. Reading it once also avoids a race where both an "allowed"
+    // check and a "first account" check disagree.
+    const userCount = await prisma.user.count();
+
+    // Invite-only by default - see src/lib/signup-policy.ts. The first account
+    // is always allowed, so a fresh deployment can still claim its owner.
+    const decision = signupDecision(email, userCount);
+    if (!decision.allowed) {
+      // The reason goes to the log, not the client: telling the client would
+      // reveal which addresses are invited.
+      console.warn(`[register] refused signup for ${email}: ${decision.reason}`);
+      return NextResponse.json(
+        { error: "Registration is invite-only. Ask the workspace owner for an invitation." },
+        { status: 403 }
+      );
+    }
+
+    // The first account owns the workspace. Everyone after must NOT become an
+    // admin just by filling in this form: ADMIN carries `users:manage` and
+    // `posts:delete`. auth.ts applies the same rule to OAuth sign-ups.
+    const role = userCount === 0 ? DEFAULT_ROLE : selfSignupRole();
 
     const user = await prisma.user.create({
       data: {

@@ -72,6 +72,18 @@ the start of `build`, so the deployed client always matches the configured
 database. `prisma7.config.ts` throws if `DATABASE_URL` is missing rather than
 guessing — a guessed client would be sqlite, deploy cleanly, and fail at runtime.
 
+## Registration is invite-only
+
+The signup form is public but no longer hands out accounts, and never hands out
+an admin. The first account always gets in and becomes the workspace owner
+(`ADMIN`); every account after that needs `SIGNUP_ALLOWLIST` — or
+`ALLOW_PUBLIC_SIGNUP=true` to open registration deliberately — and receives
+`EDITOR`. See `src/lib/signup-policy.ts` and `src/lib/roles.ts`.
+
+**Claim the owner account before sharing the URL**: whichever account registers
+first becomes the owner, and the only way to get another admin after that is to
+promote one deliberately.
+
 ## Known gaps
 
 - **Test harnesses**: the e2e and durability suites need `E2E_DATABASE_URL`
