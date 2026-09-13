@@ -55,3 +55,4 @@ dev.db.bak-*
 .env.*.local
 .env.production
 .env.development
+.env*
