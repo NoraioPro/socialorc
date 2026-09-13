@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Platform, PostStatus } from "@prisma/client";
 import { z } from "zod";
@@ -84,6 +84,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Cascading spends the shared AI budget, so it needs the draft-creation
+    // permission on top of the session: a read-only CLIENT cannot reach a paid
+    // provider call. The GET below stays session-only because it only lists
+    // targets and never calls the provider.
+    const authz = await requirePermission("posts:create");
+    if (!authz.ok) {
+      return NextResponse.json({ error: authz.error }, { status: authz.status });
     }
 
     const { id } = await context.params;

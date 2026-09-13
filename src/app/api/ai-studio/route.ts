@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import {
   aiStudioGenerate,
   improveContent,
@@ -113,11 +113,14 @@ export type AIStudioResponse =
  */
 export async function POST(req: NextRequest): Promise<NextResponse<AIStudioResponse>> {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
+    // Every action here spends the shared provider budget, so a session is not
+    // enough on its own: the role must be allowed to create content. A read-only
+    // CLIENT account can never reach a paid call.
+    const authz = await requirePermission("posts:create");
+    if (!authz.ok) {
       return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { success: false, error: authz.error },
+        { status: authz.status }
       );
     }
 

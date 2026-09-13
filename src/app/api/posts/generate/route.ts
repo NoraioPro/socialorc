@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { 
   aiStudioGenerate, 
   improveContent, 
@@ -59,9 +59,12 @@ const bestTimesSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Generating content spends the shared AI budget, so this needs the same
+    // permission as writing a draft - not merely a session. A read-only CLIENT
+    // account must never be able to trigger a paid provider call.
+    const authz = await requirePermission("posts:create");
+    if (!authz.ok) {
+      return NextResponse.json({ error: authz.error }, { status: authz.status });
     }
 
     const body = await req.json();
