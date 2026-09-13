@@ -28,9 +28,23 @@ test("configs are not empty shells", () => {
     const c = PLATFORM_CONFIGS[platform];
     assert.ok(c.name.length > 0, `${platform} has no name`);
     assert.ok(c.maxTextLength > 0, `${platform} maxTextLength must be positive`);
-    assert.ok(c.maxMediaCount >= 1, `${platform} must allow at least one media item`);
-    assert.ok(c.supportedMediaTypes.length > 0, `${platform} declares no media types`);
     assert.ok(c.notes.length > 0, `${platform} has no operator notes`);
+
+    // Limits follow the declared capabilities. A connector that accepts no media
+    // must declare neither a media type nor a positive count, or the UI would
+    // offer attachments the adapter cannot transmit.
+    const acceptsMedia = c.capabilities.image || c.capabilities.video;
+    if (acceptsMedia) {
+      assert.ok(c.maxMediaCount >= 1, `${platform} accepts media but allows none`);
+      assert.ok(c.supportedMediaTypes.length > 0, `${platform} accepts media but declares no media types`);
+    } else {
+      assert.equal(c.maxMediaCount, 0, `${platform} accepts no media but allows ${c.maxMediaCount}`);
+      assert.equal(
+        c.supportedMediaTypes.length,
+        0,
+        `${platform} accepts no media but declares media types`,
+      );
+    }
   }
 });
 
@@ -131,9 +145,33 @@ test("declared capability invariants hold for the current connector set", () => 
   // X's hard 280-character ceiling is a product-level constraint, not a toggle.
   assert.equal(PLATFORM_CONFIGS[Platform.TWITTER].maxTextLength, 280);
 
-  // Only Instagram and Facebook accept multiple media in one post today.
+  // Carousel is declared for NO platform today: no adapter transmits more than
+  // one media item, so declaring it would advertise a feature that silently
+  // drops the extra files. Move a platform into this list only alongside a real
+  // carousel implementation.
   const carouselPlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.carousel);
-  assert.deepEqual(carouselPlatforms.sort(), [Platform.FACEBOOK, Platform.INSTAGRAM].sort());
+  assert.deepEqual(carouselPlatforms, [], `carousel is not implemented yet: ${carouselPlatforms.join(", ")}`);
+
+  // Video is declared only where the adapter genuinely uploads video.
+  const videoPlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.video);
+  assert.deepEqual(videoPlatforms.sort(), [Platform.TIKTOK, Platform.YOUTUBE].sort());
+
+  // Image is declared only where the adapter genuinely sends an image.
+  const imagePlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.image);
+  assert.deepEqual(
+    imagePlatforms.sort(),
+    [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.LINKEDIN, Platform.TELEGRAM].sort(),
+  );
+
+  // The legacy `supportsVideo` flag must agree with capabilities.video, or the UI
+  // and validation disagree about the same platform.
+  for (const platform of allPlatforms) {
+    assert.equal(
+      PLATFORM_CONFIGS[platform].supportsVideo,
+      PLATFORM_CONFIGS[platform].capabilities.video,
+      `${platform}: supportsVideo disagrees with capabilities.video`,
+    );
+  }
 });
 
 test("registry helpers return correct data", () => {

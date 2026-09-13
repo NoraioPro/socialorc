@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
-import { getAdapter } from "@/lib/adapters";
+import { resolvePublishAdapter } from "@/lib/adapters";
+import { recoverStaleProcessingJobs } from "@/lib/jobs/lease-recovery";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
@@ -50,6 +51,10 @@ export async function GET(req: NextRequest) {
     failed: number;
     /** Failures that were never retried because the error is permanent. */
     permanent: number;
+    /** Stale PROCESSING jobs returned to the queue by lease recovery. */
+    reclaimed: number;
+    /** Stale PROCESSING jobs whose retry budget was already spent. */
+    abandoned: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   } = {
     processed: 0,
@@ -58,10 +63,27 @@ export async function GET(req: NextRequest) {
     deduped: 0,
     failed: 0,
     permanent: 0,
+    reclaimed: 0,
+    abandoned: 0,
     errors: [],
   };
 
   try {
+    // --- Lease recovery -----------------------------------------------------
+    // Return any job orphaned in PROCESSING by a stopped process to the queue,
+    // so a deploy or crash mid-publish does not leave a post stuck in
+    // PUBLISHING forever. See src/lib/jobs/lease-recovery.ts for why this
+    // cannot double-publish.
+    const recovery = await recoverStaleProcessingJobs(prisma, now, MAX_ATTEMPTS);
+    results.reclaimed = recovery.reclaimed;
+    results.abandoned = recovery.abandoned;
+
+    if (recovery.reclaimed > 0 || recovery.abandoned > 0) {
+      console.log(
+        `[cron] lease recovery: reclaimed=${recovery.reclaimed} abandoned=${recovery.abandoned}`
+      );
+    }
+
     const dueJobs = await prisma.scheduledJob.findMany({
       where: {
         status: JobStatus.PENDING,
@@ -160,7 +182,24 @@ export async function GET(req: NextRequest) {
           data: { status: PostStatus.PUBLISHING },
         });
 
-        const adapter = getAdapter(post.platform, { useMockIfUnconfigured: true });
+        // Configuration is checked before anything else. An unconfigured platform
+        // must fail this post — never be papered over by a mock adapter that
+        // reports success and writes a fake platform id.
+        const resolution = resolvePublishAdapter(post.platform);
+        if (!resolution.ok) {
+          await handleFailure({
+            postId: post.id,
+            jobId: job.id,
+            accountId: post.socialAccount.id,
+            attempt,
+            error: `Not published: ${resolution.message}. Missing: ${resolution.missing.join(", ")}`,
+            code: resolution.code,
+            results,
+            now: new Date(),
+          });
+          continue;
+        }
+        const adapter = resolution.adapter;
         const stored = decryptTokens({
           accessToken: post.socialAccount.accessToken,
           refreshToken: post.socialAccount.refreshToken,
@@ -229,12 +268,22 @@ export async function GET(req: NextRequest) {
         const sendOptions = {
           text: post.content,
           mediaUrls: mediaUrls.map((m) => m.mediaAsset.url),
+          // Real MIME type and byte size so validation cannot be fooled by a URL
+          // whose extension is missing or is a `data:` payload.
+          media: mediaUrls.map((m) => ({
+            url: m.mediaAsset.url,
+            mimeType: m.mediaAsset.mimeType,
+            sizeBytes: m.mediaAsset.size,
+          })),
         };
 
         let result = await adapter.createPost(accessToken, sendOptions);
-        let code: AdapterErrorCode | null = result.success
-          ? null
-          : classifyAdapterError({ message: result.error });
+
+        /** Prefer the adapter's own code; fall back to classifying its message. */
+        const failureCodeOf = (r: typeof result): AdapterErrorCode =>
+          (r.code as AdapterErrorCode | undefined) ?? classifyAdapterError({ message: r.error });
+
+        let code: AdapterErrorCode | null = result.success ? null : failureCodeOf(result);
 
         // One refresh-and-retry when the platform says the token is stale: the
         // pre-publish check cannot catch a token revoked mid-flight, and a
@@ -261,7 +310,7 @@ export async function GET(req: NextRequest) {
             });
             accessToken = refreshed.accessToken;
             result = await adapter.createPost(accessToken, sendOptions);
-            code = result.success ? null : classifyAdapterError({ message: result.error });
+            code = result.success ? null : failureCodeOf(result);
           } catch {
             // Keep the original AUTH_EXPIRED failure; the refresh error itself is
             // not more informative for the operator.

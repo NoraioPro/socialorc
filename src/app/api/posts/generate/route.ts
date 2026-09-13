@@ -5,6 +5,7 @@ import {
   improveContent, 
   suggestBestTimes,
   isOpenAIAvailable,
+  AINotConfiguredError,
 } from "@/lib/ai";
 import { Platform } from "@prisma/client";
 import { z } from "zod";
@@ -95,6 +96,12 @@ export async function POST(req: NextRequest) {
           openAIAvailable: isOpenAIAvailable(),
         });
       } catch (error) {
+        if (error instanceof AINotConfiguredError) {
+          return NextResponse.json(
+            { error: error.message, code: error.code },
+            { status: 503 }
+          );
+        }
         if (error instanceof Error && error.message.includes("API key")) {
           return NextResponse.json(
             { error: error.message },
@@ -124,6 +131,12 @@ export async function POST(req: NextRequest) {
           openAIAvailable: isOpenAIAvailable(),
         });
       } catch (error) {
+        if (error instanceof AINotConfiguredError) {
+          return NextResponse.json(
+            { error: error.message, code: error.code },
+            { status: 503 }
+          );
+        }
         if (error instanceof Error && error.message.includes("API key")) {
           return NextResponse.json(
             { error: error.message },
@@ -155,6 +168,12 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   } catch (error) {
+    if (error instanceof AINotConfiguredError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 503 }
+      );
+    }
     console.error("Error in generate API:", error);
     return NextResponse.json(
       { error: "Failed to process request" },

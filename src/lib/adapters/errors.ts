@@ -18,6 +18,17 @@ export type AdapterErrorCode =
   | "RATE_LIMITED"
   | "PLATFORM_UNAVAILABLE"
   | "NETWORK"
+  /**
+   * The connector's credentials are absent from the environment. Never publish
+   * through a stand-in for this — the caller must fail loudly.
+   */
+  | "PLATFORM_NOT_CONFIGURED"
+  /** The content uses a capability the adapter (or platform) does not implement. */
+  | "UNSUPPORTED_MEDIA"
+  /** No Blob token, so attachments have nowhere to live and cannot be published. */
+  | "MEDIA_STORAGE_NOT_CONFIGURED"
+  /** No AI provider key, so generation would have to invent its answer. */
+  | "AI_NOT_CONFIGURED"
   | "UNKNOWN";
 
 /** Worth trying again later: nothing about the request itself is wrong. */
@@ -31,6 +42,12 @@ const PERMANENT: readonly AdapterErrorCode[] = [
   "NOT_FOUND",
   "CONTENT_INVALID",
   "MEDIA_INVALID",
+  // Configuration gaps and unimplemented capabilities are permanent by nature:
+  // retrying them just burns attempts on something that cannot succeed.
+  "PLATFORM_NOT_CONFIGURED",
+  "UNSUPPORTED_MEDIA",
+  "MEDIA_STORAGE_NOT_CONFIGURED",
+  "AI_NOT_CONFIGURED",
 ];
 
 const MESSAGE_RULES: { pattern: RegExp; code: AdapterErrorCode }[] = [
@@ -39,6 +56,10 @@ const MESSAGE_RULES: { pattern: RegExp; code: AdapterErrorCode }[] = [
   { pattern: /permission|forbidden|not authorized to|insufficient (scope|privilege)/i, code: "PERMISSION_DENIED" },
   { pattern: /not found|unknown (chat|user|page)|no such/i, code: "NOT_FOUND" },
   { pattern: /too long|exceeds maximum|character limit|too many characters|caption exceeds/i, code: "CONTENT_INVALID" },
+  { pattern: /platform credentials are not configured|credentials not configured for/i, code: "PLATFORM_NOT_CONFIGURED" },
+  { pattern: /media storage is not configured/i, code: "MEDIA_STORAGE_NOT_CONFIGURED" },
+  { pattern: /ai is not configured|no ai provider|api key not configured/i, code: "AI_NOT_CONFIGURED" },
+  { pattern: /does not support (media|video|image)|carousel publishing is not supported|unsupported media type for/i, code: "UNSUPPORTED_MEDIA" },
   { pattern: /unsupported media|media type|video required|requires (at least one )?media|media is required/i, code: "MEDIA_INVALID" },
   { pattern: /rate limit|too many requests|slow down/i, code: "RATE_LIMITED" },
   { pattern: /fetch failed|econnrefused|econnreset|etimedout|enotfound|network|socket hang up|deadline/i, code: "NETWORK" },
@@ -111,6 +132,14 @@ export function describeAdapterError(code: AdapterErrorCode): string {
       return "The platform is temporarily unavailable; the post will be retried.";
     case "NETWORK":
       return "The platform could not be reached; the post will be retried.";
+    case "PLATFORM_NOT_CONFIGURED":
+      return "This platform has no credentials configured on the server, so nothing was published.";
+    case "UNSUPPORTED_MEDIA":
+      return "This platform does not support the attached media type yet; nothing was published.";
+    case "MEDIA_STORAGE_NOT_CONFIGURED":
+      return "Media storage is not configured, so attachments cannot be published.";
+    case "AI_NOT_CONFIGURED":
+      return "No AI provider is configured, so no AI content was generated.";
     default:
       return "The platform returned an unrecognized error.";
   }

@@ -8,6 +8,7 @@
 
 import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS, PlatformConfig } from "@/types/platform";
+import { AINotConfiguredError } from "@/lib/ai";
 
 export interface CascadeSource {
   content: string;
@@ -235,6 +236,12 @@ export async function cascadeContent(
   targetPlatforms: Platform[],
   forceMock = false
 ): Promise<CascadeResult> {
+  // Production never cascades with synthetic text: an invented adaptation is
+  // indistinguishable from a real one once it reaches the editor.
+  if (!forceMock && !hasAICapability() && process.env.NODE_ENV === "production") {
+    throw new AINotConfiguredError();
+  }
+
   const useMock = forceMock || !hasAICapability();
   const adaptations: CascadeAdaptation[] = [];
 

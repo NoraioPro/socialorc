@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Platform } from "@prisma/client";
 import {
   classifyAdapterError,
   describeAdapterError,
@@ -32,7 +31,11 @@ test("real platform messages classify correctly", () => {
   assert.equal(classifyAdapterError({ message: "fetch failed" }), "NETWORK");
   assert.equal(classifyAdapterError({ message: "Text exceeds maximum length of 280 characters" }), "CONTENT_INVALID");
   assert.equal(classifyAdapterError({ message: "Caption exceeds 1024 characters when media is attached" }), "CONTENT_INVALID");
-  assert.equal(classifyAdapterError({ message: "Unsupported media type for Instagram: image/png" }), "MEDIA_INVALID");
+  // Our own validation message for a type the platform cannot publish. It is
+  // classified as UNSUPPORTED_MEDIA (a capability gap) rather than the broader
+  // MEDIA_INVALID (a bad attachment); both are permanent, so retry policy is
+  // unchanged either way.
+  assert.equal(classifyAdapterError({ message: "Unsupported media type for Instagram: image/png" }), "UNSUPPORTED_MEDIA");
   assert.equal(classifyAdapterError({ message: "The access token has expired" }), "AUTH_EXPIRED");
   assert.equal(classifyAdapterError({ message: "ECONNREFUSED" }), "NETWORK");
 });
@@ -53,6 +56,12 @@ test("retry policy splits transient from permanent", () => {
     "NOT_FOUND",
     "CONTENT_INVALID",
     "MEDIA_INVALID",
+    // Configuration gaps and unimplemented capabilities can never be fixed by
+    // retrying, so they must dead-letter rather than burn the schedule window.
+    "PLATFORM_NOT_CONFIGURED",
+    "UNSUPPORTED_MEDIA",
+    "MEDIA_STORAGE_NOT_CONFIGURED",
+    "AI_NOT_CONFIGURED",
   ];
 
   for (const code of retryable) {
@@ -73,7 +82,7 @@ test("only credential-shaped failures ask for a human reconnect", () => {
 
   // These are not: a rejected post, a missing chat, a rate limit or a network
   // blip must never nag the operator to re-authorise a working account.
-  for (const code of ["CONTENT_INVALID", "MEDIA_INVALID", "NOT_FOUND", "RATE_LIMITED", "PLATFORM_UNAVAILABLE", "NETWORK", "UNKNOWN"] as const) {
+  for (const code of ["CONTENT_INVALID", "MEDIA_INVALID", "NOT_FOUND", "RATE_LIMITED", "PLATFORM_UNAVAILABLE", "NETWORK", "UNKNOWN", "PLATFORM_NOT_CONFIGURED", "UNSUPPORTED_MEDIA", "MEDIA_STORAGE_NOT_CONFIGURED", "AI_NOT_CONFIGURED"] as const) {
     assert.equal(requiresReconnect(code), false, `${code} must not request a reconnect`);
   }
 });
@@ -94,6 +103,10 @@ test("every code has a human-readable explanation that leaks nothing", () => {
     "RATE_LIMITED",
     "PLATFORM_UNAVAILABLE",
     "NETWORK",
+    "PLATFORM_NOT_CONFIGURED",
+    "UNSUPPORTED_MEDIA",
+    "MEDIA_STORAGE_NOT_CONFIGURED",
+    "AI_NOT_CONFIGURED",
     "UNKNOWN",
   ];
   for (const code of codes) {

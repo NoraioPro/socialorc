@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
-import { getAdapter } from "@/lib/adapters";
+import { resolvePublishAdapter } from "@/lib/adapters";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
-import { classifyAdapterError, requiresReconnect } from "@/lib/adapters/errors";
+import { classifyAdapterError, requiresReconnect, type AdapterErrorCode } from "@/lib/adapters/errors";
 
 /**
  * Publish one post immediately, in the request.
@@ -74,7 +74,22 @@ export async function POST(
     );
   }
 
-  const adapter = getAdapter(post.platform, { useMockIfUnconfigured: true });
+  // Resolve the adapter allowed to publish. This can never hand back a mock in
+  // production, so a platform with no credentials fails here instead of
+  // returning a fake success and marking the post PUBLISHED.
+  const resolution = resolvePublishAdapter(post.platform);
+  if (!resolution.ok) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: resolution.message,
+        code: resolution.code,
+        missing: resolution.missing,
+      },
+      { status: 503 }
+    );
+  }
+  const adapter = resolution.adapter;
   const stored = decryptTokens({
     accessToken: account.accessToken,
     refreshToken: account.refreshToken,
@@ -139,11 +154,22 @@ export async function POST(
   const sendOptions = {
     text: post.content,
     mediaUrls: media.map((m) => m.mediaAsset.url),
+    // Real MIME type and byte size, so validation never has to guess from the
+    // URL — guessing is what let `data:` URLs and unsupported types slip past.
+    media: media.map((m) => ({
+      url: m.mediaAsset.url,
+      mimeType: m.mediaAsset.mimeType,
+      sizeBytes: m.mediaAsset.size,
+    })),
   };
 
   let result = await adapter.createPost(accessToken, sendOptions);
 
-  if (!result.success && classifyAdapterError({ message: result.error }) === "AUTH_EXPIRED" && refreshable) {
+  /** Prefer the adapter's own code; fall back to classifying its message. */
+  const failureCodeOf = (r: typeof result): AdapterErrorCode =>
+    (r.code as AdapterErrorCode | undefined) ?? classifyAdapterError({ message: r.error });
+
+  if (!result.success && failureCodeOf(result) === "AUTH_EXPIRED" && refreshable) {
     try {
       accessToken = await refreshAndStore();
       result = await adapter.createPost(accessToken, sendOptions);
@@ -171,7 +197,7 @@ export async function POST(
     });
   }
 
-  const code = classifyAdapterError({ message: result.error });
+  const code = failureCodeOf(result);
 
   await prisma.$transaction([
     prisma.post.update({
@@ -183,8 +209,13 @@ export async function POST(
       : []),
   ]);
 
+  // The content was the problem, not the platform — 422 tells the client to fix
+  // the post instead of retrying it.
+  const contentProblem =
+    code === "UNSUPPORTED_MEDIA" || code === "MEDIA_INVALID" || code === "CONTENT_INVALID";
+
   return NextResponse.json(
     { success: false, error: result.error ?? "Publishing failed", code },
-    { status: 502 }
+    { status: contentProblem ? 422 : 502 }
   );
 }

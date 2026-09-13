@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { put } from "@vercel/blob";
+import { mediaStorage } from "@/lib/media-storage";
 
 export async function GET(req: NextRequest) {
   try {
@@ -73,16 +74,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const storage = mediaStorage();
+
+    // Production must never store media as a base64 `data:` URL: social APIs need
+    // a fetchable https URL, and the data URI also puts the entire payload in
+    // Postgres. Failing here is honest; producing an asset that can never be
+    // published is not.
+    if (storage === "unconfigured") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Media storage is not configured",
+          code: "MEDIA_STORAGE_NOT_CONFIGURED",
+        },
+        { status: 503 }
+      );
+    }
+
     let url: string;
     let blobPath: string | null = null;
 
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    if (storage === "blob") {
       const blob = await put(`socialorc/${session.user.id}/${Date.now()}-${file.name}`, file, {
         access: "public",
       });
       url = blob.url;
       blobPath = blob.pathname;
     } else {
+      // Development only — kept so local flows work without a Blob store. These
+      // assets cannot be published, which is exactly why production refuses them
+      // above. The stored MIME type still travels with the asset, so platform
+      // validation is not fooled by the data URI.
       const bytes = await file.arrayBuffer();
       const base64 = Buffer.from(bytes).toString("base64");
       url = `data:${file.type};base64,${base64}`;

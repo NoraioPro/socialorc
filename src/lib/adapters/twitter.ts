@@ -195,9 +195,9 @@ export class TwitterAdapter extends BasePlatformAdapter {
   }
 
   async createPost(accessToken: string, options: PostOptions): Promise<PostResult> {
-    const validationError = this.validatePostContent(options);
-    if (validationError) {
-      return { success: false, error: validationError };
+    const invalidContent = this.validatePostContent(options);
+    if (invalidContent) {
+      return { success: false, error: invalidContent.message, code: invalidContent.code };
     }
 
     try {

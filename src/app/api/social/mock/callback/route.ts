@@ -4,15 +4,18 @@ import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { resolveBrainForUser } from "@/lib/brains";
+import { isMockAdapterAllowed } from "@/lib/adapters";
 
 /**
  * Mock OAuth callback for development/testing.
  * Simulates connecting a social account without real OAuth flow.
- * 
- * Enable by setting MOCK_SOCIAL_ADAPTERS=true in .env
+ *
+ * Enable by setting MOCK_SOCIAL_ADAPTERS=true in .env — and it only applies
+ * outside production, so this route cannot create a fake account on a live
+ * deployment even if the flag is left switched on there.
  */
 export async function GET(req: NextRequest) {
-  if (process.env.MOCK_SOCIAL_ADAPTERS !== "true") {
+  if (process.env.MOCK_SOCIAL_ADAPTERS !== "true" || !isMockAdapterAllowed()) {
     return NextResponse.redirect(
       new URL("/settings/accounts?error=mock_mode_disabled", req.url)
     );

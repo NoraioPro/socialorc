@@ -22,17 +22,44 @@ export const adapters: Record<Platform, PlatformAdapter> = {
 };
 
 /**
+ * Whether a mock adapter may stand in for a real platform.
+ *
+ * Mocks exist for local development and tests, where a success response is the
+ * point. In production they are never acceptable as a substitute for a real
+ * connector: `MockAdapter.createPost` returns `success: true` with a
+ * `mock_post_*` id, which would mark an unpublished post as PUBLISHED and write
+ * a fake platform URL. A missing credential is a configuration fault to
+ * surface, not something to paper over.
+ *
+ * Gated on NODE_ENV rather than on the mock flag alone, so that a stale
+ * `MOCK_SOCIAL_ADAPTERS=true` left in a production environment cannot fake a
+ * publish. Tests run with NODE_ENV=test and keep full mock behaviour.
+ */
+export function isMockAdapterAllowed(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+/**
  * Get adapter for a platform.
- * 
+ *
  * Behavior:
- * - If MOCK_SOCIAL_ADAPTERS=true, always returns mock adapter
- * - If useMockIfUnconfigured=true and platform credentials missing, returns mock adapter
- * - Otherwise returns real adapter
+ * - Mock adapters are only ever returned outside production (see
+ *   `isMockAdapterAllowed`).
+ * - Outside production, `MOCK_SOCIAL_ADAPTERS=true` returns the mock adapter
+ *   unconditionally.
+ * - Outside production, `useMockIfUnconfigured=true` returns the mock adapter
+ *   when the platform has no credentials.
+ * - Otherwise the real adapter is returned — even when unconfigured, so the
+ *   caller can report exactly what is missing instead of quietly succeeding.
  */
 export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured?: boolean }): PlatformAdapter {
   const adapter = adapters[platform];
   if (!adapter) {
     throw new Error(`No adapter found for platform: ${platform}`);
+  }
+
+  if (!isMockAdapterAllowed()) {
+    return adapter;
   }
 
   if (MOCK_MODE) {
@@ -42,7 +69,7 @@ export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured
   if (options?.useMockIfUnconfigured) {
     const validation = adapter.validateCredentials();
     if (!validation.valid) {
-      console.log(`[${platform}] Using mock adapter (credentials not configured)`);
+      console.log(`[${platform}] Using mock adapter (credentials not configured, non-production)`);
       return createMockAdapter(platform);
     }
   }
@@ -50,14 +77,50 @@ export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured
   return adapter;
 }
 
+/** Why a platform cannot be published to right now. */
+export type PublishAdapterResolution =
+  | { ok: true; adapter: PlatformAdapter }
+  | {
+      ok: false;
+      code: "PLATFORM_NOT_CONFIGURED";
+      /** Variable NAMES only — never a value. */
+      missing: string[];
+      message: string;
+    };
+
+/**
+ * Resolve the adapter a publish is allowed to use, or explain why none is.
+ *
+ * Every real publish path goes through this. It is deliberately incapable of
+ * returning a mock in production: an unconfigured platform resolves to
+ * `ok: false` so the caller can fail the post with PLATFORM_NOT_CONFIGURED and
+ * leave it unpublished. Outside production the mock still resolves `ok: true`,
+ * which keeps local development and the mock-driven tests working.
+ */
+export function resolvePublishAdapter(platform: Platform): PublishAdapterResolution {
+  const adapter = getAdapter(platform);
+  const validation = adapter.validateCredentials();
+
+  if (!validation.valid) {
+    return {
+      ok: false,
+      code: "PLATFORM_NOT_CONFIGURED",
+      missing: validation.missing,
+      message: `${platform} credentials are not configured`,
+    };
+  }
+
+  return { ok: true, adapter };
+}
+
 export function getAdapterStatus(): Record<Platform, { configured: boolean; missing: string[] }> {
   const status: Record<Platform, { configured: boolean; missing: string[] }> = {} as Record<Platform, { configured: boolean; missing: string[] }>;
   
   for (const platform of Object.keys(adapters) as Platform[]) {
-    // Match the adapter used by the connection endpoint. In local mock mode,
-    // every platform is intentionally connectable without production secrets.
-    const adapter = getAdapter(platform);
-    const validation = adapter.validateCredentials();
+    // Always the REAL adapter, never a mock. Health has to describe what can
+    // actually publish: MockAdapter reports valid:true for every platform, so
+    // consulting it here would present an unconfigured platform as healthy.
+    const validation = adapters[platform].validateCredentials();
     status[platform] = {
       configured: validation.valid,
       missing: validation.missing,

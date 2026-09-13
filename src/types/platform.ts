@@ -146,9 +146,29 @@ export interface AccountInfo {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Authoritative metadata for one attachment, taken from the stored `MediaAsset`
+ * rather than inferred from the URL.
+ *
+ * Why this exists: validation used to guess the MIME type from the URL's file
+ * extension. That silently fails for `data:` URLs (the no-Blob fallback) and for
+ * any URL without an extension, which let unsupported media through unchecked.
+ * When the caller knows the real bytes, it passes them here.
+ */
+export interface PostMediaDescriptor {
+  url: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}
+
 export interface PostOptions {
   text: string;
   mediaUrls?: string[];
+  /**
+   * Same attachments as `mediaUrls`, with their real MIME type and byte size.
+   * Preferred over URL inference when present — see PostMediaDescriptor.
+   */
+  media?: PostMediaDescriptor[];
   scheduledTime?: Date;
   visibility?: "public" | "private" | "connections";
   additionalOptions?: Record<string, unknown>;
@@ -159,6 +179,12 @@ export interface PostResult {
   platformPostId?: string;
   platformPostUrl?: string;
   error?: string;
+  /**
+   * Stable machine-readable failure code (an `AdapterErrorCode`). Present on
+   * every failure the adapter itself classifies, so callers never have to
+   * re-derive the reason from the message. Absent on success.
+   */
+  code?: string;
   rawResponse?: unknown;
 }
 
@@ -336,16 +362,21 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "linkedin",
     color: "#0A66C2",
     maxTextLength: 3000,
-    maxMediaCount: 20,
+    // One image only: the adapter builds LinkedIn's `multiImage` content and
+    // `carousel` is false, so a second attachment is rejected rather than
+    // silently ignored. Video is NOT implemented in the adapter — it stays
+    // declared off so validation refuses it instead of sending a video URL as
+    // an image. Turn these back on only alongside a real implementation.
+    maxMediaCount: 1,
     maxImageSizeMb: 5,
-    maxVideoSizeMb: 200,
-    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
+    maxVideoSizeMb: 0,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif"],
     supportsScheduling: false,
-    supportsVideo: true,
+    supportsVideo: false,
     capabilities: {
       text: true,
       image: true,
-      video: true,
+      video: false,
       carousel: false,
       mediaRequired: false,
       authMethod: "oauth",
@@ -380,16 +411,20 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "twitter",
     color: "#000000",
     maxTextLength: 280,
-    maxMediaCount: 4,
-    maxImageSizeMb: 5,
-    maxVideoSizeMb: 512,
-    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"],
+    // Text only: twitter.ts posts `POST /2/tweets` with `{ text }` and never
+    // reads mediaUrls. An attached image used to publish the text alone and
+    // silently drop the file, so media is now declared unsupported and
+    // validation refuses it. Real media needs the v1.1 upload endpoint + OAuth 1.0a.
+    maxMediaCount: 0,
+    maxImageSizeMb: 0,
+    maxVideoSizeMb: 0,
+    supportedMediaTypes: [],
     supportsScheduling: false,
-    supportsVideo: true,
+    supportsVideo: false,
     capabilities: {
       text: true,
-      image: true,
-      video: true,
+      image: false,
+      video: false,
       carousel: false,
       mediaRequired: false,
       authMethod: "oauth",
@@ -426,18 +461,22 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "instagram",
     color: "#E4405F",
     maxTextLength: 2200,
-    maxMediaCount: 10,
+    // Single image only. instagram.ts sets `containerParams.image_url =
+    // mediaUrls[0]` — a second image was silently discarded and video was sent
+    // as an image URL. Carousel and video are declared off until implemented
+    // (carousel needs `is_carousel_item` children; video needs media_type=REELS).
+    maxMediaCount: 1,
     maxImageSizeMb: 8,
-    maxVideoSizeMb: 100,
-    supportedMediaTypes: ["image/jpeg", "video/mp4"],
+    maxVideoSizeMb: 0,
+    supportedMediaTypes: ["image/jpeg"],
     supportsScheduling: false,
-    supportsVideo: true,
+    supportsVideo: false,
     requiresBusinessAccount: true,
     capabilities: {
       text: true,
       image: true,
-      video: true,
-      carousel: true,
+      video: false,
+      carousel: false,
       mediaRequired: true,
       authMethod: "oauth",
       tokenBasedAuth: false,
@@ -475,17 +514,21 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "facebook",
     color: "#1877F2",
     maxTextLength: 63206,
-    maxMediaCount: 10,
+    // Single image only. facebook.ts posts a lone image through
+    // `/{pageId}/photos`; extra images were dropped and video was pushed to the
+    // same photo endpoint. Carousel needs `attached_media`, video needs
+    // `/{pageId}/videos` — both declared off until implemented.
+    maxMediaCount: 1,
     maxImageSizeMb: 10,
-    maxVideoSizeMb: 1024,
-    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
+    maxVideoSizeMb: 0,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif"],
     supportsScheduling: true,
-    supportsVideo: true,
+    supportsVideo: false,
     capabilities: {
       text: true,
       image: true,
-      video: true,
-      carousel: true,
+      video: false,
+      carousel: false,
       mediaRequired: false,
       authMethod: "oauth",
       tokenBasedAuth: false,
@@ -613,16 +656,19 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "telegram",
     color: "#229ED9",
     maxTextLength: 4096,
-    maxMediaCount: 10,
+    // Single photo only. telegram.ts chooses between `sendMessage` and
+    // `sendPhoto` and only ever sends `mediaUrls[0]`; video (sendVideo) is not
+    // implemented, so both are declared off rather than silently degraded.
+    maxMediaCount: 1,
     maxImageSizeMb: 10,
-    maxVideoSizeMb: 50,
-    supportedMediaTypes: ["image/jpeg", "image/png", "image/webp", "video/mp4"],
+    maxVideoSizeMb: 0,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/webp"],
     supportsScheduling: true,
-    supportsVideo: true,
+    supportsVideo: false,
     capabilities: {
       text: true,
       image: true,
-      video: true,
+      video: false,
       carousel: false,
       mediaRequired: false,
       authMethod: "token",

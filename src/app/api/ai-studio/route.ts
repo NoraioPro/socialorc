@@ -4,6 +4,8 @@ import {
   aiStudioGenerate,
   improveContent,
   isOpenAIAvailable,
+  isMockAIAllowed,
+  AINotConfiguredError,
   GeneratedVariant,
 } from "@/lib/ai";
 import { Platform } from "@prisma/client";
@@ -198,6 +200,14 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       { status: 400 }
     );
   } catch (error) {
+    // Not configured is a deployment fact, not a server fault: 503 with a code
+    // the UI can act on, rather than a 500 that reads like a crash.
+    if (error instanceof AINotConfiguredError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: 503 }
+      );
+    }
     console.error("AI Studio API error:", error);
     return NextResponse.json(
       { 
@@ -223,6 +233,8 @@ export async function GET(_req: NextRequest): Promise<NextResponse<AIStudioStatu
       success: true,
       action: "status",
       openAIAvailable: isOpenAIAvailable(),
+      /** False in production without a key: generation will refuse, not fake it. */
+      mockAIAllowed: isMockAIAllowed(),
       mockBrandContext: MOCK_BRAND_CONTEXT,
     });
   } catch (error) {

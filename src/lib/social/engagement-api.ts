@@ -140,15 +140,19 @@ export async function prepareEngagementContext(
   | { ok: true; ctx: EngagementContext }
   | { ok: false; status: number; body: Record<string, unknown> }
 > {
+  // Mocks are only reachable outside production (see isMockAdapterAllowed), so
+  // an invalid validation here means the connector genuinely has no credentials.
+  // Refuse loudly rather than reporting success from a stand-in.
   const adapter = getAdapter(account.platform, { useMockIfUnconfigured: true });
   const validation = adapter.validateCredentials();
 
-  if (!validation.valid && process.env.MOCK_SOCIAL_ADAPTERS !== "true") {
+  if (!validation.valid) {
     return {
       ok: false,
       status: 503,
       body: {
         error: `${account.platform} connector is not configured`,
+        code: "PLATFORM_NOT_CONFIGURED",
         missing: validation.missing,
       },
     };

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getAdapterStatus } from "@/lib/adapters";
+import { getAdapterStatus, isMockAdapterAllowed } from "@/lib/adapters";
 import { platformReadiness, summarizeHealth } from "@/lib/health";
+import { isMockAIAllowed, isOpenAIAvailable } from "@/lib/ai";
+import { mediaStorage } from "@/lib/media-storage";
 
 /**
  * Deployment health check.
@@ -50,6 +52,21 @@ export async function GET() {
       appVersion: process.env.npm_package_version ?? "unknown",
       commit: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT ?? null,
       environment: process.env.NODE_ENV ?? "unknown",
+      /**
+       * Deployment capabilities, so the UI and an operator can tell a real
+       * integration apart from a development stand-in. A mock adapter or mock AI
+       * must never be mistaken for a working connector.
+       */
+      capabilities: {
+        /** Can a mock adapter stand in for a platform here? False in production. */
+        mockAdaptersAllowed: isMockAdapterAllowed(),
+        /** Would AI return synthetic text here? False in production. */
+        mockAIAllowed: isMockAIAllowed(),
+        /** Is a real AI provider key present? */
+        aiConfigured: isOpenAIAvailable(),
+        /** Where uploads can live: blob | dev-base64 | unconfigured. */
+        mediaStorage: mediaStorage(),
+      },
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     },

@@ -34,6 +34,28 @@ export function isOpenAIAvailable(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
+/**
+ * The AI provider is not configured.
+ *
+ * Thrown instead of returning synthetic text in production: a mock completion is
+ * indistinguishable from a real one once it is in the UI, so silently serving it
+ * would misrepresent the product. Local development and tests still get mocks.
+ */
+export class AINotConfiguredError extends Error {
+  readonly code = "AI_NOT_CONFIGURED";
+  constructor() {
+    super(
+      "AI is not configured. Set OPENAI_API_KEY (or AI_API_KEY) to enable AI generation.",
+    );
+    this.name = "AINotConfiguredError";
+  }
+}
+
+/** Mock AI output is a development affordance, never a production one. */
+export function isMockAIAllowed(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 function getOpenAI(): OpenAI {
   if (!_openai) {
     if (!process.env.OPENAI_API_KEY) {
@@ -208,8 +230,18 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
   brandContextUsed: boolean;
 }> {
   const { idea, platforms, tone, additionalContext, brandContext, forceMock } = options;
-  
-  if (forceMock || !isOpenAIAvailable()) {
+
+  if (forceMock) {
+    return {
+      variants: generateMockVariants(options),
+      usedMock: true,
+      brandContextUsed: Boolean(brandContext),
+    };
+  }
+
+  if (!isOpenAIAvailable()) {
+    // Never hand a synthetic variant to production: it reads as real content.
+    if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
       variants: generateMockVariants(options),
       usedMock: true,
@@ -366,7 +398,16 @@ export async function improveContent(
   instruction: string,
   forceMock?: boolean
 ): Promise<{ content: string; isMock: boolean }> {
-  if (forceMock || !isOpenAIAvailable()) {
+  if (forceMock) {
+    return {
+      content: mockImproveContent(content, instruction),
+      isMock: true,
+    };
+  }
+
+  if (!isOpenAIAvailable()) {
+    // Same rule as generation: production gets an error, not invented content.
+    if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
       content: mockImproveContent(content, instruction),
       isMock: true,

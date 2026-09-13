@@ -9,6 +9,7 @@ import {
   validateCascadeSource,
   getAvailableCascadeTargets,
 } from "@/lib/cascade";
+import { AINotConfiguredError } from "@/lib/ai";
 
 const cascadeSchema = z.object({
   targetPlatforms: z.array(z.nativeEnum(Platform)).min(1),
@@ -179,6 +180,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       createdDrafts: createdPosts,
     });
   } catch (error) {
+    if (error instanceof AINotConfiguredError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 503 }
+      );
+    }
     console.error("Error cascading post:", error);
     return NextResponse.json(
       { error: "Failed to cascade post" },
