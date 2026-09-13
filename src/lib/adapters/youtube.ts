@@ -241,14 +241,63 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         };
       }
 
+      // The resumable session is only a slot. YouTube stores nothing until the
+      // bytes are actually sent to uploadUrl, so returning success here would
+      // claim a publish that never happened.
+      const sourceUrl = options.mediaUrls[0];
+      const descriptor = this.mediaDescriptors(options)[0];
+      const mimeType =
+        descriptor?.mimeType ??
+        BasePlatformAdapter.inferMimeType(sourceUrl) ??
+        "video/*";
+
+      const source = await fetch(sourceUrl);
+      if (!source.ok) {
+        return {
+          success: false,
+          error: `Could not read the video to upload (HTTP ${source.status} from the media URL).`,
+        };
+      }
+      const bytes = Buffer.from(await source.arrayBuffer());
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": mimeType,
+          "Content-Length": String(bytes.length),
+        },
+        body: bytes,
+      });
+
+      if (!uploadResponse.ok) {
+        const detail = await uploadResponse.text().catch(() => "");
+        return {
+          success: false,
+          error: `YouTube rejected the video upload (HTTP ${uploadResponse.status}). ${detail}`
+            .trim()
+            .slice(0, 400),
+          rawResponse: detail || undefined,
+        };
+      }
+
+      const uploaded = (await uploadResponse.json().catch(() => null)) as {
+        id?: string;
+      } | null;
+
+      // Only a video id proves YouTube accepted and stored the upload.
+      if (!uploaded?.id) {
+        return {
+          success: false,
+          error:
+            "YouTube did not return a video id; refusing to report a publish that was not confirmed.",
+        };
+      }
+
       return {
         success: true,
-        rawResponse: {
-          uploadUrl,
-          metadata: videoMetadata,
-          note: "Resumable upload session created. Use the uploadUrl to upload video bytes. This requires additional implementation for actual file upload.",
-          videoUrl: options.mediaUrls[0],
-        },
+        platformPostId: uploaded.id,
+        platformPostUrl: `https://www.youtube.com/watch?v=${uploaded.id}`,
+        rawResponse: { id: uploaded.id, mimeType, bytes: bytes.length, metadata: videoMetadata },
       };
     } catch (error) {
       if (error instanceof AdapterError) {
