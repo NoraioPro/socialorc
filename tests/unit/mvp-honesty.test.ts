@@ -373,7 +373,7 @@ test("LinkedIn text publishing still works and stays on a supported API version"
   }
 });
 
-test("LinkedIn single-image publishing still works", async () => {
+test("LinkedIn single-image publishing registers, uploads, then references the urn", async () => {
   const originalFetch = globalThis.fetch;
   const calls: { url: string; init: RequestInit }[] = [];
 
@@ -382,6 +382,17 @@ test("LinkedIn single-image publishing still works", async () => {
     calls.push({ url: target, init: init ?? {} });
     if (target.endsWith("/v2/userinfo")) {
       return new Response(JSON.stringify({ sub: "abc123", name: "Test User" }), { status: 200 });
+    }
+    if (target.includes("initializeUpload")) {
+      return new Response(
+        JSON.stringify({
+          value: { uploadUrl: "https://upload.invalid/li", image: "urn:li:image:ABC" },
+        }),
+        { status: 200 },
+      );
+    }
+    if (target === "https://upload.invalid/li") {
+      return new Response(null, { status: 201 });
     }
     return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1000" } });
   }) as unknown as typeof fetch;
@@ -394,9 +405,26 @@ test("LinkedIn single-image publishing still works", async () => {
     });
 
     assert.equal(result.success, true, result.error);
+    assert.equal(result.platformPostId, "urn:li:share:1000", "the urn from x-restli-id is required");
+
+    // LinkedIn cannot fetch a URL: the bytes must be uploaded to the URL it
+    // returned from the registration step.
+    assert.ok(
+      calls.some((c) => c.init.method === "PUT"),
+      "the image bytes must be uploaded",
+    );
+
+    // The post references the returned image urn, never the source URL. Sending
+    // the URL itself is what the API rejects, so this is the difference between a
+    // working image post and one that could never succeed.
     const post = calls.find((c) => c.url.endsWith("/rest/posts"));
     const body = JSON.parse(String(post?.init.body));
-    assert.equal(body.content.multiImage.images[0].id, "https://cdn.example/a.jpg");
+    assert.equal(body.content.media.id, "urn:li:image:ABC");
+    assert.equal(
+      JSON.stringify(body).includes("cdn.example"),
+      false,
+      "a raw URL must not be sent as the image reference",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

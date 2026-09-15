@@ -151,6 +151,82 @@ export class LinkedInAdapter extends BasePlatformAdapter {
     };
   }
 
+  /**
+   * LinkedIn's Images API: register an upload, PUT the bytes, and return the
+   * image URN the post must reference. LinkedIn cannot fetch a URL itself, so a
+   * URL handed straight to the post would be rejected.
+   */
+  private async uploadImage(
+    accessToken: string,
+    ownerUrn: string,
+    sourceUrl: string,
+  ): Promise<string> {
+    const initResponse = await fetch(
+      `${LINKEDIN_API_URL}/rest/images?action=initializeUpload`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "LinkedIn-Version": LINKEDIN_VERSION,
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({ initializeUploadRequest: { owner: ownerUrn } }),
+      },
+    );
+
+    if (!initResponse.ok) {
+      const detail = await initResponse.text().catch(() => "");
+      throw new AdapterError(
+        "LinkedIn refused the image upload registration.",
+        "IMAGE_UPLOAD_FAILED",
+        initResponse.status,
+        detail,
+      );
+    }
+
+    const initData = (await initResponse.json()) as {
+      value?: { uploadUrl?: string; image?: string };
+    };
+    const uploadUrl = initData.value?.uploadUrl;
+    const imageUrn = initData.value?.image;
+
+    if (!uploadUrl || !imageUrn) {
+      throw new AdapterError(
+        "LinkedIn returned no upload URL or image urn.",
+        "IMAGE_UPLOAD_FAILED",
+      );
+    }
+
+    const source = await fetch(sourceUrl);
+    if (!source.ok) {
+      throw new AdapterError(
+        `Could not read the image to upload (HTTP ${source.status}).`,
+        "IMAGE_UPLOAD_FAILED",
+      );
+    }
+    const bytes = new Uint8Array(await source.arrayBuffer());
+
+    const putResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: bytes,
+    });
+
+    if (!putResponse.ok) {
+      throw new AdapterError(
+        `LinkedIn rejected the image upload (HTTP ${putResponse.status}).`,
+        "IMAGE_UPLOAD_FAILED",
+        putResponse.status,
+      );
+    }
+
+    return imageUrn;
+  }
+
   async createPost(accessToken: string, options: PostOptions): Promise<PostResult> {
     const invalidContent = this.validatePostContent(options);
     if (invalidContent) {
@@ -174,14 +250,15 @@ export class LinkedInAdapter extends BasePlatformAdapter {
       };
 
       if (options.mediaUrls && options.mediaUrls.length > 0) {
-        postBody.content = {
-          multiImage: {
-            images: options.mediaUrls.map((url) => ({
-              altText: "",
-              id: url,
-            })),
-          },
-        };
+        // The bytes have to be registered and uploaded first; the post then
+        // references the returned URN. Sending the URL itself is rejected by the
+        // API, which is why the declared single-image capability never worked.
+        const imageUrn = await this.uploadImage(
+          accessToken,
+          personUrn,
+          options.mediaUrls[0],
+        );
+        postBody.content = { media: { id: imageUrn } };
       }
 
       const response = await fetch(`${LINKEDIN_API_URL}/rest/posts`, {
@@ -213,12 +290,20 @@ export class LinkedInAdapter extends BasePlatformAdapter {
 
       const postId = response.headers.get("x-restli-id") || response.headers.get("x-linkedin-id");
 
+      // LinkedIn confirms a published post by returning its urn in the
+      // x-restli-id header. A 2xx without it means nothing was confirmed, and
+      // reporting success would record a PUBLISHED post with no id and no URL.
+      if (!postId) {
+        return {
+          success: false,
+          error: "LinkedIn returned no post id, so the post was not confirmed.",
+        };
+      }
+
       return {
         success: true,
-        platformPostId: postId || undefined,
-        platformPostUrl: postId
-          ? `https://www.linkedin.com/feed/update/${postId}`
-          : undefined,
+        platformPostId: postId,
+        platformPostUrl: `https://www.linkedin.com/feed/update/${postId}`,
       };
     } catch (error) {
       if (error instanceof AdapterError) {
