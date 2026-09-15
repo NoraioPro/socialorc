@@ -489,6 +489,42 @@ export class TikTokAdapter extends BasePlatformAdapter {
   }
 
   /**
+   * TikTok's FILE_UPLOAD transfer: PUT each chunk to the upload URL returned by
+   * the init call, identifying the byte range in Content-Range as the media
+   * transfer guide requires. Throws on the first chunk TikTok refuses.
+   */
+  private async uploadChunks(
+    uploadUrl: string,
+    bytes: Uint8Array,
+    plan: { chunkSize: number; totalChunkCount: number },
+  ): Promise<void> {
+    for (let index = 0; index < plan.totalChunkCount; index += 1) {
+      const start = index * plan.chunkSize;
+      const end = Math.min(start + plan.chunkSize, bytes.byteLength);
+      const chunk = bytes.slice(start, end);
+
+      const response = await tiktokFetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "video/mp4",
+          "Content-Range": `bytes ${start}-${end - 1}/${bytes.byteLength}`,
+        },
+        body: chunk,
+      });
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new SocialError({
+          code: "SOCIAL_UPLOAD_FAILED",
+          platform: "tiktok",
+          message: `TikTok rejected chunk ${index + 1} of ${plan.totalChunkCount} (HTTP ${response.status}).`,
+          technical: detail.slice(0, 300),
+        });
+      }
+    }
+  }
+
+  /**
    * Legacy `createPost` entry point, kept for the existing publish worker.
    * New code should call `publishDirect` / `uploadDraft` with a PublishInput.
    */
@@ -515,25 +551,56 @@ export class TikTokAdapter extends BasePlatformAdapter {
         ? "PUBLIC_TO_EVERYONE"
         : "SELF_ONLY";
 
+      // PULL_FROM_URL is not an option here: TikTok only pulls from a domain
+      // whose ownership the developer has verified (validateMediaForPlatform
+      // rejects it for exactly that reason), and our media sits on a Vercel Blob
+      // host we cannot verify. So the bytes travel with FILE_UPLOAD, which
+      // constants.ts documents as the default. Reporting success straight after
+      // the init call - as this used to - claimed a post that was never sent.
+      const source = await fetch(options.mediaUrls[0]);
+      if (!source.ok) {
+        return {
+          success: false,
+          error: `Could not read the video to upload (HTTP ${source.status} from the media URL).`,
+        };
+      }
+      const bytes = new Uint8Array(await source.arrayBuffer());
+
+      const plan = planTikTokChunks(bytes.byteLength);
+      if (!plan.ok) {
+        return { success: false, error: plan.reason };
+      }
+
       const { publishId, uploadUrl } = await this.initDirectPost({
         accessToken,
         caption: options.text,
         privacyLevel: privacy,
-        sizeBytes: 0,
-        mediaUrl: options.mediaUrls[0],
+        sizeBytes: bytes.byteLength,
       });
+
+      if (!uploadUrl) {
+        throw new SocialError({
+          code: "SOCIAL_UPLOAD_FAILED",
+          platform: "tiktok",
+          message: "TikTok accepted the post but returned no upload URL for the file transfer.",
+          technical: { publishId },
+        });
+      }
+
+      await this.uploadChunks(uploadUrl, bytes, plan.plan);
 
       return {
         success: true,
         platformPostId: publishId,
         rawResponse: {
           publishId,
-          uploadUrl,
           privacyLevel: privacy,
+          bytes: bytes.byteLength,
+          chunks: plan.plan.totalChunkCount,
           note:
             privacy === "SELF_ONLY"
-              ? "Posted as private (SELF_ONLY): TikTok only allows public posting for audited apps."
-              : "Video accepted by TikTok. Poll /post/publish/status/fetch/ for progress.",
+              ? "Video transferred and posted as private (SELF_ONLY): TikTok only allows public posting for audited apps."
+              : "Video transferred to TikTok. Poll /post/publish/status/fetch/ for progress.",
         },
       };
     } catch (error) {

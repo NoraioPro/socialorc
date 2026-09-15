@@ -243,10 +243,22 @@ export class FacebookAdapter extends BasePlatformAdapter {
 
       const data = await response.json();
 
+      const platformPostId = data.id || data.post_id;
+
+      // A 200 with no id means Facebook confirmed nothing. Reporting success
+      // here would record a PUBLISHED post that does not exist.
+      if (!platformPostId) {
+        return {
+          success: false,
+          error: "Facebook returned no post id, so the post was not confirmed.",
+          rawResponse: data,
+        };
+      }
+
       return {
         success: true,
-        platformPostId: data.id || data.post_id,
-        platformPostUrl: `https://www.facebook.com/${data.id || data.post_id}`,
+        platformPostId,
+        platformPostUrl: `https://www.facebook.com/${platformPostId}`,
         rawResponse: data,
       };
     } catch (error) {

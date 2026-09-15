@@ -292,11 +292,22 @@ export class InstagramAdapter extends BasePlatformAdapter {
       }
 
       const publishData = await publishResponse.json();
+      const mediaId = publishData.id;
+
+      // Instagram answers 200 with an empty body when it accepted nothing.
+      // Success is only real once it returns the published media id.
+      if (!mediaId) {
+        return {
+          success: false,
+          error: "Instagram returned no media id, so the post was not confirmed.",
+          rawResponse: publishData,
+        };
+      }
 
       return {
         success: true,
-        platformPostId: publishData.id,
-        platformPostUrl: `https://www.instagram.com/p/${publishData.id}/`,
+        platformPostId: mediaId,
+        platformPostUrl: `https://www.instagram.com/p/${mediaId}/`,
         rawResponse: publishData,
       };
     } catch (error) {
