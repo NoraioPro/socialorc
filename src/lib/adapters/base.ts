@@ -126,6 +126,17 @@ export abstract class BasePlatformAdapter implements PlatformAdapter {
       return { code: "MEDIA_INVALID", message: `${name} cannot publish without media` };
     }
 
+    // A post needs *something*: text or media. Whitespace-only text carries no
+    // content, so sending it would either be rejected by the platform or
+    // published as a blank post that the user then has to find and delete.
+    // Checked before the length rules so the message names the real problem.
+    if (media.length === 0 && options.text.trim().length === 0) {
+      return {
+        code: "CONTENT_INVALID",
+        message: `${name} needs some text or a media attachment — nothing was published.`,
+      };
+    }
+
     if (options.text.length > this.config.maxTextLength) {
       return {
         code: "CONTENT_INVALID",
