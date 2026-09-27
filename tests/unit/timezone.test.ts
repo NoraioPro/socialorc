@@ -124,7 +124,9 @@ test("scheduled post stores UTC but displays in user timezone", () => {
   const userLocalTime = "2024-08-20T14:30:00";
   const userTimezone = "Europe/Oslo";
 
-  const localDate = new Date(userLocalTime);
+  // Carry the wall-clock fields as UTC so the result does not depend on the
+  // machine's timezone; a bare ISO string would be parsed as machine-local.
+  const localDate = new Date(`${userLocalTime}Z`);
   const offset = getTimezoneOffsetMinutes(userTimezone, localDate);
   const utcDate = new Date(localDate.getTime() - offset * 60 * 1000);
 
