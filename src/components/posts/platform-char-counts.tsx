@@ -15,14 +15,26 @@ export function PlatformCharCounts({
   platforms,
   hasMedia = false,
   title = "Remaining characters",
+  textByPlatform,
 }: {
   text: string;
   platforms: Platform[];
   hasMedia?: boolean;
   title?: string;
+  /**
+   * Each platform can be drafting different content (e.g. separate AI
+   * variants), so its count must come from its own text, not whichever
+   * draft happens to be on screen. Falls back to `text` for a platform
+   * missing from the map, and to `text` for every platform when omitted —
+   * the single-draft case where the same content is checked against every
+   * platform's limit.
+   */
+  textByPlatform?: Partial<Record<Platform, string>>;
 }) {
   if (platforms.length === 0) return null;
-  const snapshots: CharCountSnapshot[] = countsForPlatforms(text, platforms, hasMedia);
+  const snapshots: CharCountSnapshot[] = platforms.map((platform) =>
+    countsForPlatforms(textByPlatform?.[platform] ?? text, [platform], hasMedia)[0]
+  );
 
   return (
     <div className="space-y-2 rounded-md border bg-muted/30 p-3">
