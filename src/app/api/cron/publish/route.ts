@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
 import { recoverStaleProcessingJobs } from "@/lib/jobs/lease-recovery";
+import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
@@ -35,10 +36,7 @@ function backoffMs(attempts: number): number {
 }
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCronRequest(req.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
