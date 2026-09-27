@@ -334,7 +334,7 @@ function SettingsContent() {
             <button type="submit" disabled={busy !== null || !newBrainName.trim()}>{busy === "brain-create" ? "Creating…" : "Create"}</button>
             <button type="button" disabled={busy !== null} onClick={() => { setCreatingBrain(false); setNewBrainName(""); }}>Cancel</button>
           </form>}
-          <p className="settings-note">Each brain keeps its own set of connected platforms — switch to see or connect a different project's accounts.</p>
+          <p className="settings-note">Each brain keeps its own set of connected platforms — switch to see or connect a different project&apos;s accounts.</p>
           <div className="settings-usage"><strong>{connected}<span> / {platforms.length}</span></strong><small>platforms connected</small></div>
           <div className="settings-usage-bar"><span style={{ width: `${platforms.length ? connected / platforms.length * 100 : 0}%` }} /></div>
           <div className="settings-platform-grid">{platforms.map(p => {

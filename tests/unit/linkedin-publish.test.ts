@@ -130,11 +130,11 @@ test("a text post is addressed to the member and carries a supported API version
 test("visibility maps to LinkedIn's enum and never leaks as raw input", async () => {
   stubFetch([userinfo, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } }]);
   await linkedInAdapter.createPost("t", { text: "x", visibility: "connections" });
-  assert.equal((calls.find((c) => c.url.endsWith("/rest/posts"))!.body as any).visibility, "CONNECTIONS");
+  assert.equal((calls.find((c) => c.url.endsWith("/rest/posts"))!.body as { visibility: string }).visibility, "CONNECTIONS");
 
   stubFetch([userinfo, { status: 201, headers: { "x-restli-id": "urn:li:share:2" } }]);
   await linkedInAdapter.createPost("t", { text: "x" });
-  assert.equal((calls.find((c) => c.url.endsWith("/rest/posts"))!.body as any).visibility, "PUBLIC");
+  assert.equal((calls.find((c) => c.url.endsWith("/rest/posts"))!.body as { visibility: string }).visibility, "PUBLIC");
 });
 
 test("an image is registered, uploaded as bytes, and referenced by urn", async () => {
@@ -155,14 +155,14 @@ test("an image is registered, uploaded as bytes, and referenced by urn", async (
 
   const init = calls.find((c) => c.url.includes("/rest/images?action=initializeUpload"));
   assert.ok(init, "image upload must be initialized first");
-  assert.equal((init!.body as any).initializeUploadRequest.owner, "urn:li:person:AbC123def");
+  assert.equal((init!.body as { initializeUploadRequest: { owner: string } }).initializeUploadRequest.owner, "urn:li:person:AbC123def");
 
   const put = calls.find((c) => c.method === "PUT");
   assert.ok(put, "the bytes must be PUT to the returned upload URL");
 
   const post = calls.find((c) => c.url.endsWith("/rest/posts"));
   assert.deepEqual(
-    (post!.body as any).content,
+    (post!.body as { content: unknown }).content,
     { media: { id: "urn:li:image:999" } },
     "the post must reference the uploaded image urn, never the source URL",
   );
