@@ -241,7 +241,9 @@ test("every momentum and action value has an operator-facing label", () => {
   }
 });
 
-test("the dashboard card renders the fixture digest and the page mounts it", () => {
+// The Command Center redesign dropped the card from the dashboard page on
+// purpose, so only the card itself is pinned here, not where it is mounted.
+test("the dashboard card renders the fixture digest", () => {
   const card = readFileSync(
     fileURLToPath(new URL("../../src/components/dashboard/trend-agent-card.tsx", import.meta.url)),
     "utf8",
@@ -249,10 +251,4 @@ test("the dashboard card renders the fixture digest and the page mounts it", () 
   assert.ok(card.includes("MOCK_TRENDING_TOPICS"), "the card must render the fixture set");
   assert.ok(card.includes("buildTrendDigest"), "the card must use the shared ranking helper");
   assert.ok(card.includes("TREND_FIXTURE_NOTE"), "the card must disclose that the data is mock");
-
-  const page = readFileSync(
-    fileURLToPath(new URL("../../src/app/(dashboard)/dashboard/page.tsx", import.meta.url)),
-    "utf8",
-  );
-  assert.ok(page.includes("<TrendAgentCard"), "the dashboard must mount the Trend Agent card");
 });
