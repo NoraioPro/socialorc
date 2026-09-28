@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/dashboard/header";
 import { ContentWorkflow } from "@/components/dashboard/content-workflow";
@@ -34,6 +34,7 @@ export default function CreatePostPage() {
   const [notice, setNotice] = useState("");
   const [media, setMedia] = useState<UploadedMedia | null>(null);
   const [uploading, setUploading] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const current = variants.find(v => v.platform === active);
   const limit = PLATFORM_CONFIGS[active].maxTextLength;
   const toggle = (p: Platform) => setPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev,p]);
@@ -127,15 +128,27 @@ export default function CreatePostPage() {
                 <button type="button" onClick={()=>setMedia(null)} aria-label="Remove attached media"><XIcon size={14} /></button>
               </div>
             ) : (
-              <input
-                id="post-media"
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
-                disabled={uploading || busy || saving}
-                onChange={e => { const file = e.target.files?.[0]; if (file) uploadMedia(file); e.target.value = ""; }}
-              />
+              <>
+                <input
+                  ref={mediaInputRef}
+                  id="post-media"
+                  type="file"
+                  className="sr-only"
+                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                  disabled={uploading || busy || saving}
+                  onChange={e => { const file = e.target.files?.[0]; if (file) uploadMedia(file); e.target.value = ""; }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading || busy || saving}
+                  onClick={() => mediaInputRef.current?.click()}
+                >
+                  {uploading ? <Loader2 size={14} className="animate-spin" /> : <Film size={14} />}
+                  {uploading ? "Uploading…" : "Attach video or image"}
+                </Button>
+              </>
             )}
-            {uploading && <p className="studio-muted"><Loader2 size={13} className="animate-spin" /> Uploading…</p>}
             {platformsNeedingMedia.length > 0 && <p className="studio-muted">{platformsNeedingMedia.map(p=>PLATFORM_CONFIGS[p].name).join(", ")} will not publish without a video or image.</p>}
           </div>
           {variants.length ? <>
