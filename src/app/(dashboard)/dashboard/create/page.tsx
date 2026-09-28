@@ -43,12 +43,33 @@ export default function CreatePostPage() {
   async function uploadMedia(file: File) {
     setUploading(true); setError("");
     try {
-      const body = new FormData();
-      body.append("file", file);
-      const res = await fetch("/api/media", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not upload the file.");
-      setMedia({ id: data.id, url: data.url, mimeType: data.mimeType, filename: data.filename });
+      // Upload straight to Blob from the browser: a video sent through our own
+      // API route would hit the platform's serverless body-size limit before
+      // the app ever saw it. This path has no such cap.
+      const { upload } = await import("@vercel/blob/client");
+      let result: { id: string; url: string; mimeType: string; filename: string };
+      try {
+        const blob = await upload(file.name, file, { access: "public", handleUploadUrl: "/api/media/upload-token" });
+        const res = await fetch("/api/media/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: blob.url, pathname: blob.pathname, mimeType: blob.contentType || file.type, filename: file.name, size: file.size }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not save the upload.");
+        result = data;
+      } catch (blobErr) {
+        // Local dev without BLOB_READ_WRITE_TOKEN: fall back to the small-file
+        // route. It is capped by the same body-size limit, so it only serves
+        // as a way to test images locally, never real video in production.
+        const body = new FormData();
+        body.append("file", file);
+        const res = await fetch("/api/media", { method: "POST", body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || (blobErr instanceof Error ? blobErr.message : "Could not upload the file."));
+        result = data;
+      }
+      setMedia({ id: result.id, url: result.url, mimeType: result.mimeType, filename: result.filename });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
