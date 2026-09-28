@@ -10,11 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
-import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight } from "lucide-react";
+import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight, Film, X as XIcon } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
 import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
 
 type Variant = { platform: Platform; content: string };
+type UploadedMedia = { id: string; url: string; mimeType: string; filename: string };
 const availablePlatforms = Object.values(Platform);
 
 export default function CreatePostPage() {
@@ -31,9 +32,28 @@ export default function CreatePostPage() {
   const [saved, setSaved] = useState<Platform[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [media, setMedia] = useState<UploadedMedia | null>(null);
+  const [uploading, setUploading] = useState(false);
   const current = variants.find(v => v.platform === active);
   const limit = PLATFORM_CONFIGS[active].maxTextLength;
   const toggle = (p: Platform) => setPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev,p]);
+  const platformsNeedingMedia = platforms.filter(p => PLATFORM_CONFIGS[p].capabilities.mediaRequired && !media);
+
+  async function uploadMedia(file: File) {
+    setUploading(true); setError("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/media", { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not upload the file.");
+      setMedia({ id: data.id, url: data.url, mimeType: data.mimeType, filename: data.filename });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function generate() {
     if (!idea.trim() || !platforms.length || busy || saving || platforms.includes("TELEGRAM")) return;
@@ -63,10 +83,11 @@ export default function CreatePostPage() {
     const pending = (all ? variants : current ? [current] : []).filter(v => !saved.includes(v.platform));
     if (!pending.length || saving || busy) return;
     if (pending.some(v => !v.content.trim() || v.content.length > PLATFORM_CONFIGS[v.platform].maxTextLength)) {setError("Every selected draft needs content within its platform character limit.");return;}
+    if (pending.some(v => PLATFORM_CONFIGS[v.platform].capabilities.mediaRequired && !media)) {setError(`${pending.filter(v=>PLATFORM_CONFIGS[v.platform].capabilities.mediaRequired&&!media).map(v=>PLATFORM_CONFIGS[v.platform].name).join(", ")} needs a video or image attached — text-only posts are not supported there.`);return;}
     setSaving(true); setError(""); setNotice(""); let count = 0;
     try {
       for (const variant of pending) {
-        const res = await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...variant,title:title || undefined})});
+        const res = await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...variant,title:title || undefined,mediaAssetIds:media?[media.id]:undefined})});
         if (!res.ok) {const data = await res.json(); throw new Error(data.error || "Could not save the draft.");}
         setSaved(prev => [...prev,variant.platform]); count++;
       }
@@ -97,6 +118,26 @@ export default function CreatePostPage() {
           <div className="engine-banner"><span className="eyebrow">✦ ORC INTELLIGENCE</span><h2 id="engine-title">AI Content Engine</h2><p>Your vision. On-brand drafts. Built for each platform.</p></div>
           <div className="engine-actions"><Button onClick={generate} disabled={busy || saving || !idea.trim() || !platforms.length || platforms.includes("TELEGRAM")}>{busy?<Loader2 size={15} className="animate-spin"/>:<Wand2 size={15}/>} {busy?"Forging content…":"Generate variants"}</Button><Button variant="outline" onClick={startManual} disabled={busy || saving || !platforms.length}><PenLine size={14}/>Write manually</Button></div>
           {platforms.includes("TELEGRAM") && <p className="studio-muted px-4">Telegram supports manual drafts here. Deselect it to generate AI variants for the other channels.</p>}
+          <div className="engine-media px-4">
+            <Label htmlFor="post-media">Video or image (required for {availablePlatforms.filter(p=>PLATFORM_CONFIGS[p].capabilities.mediaRequired).map(p=>PLATFORM_CONFIGS[p].name).join(", ")})</Label>
+            {media ? (
+              <div className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <Film size={16} />
+                <span className="flex-1 truncate">{media.filename}</span>
+                <button type="button" onClick={()=>setMedia(null)} aria-label="Remove attached media"><XIcon size={14} /></button>
+              </div>
+            ) : (
+              <input
+                id="post-media"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                disabled={uploading || busy || saving}
+                onChange={e => { const file = e.target.files?.[0]; if (file) uploadMedia(file); e.target.value = ""; }}
+              />
+            )}
+            {uploading && <p className="studio-muted"><Loader2 size={13} className="animate-spin" /> Uploading…</p>}
+            {platformsNeedingMedia.length > 0 && <p className="studio-muted">{platformsNeedingMedia.map(p=>PLATFORM_CONFIGS[p].name).join(", ")} will not publish without a video or image.</p>}
+          </div>
           {variants.length ? <>
             <div className="variant-tabs" role="tablist" aria-label="Platform drafts">{variants.map(v => {const Icon=platformIcons[v.platform];return <button id={`tab-${v.platform}`} aria-controls="variant-editor" role="tab" aria-selected={active===v.platform} key={v.platform} onClick={()=>setActive(v.platform)}><Icon className="h-4 w-4"/>{PLATFORM_CONFIGS[v.platform].name}{saved.includes(v.platform)&&<Check size={13}/>}</button>;})}</div>
             <div className="variant-editor" id="variant-editor" role="tabpanel" aria-labelledby={`tab-${active}`}>
@@ -106,6 +147,7 @@ export default function CreatePostPage() {
                 text={current?.content ?? ""}
                 platforms={variants.map((v) => v.platform)}
                 textByPlatform={Object.fromEntries(variants.map((v) => [v.platform, v.content]))}
+                hasMedia={!!media}
               />
               {saved.includes(active)&&<p className="studio-muted">Saved. Continue editing this post in Drafts.</p>}
             </div>
