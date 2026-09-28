@@ -23,6 +23,11 @@ import {
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
+// Uploading bytes (as opposed to reading/writing metadata) goes through a
+// separate host path. Posting the resumable-init request to YOUTUBE_API_URL
+// instead of this one is exactly what produces Google's generic 400
+// "Request contains an invalid argument." with no field named.
+const YOUTUBE_UPLOAD_API_URL = "https://www.googleapis.com/upload/youtube/v3";
 
 export class YouTubeAdapter extends BasePlatformAdapter {
   platform = Platform.YOUTUBE;
@@ -210,15 +215,27 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         (videoMetadata.status as Record<string, unknown>).publishAt = options.scheduledTime.toISOString();
       }
 
+      const sourceUrl = options.mediaUrls[0];
+      const descriptor = this.mediaDescriptors(options)[0];
+      const uploadMimeType =
+        descriptor?.mimeType ??
+        BasePlatformAdapter.inferMimeType(sourceUrl) ??
+        "video/*";
+
+      const initHeaders: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "X-Upload-Content-Type": uploadMimeType,
+      };
+      if (descriptor?.sizeBytes) {
+        initHeaders["X-Upload-Content-Length"] = String(descriptor.sizeBytes);
+      }
+
       const initResponse = await fetch(
-        `${YOUTUBE_API_URL}/videos?uploadType=resumable&part=snippet,status`,
+        `${YOUTUBE_UPLOAD_API_URL}/videos?uploadType=resumable&part=snippet,status`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-            "X-Upload-Content-Type": "video/*",
-          },
+          headers: initHeaders,
           body: JSON.stringify(videoMetadata),
         }
       );
@@ -244,13 +261,7 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       // The resumable session is only a slot. YouTube stores nothing until the
       // bytes are actually sent to uploadUrl, so returning success here would
       // claim a publish that never happened.
-      const sourceUrl = options.mediaUrls[0];
-      const descriptor = this.mediaDescriptors(options)[0];
-      const mimeType =
-        descriptor?.mimeType ??
-        BasePlatformAdapter.inferMimeType(sourceUrl) ??
-        "video/*";
-
+      const mimeType = uploadMimeType;
       const source = await fetch(sourceUrl);
       if (!source.ok) {
         return {
