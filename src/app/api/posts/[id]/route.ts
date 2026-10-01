@@ -171,7 +171,17 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     // `posts:delete` exists in the role matrix (ADMIN only) but was never
     // enforced anywhere, so every signed-in account could delete any post.
-    const guard = await requirePermission("posts:delete");
+    //
+    // Enforcing it as-is broke a real workflow though: MANAGER and EDITOR lost
+    // the ability to delete their own drafts, and the delete buttons in the
+    // dashboard are not role-gated, so they would just see a 403. Deleting your
+    // own draft is authoring work — the same permission that lets you write it.
+    // `posts:delete` is required once a post has moved past draft.
+    const authoring = await requirePermission("posts:create");
+    let guard = authoring;
+    if (!authoring.ok) {
+      guard = await requirePermission("posts:delete");
+    }
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -191,6 +201,20 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
         { error: "Cannot delete a post that is currently publishing" },
         { status: 400 }
       );
+    }
+
+    // DRAFT and PENDING_APPROVAL are still the author's own work-in-progress
+    // (a rejection returns the post to DRAFT with a rejectionReason). Anything
+    // further along is an admin action.
+    const isOwnDraft = post.status === "DRAFT" || post.status === "PENDING_APPROVAL";
+    if (!isOwnDraft) {
+      const strong = await requirePermission("posts:delete");
+      if (!strong.ok) {
+        return NextResponse.json(
+          { error: "Approved and scheduled posts can only be deleted by an admin" },
+          { status: strong.status }
+        );
+      }
     }
 
     await prisma.post.delete({ where: { id } });

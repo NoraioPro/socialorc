@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { getAdapterStatus, isMockAdapterAllowed } from "@/lib/adapters";
 import { platformReadiness, summarizeHealth } from "@/lib/health";
 import { isMockAIAllowed, isOpenAIAvailable } from "@/lib/ai";
+import { isTokenEncryptionKeyConfigured } from "@/lib/encryption";
 import { mediaStorage } from "@/lib/media-storage";
 
 /**
@@ -66,6 +67,12 @@ export async function GET() {
         aiConfigured: isOpenAIAvailable(),
         /** Where uploads can live: blob | dev-base64 | unconfigured. */
         mediaStorage: mediaStorage(),
+        /**
+         * Is TOKEN_ENCRYPTION_KEY present? False in production means every
+         * connect and every publish fails — the value is never exposed, only
+         * whether the key exists.
+         */
+        tokenEncryptionKeySet: isTokenEncryptionKeyConfigured(),
       },
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),

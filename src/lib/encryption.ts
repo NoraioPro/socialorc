@@ -8,12 +8,19 @@ import CryptoJS from "crypto-js";
  * tokens under a key anyone can read — and because the encrypted values are
  * returned by several API routes, that is a full token compromise rather than a
  * theoretical one. So in production a missing key is a hard failure, raised on
- * first use (not at module load, so the build and `/api/health` still work and
- * tell you what is wrong).
+ * first use — not at module load, so the build still succeeds and the process
+ * can start. `/api/health` reports it as `capabilities.tokenEncryptionKeySet`,
+ * which is the signal an operator needs; without that flag a missing key is
+ * invisible until the first connect or publish fails.
  */
 const DEV_FALLBACK_KEY = "dev-key-change-in-production";
 
 let warnedAboutFallback = false;
+
+/** Is the real key present? Exposed so `/api/health` can report it (boolean only). */
+export function isTokenEncryptionKeyConfigured(): boolean {
+  return Boolean(process.env.TOKEN_ENCRYPTION_KEY);
+}
 
 function encryptionKey(): string {
   const configured = process.env.TOKEN_ENCRYPTION_KEY;
