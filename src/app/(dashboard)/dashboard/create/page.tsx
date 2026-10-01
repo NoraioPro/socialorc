@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Header } from "@/components/dashboard/header";
 import { ContentWorkflow } from "@/components/dashboard/content-workflow";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,17 @@ import { PLATFORM_CONFIGS } from "@/types/platform";
 import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight, Film, X as XIcon } from "lucide-react";
 import { platformIcons } from "@/components/icons/platform-icons";
 import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
+import { blobPathFor } from "@/lib/social/blob-upload";
 
 type Variant = { platform: Platform; content: string };
 type UploadedMedia = { id: string; url: string; mimeType: string; filename: string };
 const availablePlatforms = Object.values(Platform);
 
 export default function CreatePostPage() {
+  // The blob path is namespaced per user so the server can prove an upload
+  // belongs to the caller (see src/lib/social/blob-upload.ts). The id is not a
+  // secret; the server still refuses any path outside the session user's folder.
+  const { data: session } = useSession();
   const [title, setTitle] = useState("");
   const [idea, setIdea] = useState("");
   const [audience, setAudience] = useState("");
@@ -49,7 +55,9 @@ export default function CreatePostPage() {
       const { upload } = await import("@vercel/blob/client");
       let result: { id: string; url: string; mimeType: string; filename: string };
       try {
-        const blob = await upload(file.name, file, { access: "public", handleUploadUrl: "/api/media/upload-token" });
+        const userId = session?.user?.id;
+        if (!userId) throw new Error("Your session expired. Sign in again.");
+        const blob = await upload(blobPathFor(userId, file.name), file, { access: "public", handleUploadUrl: "/api/media/upload-token" });
         const res = await fetch("/api/media/finalize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

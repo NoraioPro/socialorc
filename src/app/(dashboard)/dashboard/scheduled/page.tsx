@@ -5,13 +5,14 @@ import { PostStatus } from "@prisma/client";
 import { DeletablePostGrid } from "@/components/posts/deletable-post-grid";
 import { format } from "date-fns";
 import { canRetryFailedPublish } from "@/lib/failed-retry";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 async function getQueuePosts(userId: string) {
   const [scheduled, failed] = await Promise.all([
     prisma.post.findMany({
       where: { userId, status: PostStatus.SCHEDULED },
       include: {
-        socialAccount: true,
+        socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
           include: { mediaAsset: true },
           orderBy: { order: "asc" },
@@ -22,7 +23,7 @@ async function getQueuePosts(userId: string) {
     prisma.post.findMany({
       where: { userId, status: PostStatus.FAILED },
       include: {
-        socialAccount: true,
+        socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
           include: { mediaAsset: true },
           orderBy: { order: "asc" },

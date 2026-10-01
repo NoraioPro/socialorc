@@ -229,10 +229,22 @@ export default function GlobalMapPage() {
     <div className="flex flex-col">
       <Header
         title="Global Social Map"
-        description="Discover regional opportunities and track market potential across the world"
+        description="Explore regional market potential across the world"
       />
 
       <div className="flex-1 space-y-6 p-6">
+        {/* Honesty gate: every figure below comes from a fixed fixture
+            (src/lib/global-map/fixtures.ts), not from measurement. The brief
+            forbids presenting an insight with no evidence behind it, so the page
+            says so where the numbers are instead of letting them read as live
+            data. */}
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <span aria-hidden="true">●</span>
+          <p>
+            <strong className="font-medium">Illustrative data.</strong> Market sizes, reach and
+            opportunity scores on this page are placeholder fixtures, not measured results.
+          </p>
+        </div>
         <GlobalStatsPanel />
 
         <div className="grid gap-6 lg:grid-cols-4">

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { PostStatus } from "@prisma/client";
 import Link from "next/link";
 import { FileEdit, Clock, Check, CheckSquare, AlertCircle, CheckCircle2, Crown, Sparkles, Target, Trophy } from "lucide-react";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 const statusColors: Record<PostStatus, string> = {
   DRAFT: "bg-gray-500",
@@ -28,7 +29,7 @@ async function getStats(userId: string) {
       where: { userId },
       orderBy: { updatedAt: "desc" },
       take: 5,
-      include: { socialAccount: true },
+      include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     }),
   ]);
 

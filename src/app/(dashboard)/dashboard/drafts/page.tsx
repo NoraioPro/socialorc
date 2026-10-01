@@ -5,6 +5,7 @@ import { PostStatus } from "@prisma/client";
 import { DraftsPostsGrid } from "@/components/posts/drafts-posts-grid";
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 async function getDrafts(userId: string) {
   return prisma.post.findMany({
@@ -15,7 +16,7 @@ async function getDrafts(userId: string) {
       },
     },
     include: {
-      socialAccount: true,
+      socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
       mediaAssets: {
         include: { mediaAsset: true },
         orderBy: { order: "asc" },
