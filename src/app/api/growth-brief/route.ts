@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { computeTractionScore, computeMetricsFromPosts } from "@/lib/traction-score";
-import { generateGrowthBrief, generateMockPlatformStats } from "@/lib/growth-brief";
+import { computePlatformStats, generateGrowthBrief } from "@/lib/growth-brief";
 
 export async function GET() {
   const session = await getAuthSession();
@@ -24,8 +24,8 @@ export async function GET() {
   const metrics = computeMetricsFromPosts(posts);
   const tractionScore = computeTractionScore(metrics);
 
-  const platformStats = generateMockPlatformStats(
-    posts.map((p) => ({ platform: p.platform, status: p.status }))
+  const platformStats = computePlatformStats(
+    posts.map((p) => ({ platform: p.platform, status: p.status, createdAt: p.createdAt }))
   );
 
   const today = new Date();

@@ -3,6 +3,7 @@ import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus, Platform, Prisma } from "@prisma/client";
 import { z } from "zod";
+import { POST_SAFE_INCLUDE, unownedMediaAssetIds } from "@/lib/social/account-select";
 
 const createPostSchema = z.object({
   title: z.string().optional(),
@@ -25,6 +26,9 @@ export async function GET(req: NextRequest) {
     const platform = req.nextUrl.searchParams.get("platform") as Platform | null;
     const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50");
     const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0");
+    // An unbounded `limit` let any signed-in caller ask for the whole table.
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 50;
+    const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
     const where: {
       userId: string;
@@ -38,16 +42,10 @@ export async function GET(req: NextRequest) {
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
         where,
-        include: {
-          socialAccount: true,
-          mediaAssets: {
-            include: { mediaAsset: true },
-            orderBy: { order: "asc" },
-          },
-        },
+        include: POST_SAFE_INCLUDE,
         orderBy: { createdAt: "desc" },
-        take: limit,
-        skip: offset,
+        take: safeLimit,
+        skip: safeOffset,
       }),
       prisma.post.count({ where }),
     ]);
@@ -112,6 +110,19 @@ export async function POST(req: NextRequest) {
       resolvedAccountId = account?.id;
     }
 
+    // Media ids are client-supplied: without this check any caller could attach
+    // (and then read the URL of) another tenant's asset, and publish a file they
+    // never uploaded.
+    if (mediaAssetIds && mediaAssetIds.length > 0) {
+      const unowned = await unownedMediaAssetIds(guard.userId, mediaAssetIds);
+      if (unowned.length > 0) {
+        return NextResponse.json(
+          { error: "One or more media assets were not found" },
+          { status: 404 }
+        );
+      }
+    }
+
     const post = await prisma.post.create({
       data: {
         userId: guard.userId,
@@ -131,13 +142,7 @@ export async function POST(req: NextRequest) {
             }
           : undefined,
       },
-      include: {
-        socialAccount: true,
-        mediaAssets: {
-          include: { mediaAsset: true },
-          orderBy: { order: "asc" },
-        },
-      },
+      include: POST_SAFE_INCLUDE,
     });
 
     return NextResponse.json(post, { status: 201 });

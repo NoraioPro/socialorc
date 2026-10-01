@@ -6,6 +6,7 @@ import { encryptTokens } from "@/lib/encryption";
 import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { resolveBrainForUser } from "@/lib/brains";
+import { sanitizeAccountMetadata } from "@/lib/social/account-metadata";
 
 /**
  * One OAuth callback, shared by every redirect-based connector.
@@ -120,7 +121,10 @@ export function createOAuthCallback(platform: Platform) {
         refreshToken: encrypted.refreshToken,
         tokenExpiresAt: tokens.expiresAt ?? null,
         refreshTokenExpiresAt: tokens.refreshExpiresAt ?? null,
-        metadata: (info.metadata ?? undefined) as object | undefined,
+        // Connector metadata can carry a Page access token (Facebook/Instagram).
+        // Both adapters resolve that token live at publish time and never read
+        // the stored copy, so the secrets are dropped rather than persisted.
+        metadata: sanitizeAccountMetadata(info.metadata) as object | undefined,
         accountType,
         externalParentId: info.metadata?.externalParentId as string | undefined,
         scopes,
@@ -133,12 +137,34 @@ export function createOAuthCallback(platform: Platform) {
         lastError: null,
       };
 
+      // An existing connection belongs to the user who authorised it. The
+      // unique key is (platform, platformUserId) across the whole database, so a
+      // second tenant connecting the *same* platform account — a co-admin of the
+      // same Facebook Page, the same brand YouTube channel — matched that row
+      // and the `update` branch rewrote `userId`/`brainId`: the account changed
+      // hands with no warning to either side. Refuse, and leave it where it is.
+      const existingAccount = await prisma.socialAccount.findUnique({
+        where: {
+          platform_platformUserId: { platform, platformUserId: info.platformUserId },
+        },
+        select: { id: true, userId: true },
+      });
+
+      if (existingAccount && existingAccount.userId !== user.userId) {
+        console.error(
+          `${platform} OAuth callback refused: ${info.platformUserId} is already connected by another user`,
+        );
+        return failure("account_owned_elsewhere", popup);
+      }
+
       const account = await prisma.socialAccount.upsert({
         where: {
           platform_platformUserId: { platform, platformUserId: info.platformUserId },
         },
         create: { platform, ...shared },
-        update: shared,
+        // `userId` is deliberately not part of the update: ownership is decided
+        // on create and a later connect may never rewrite it.
+        update: { ...shared, userId: undefined },
       });
 
       const response = NextResponse.redirect(

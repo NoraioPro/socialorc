@@ -1,8 +1,17 @@
 import { Platform } from "@prisma/client";
 import { InboxAdapter, InboxItem, InboxFetchOptions } from "@/types/inbox";
 import { getMockInboxItems } from "./mock-data";
+import { isMockAdapterAllowed } from "@/lib/adapters";
 
-const MOCK_MODE = process.env.MOCK_SOCIAL_ADAPTERS === "true";
+/**
+ * Mock inbox items are invented conversations. `MOCK_SOCIAL_ADAPTERS=true` was
+ * the only gate, so a stale flag in a real deployment served fabricated
+ * comments and DMs to a paying customer — and `reply()` reported success
+ * against nothing. The publish path already refuses mocks in production
+ * (`isMockAdapterAllowed`); the inbox now uses the same gate.
+ */
+const MOCK_MODE =
+  isMockAdapterAllowed() && process.env.MOCK_SOCIAL_ADAPTERS === "true";
 
 /**
  * Base mock inbox adapter — used for all platforms in mock mode.

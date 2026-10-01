@@ -1,6 +1,11 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
+import {
+  ALLOWED_UPLOAD_CONTENT_TYPES,
+  MAX_UPLOAD_BYTES,
+  blobFolderFor,
+} from "@/lib/social/blob-upload";
 
 /**
  * Issues a short-lived token so the browser can upload a file straight to
@@ -25,18 +30,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       body,
       request,
       onBeforeGenerateToken: async () => ({
-        allowedContentTypes: [
-          "image/jpeg",
-          "image/png",
-          "image/gif",
-          "image/webp",
-          "video/mp4",
-          "video/quicktime",
-          "video/webm",
-        ],
+        // Single source of truth: /api/media/finalize enforces the same list.
+        allowedContentTypes: [...ALLOWED_UPLOAD_CONTENT_TYPES],
         addRandomSuffix: true,
-        maximumSizeInBytes: 500 * 1024 * 1024,
-        tokenPayload: JSON.stringify({ userId: session.user.id }),
+        maximumSizeInBytes: MAX_UPLOAD_BYTES,
+        // The folder the client is expected to upload into. The finalize route
+        // independently proves the resulting URL sits inside it for this user.
+        tokenPayload: JSON.stringify({
+          userId: session.user.id,
+          folder: blobFolderFor(session.user.id),
+        }),
       }),
       // Best-effort only: this webhook needs a publicly reachable deployment,
       // so it never fires against localhost. The client finalizes the asset

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { z } from "zod";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 const rescheduleSchema = z.object({
   scheduledFor: z.string(),
@@ -13,9 +14,11 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Scheduling work — the same permission that gates /schedule. This route
+    // was session-only, so a read-only CLIENT account could re-queue a publish.
+    const guard = await requirePermission("posts:schedule");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { id } = await params;
@@ -30,8 +33,8 @@ export async function PATCH(
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
-      include: { socialAccount: true },
+      where: { id, userId: guard.userId },
+      include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     });
 
     if (!post) {
@@ -62,7 +65,7 @@ export async function PATCH(
           scheduledFor,
         },
         include: {
-          socialAccount: true,
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
             include: { mediaAsset: true },
             orderBy: { order: "asc" },

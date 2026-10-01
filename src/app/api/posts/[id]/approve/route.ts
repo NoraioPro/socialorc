@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth";
 import type { Permission } from "@/lib/roles";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 export async function POST(
   req: NextRequest,
@@ -48,7 +49,7 @@ export async function POST(
           rejectionReason: null,
         },
         include: {
-          socialAccount: true,
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
             include: { mediaAsset: true },
             orderBy: { order: "asc" },
@@ -73,7 +74,7 @@ export async function POST(
           approvedBy: null,
         },
         include: {
-          socialAccount: true,
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
             include: { mediaAsset: true },
             orderBy: { order: "asc" },
@@ -94,7 +95,7 @@ export async function POST(
           rejectionReason: null,
         },
         include: {
-          socialAccount: true,
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
             include: { mediaAsset: true },
             orderBy: { order: "asc" },

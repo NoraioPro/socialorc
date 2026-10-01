@@ -5,6 +5,7 @@ import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { resolveBrainForUser } from "@/lib/brains";
+import { requirePermission } from "@/lib/auth";
 
 /**
  * Token-based connector handshake for Telegram.
@@ -45,6 +46,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL(redirect.path, req.url));
     }
 
+    // Connecting is a write path that ends in a stored credential, gated by the
+    // same permission as every other connector.
+    const permission = await requirePermission("accounts:connect");
+    if (!permission.ok) {
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=not_allowed${popupSuffix}`, req.url)
+      );
+    }
+
     const validation = telegramAdapter.validateCredentials();
     if (!validation.valid) {
       return NextResponse.redirect(
@@ -62,6 +72,27 @@ export async function GET(req: NextRequest) {
 
     const info = await telegramAdapter.getAccountInfo(token);
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
+
+    // Same takeover rule as the shared OAuth callback: an existing connection
+    // belongs to whoever made it. Telegram is the sharpest case, because every
+    // tenant resolves the *same* bot from env today, so the row collides with no
+    // credentials required at all.
+    const existingAccount = await prisma.socialAccount.findUnique({
+      where: {
+        platform_platformUserId: {
+          platform: Platform.TELEGRAM,
+          platformUserId: info.platformUserId,
+        },
+      },
+      select: { id: true, userId: true },
+    });
+
+    if (existingAccount && existingAccount.userId !== user.userId) {
+      console.error("Telegram connect refused: bot already connected by another user");
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=account_owned_elsewhere${popupSuffix}`, req.url)
+      );
+    }
 
     const account = await prisma.socialAccount.upsert({
       where: {
@@ -83,7 +114,7 @@ export async function GET(req: NextRequest) {
         metadata: { chatId, tokenType: "bot", isBot: true },
       },
       update: {
-        userId: user.userId,
+        // Ownership is set on create and never rewritten by a later connect.
         brainId: brain.id,
         platformUsername: info.platformUsername,
         displayName: info.displayName,

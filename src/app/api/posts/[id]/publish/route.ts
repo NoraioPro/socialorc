@@ -67,6 +67,14 @@ export async function POST(
     await prisma.post.update({ where: { id: post.id }, data: { socialAccountId: account.id } });
   }
 
+  // The linked account must belong to the caller. The post's own ownership was
+  // checked above, but `socialAccountId` is a separate row: before this check,
+  // pointing a post at another tenant's account id decrypted *their* token and
+  // published through their profile.
+  if (account.userId !== guard.userId) {
+    return NextResponse.json({ error: "Social account not found" }, { status: 404 });
+  }
+
   if (account.needsReconnect) {
     return NextResponse.json(
       { error: `Your ${post.platform} connection expired. Reconnect it in Settings.`, code: "RECONNECT_REQUIRED" },

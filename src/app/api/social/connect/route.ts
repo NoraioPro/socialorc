@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { resolveBrainForUser } from "@/lib/brains";
@@ -7,9 +7,12 @@ import crypto from "crypto";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Starting a connection is a write path that ends in a stored credential.
+    // `accounts:connect` is the permission for it; it was defined and checked
+    // nowhere, so every signed-in role could connect an account.
+    const guard = await requirePermission("accounts:connect");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { searchParams } = new URL(req.url);
@@ -37,7 +40,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const brain = await resolveBrainForUser(session.user.id, searchParams.get("brainId"));
+    const brain = await resolveBrainForUser(guard.userId, searchParams.get("brainId"));
 
     const state = crypto.randomBytes(32).toString("hex");
 
@@ -56,7 +59,7 @@ export async function GET(req: NextRequest) {
       verifier?: string;
       codeChallengeMethod?: "S256" | "plain";
     } = {
-      userId: session.user.id,
+      userId: guard.userId,
       platform,
       brainId: brain.id,
       // Connect was opened in a popup window, not a full-page navigation —

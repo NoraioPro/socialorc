@@ -17,6 +17,7 @@ import {
   validateTwitterCredentials,
   type CredentialValidationResult,
 } from "./credentials";
+import { codeChallengeFor, generateCodeVerifier } from "@/lib/social/pkce";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
@@ -44,37 +45,48 @@ export class TwitterAdapter extends BasePlatformAdapter {
     return validateTwitterCredentials();
   }
 
-  private generateCodeVerifier(): string {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    let result = "";
-    for (let i = 0; i < 64; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
+  /**
+   * Build the authorization request. The caller stores `verifier` with the
+   * state cookie; only the challenge is exposed — same contract as TikTok.
+   *
+   * This replaces a flow that was broken three ways at once: the verifier was
+   * generated with `Math.random()`, the challenge method was `plain` (so the
+   * challenge *was* the verifier), and the verifier was appended to `state`, so
+   * it travelled through the browser in the redirect URL. Anything that could
+   * read that URL — history, a proxy log, a referrer header — held the secret
+   * that is supposed to prove the token exchange came from the client that
+   * started it, which defeats PKCE entirely.
+   */
+  createAuthorizationRequest(state: string): {
+    url: string;
+    verifier: string;
+    codeChallengeMethod: "S256";
+  } {
+    const verifier = generateCodeVerifier();
+    const codeChallengeMethod = "S256" as const;
 
-  private async generateCodeChallenge(verifier: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(hash)));
-    return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-
-  getOAuthUrl(state: string): string {
-    const codeVerifier = this.generateCodeVerifier();
-    
     const params = new URLSearchParams({
       response_type: "code",
       client_id: process.env.TWITTER_CLIENT_ID || "",
       redirect_uri: this.getRedirectUri(),
       scope: "tweet.read tweet.write users.read offline.access",
-      state: `${state}:${codeVerifier}`,
-      code_challenge: codeVerifier,
-      code_challenge_method: "plain",
+      state,
+      code_challenge: codeChallengeFor(verifier, codeChallengeMethod),
+      code_challenge_method: codeChallengeMethod,
     });
 
-    return `${TWITTER_AUTH_URL}?${params.toString()}`;
+    return { url: `${TWITTER_AUTH_URL}?${params.toString()}`, verifier, codeChallengeMethod };
+  }
+
+  /**
+   * Legacy contract: an authorization URL with no server-side verifier. X
+   * requires PKCE, so this delegates to `createAuthorizationRequest` and
+   * abandons the verifier — kept so the older
+   * `/api/social/connect?platform=TWITTER` route cannot quietly ship a `plain`
+   * challenge. Prefer the explicit call.
+   */
+  getOAuthUrl(state: string): string {
+    return this.createAuthorizationRequest(state).url;
   }
 
   async exchangeCodeForTokens(code: string, codeVerifier?: string): Promise<OAuthTokens> {

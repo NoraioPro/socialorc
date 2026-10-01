@@ -10,6 +10,7 @@ import {
   getAvailableCascadeTargets,
 } from "@/lib/cascade";
 import { AINotConfiguredError } from "@/lib/ai";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 const cascadeSchema = z.object({
   targetPlatforms: z.array(z.nativeEnum(Platform)).min(1),
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const post = await prisma.post.findFirst({
       where: { id, userId: session.user.id },
       include: {
-        socialAccount: true,
+        socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
           include: { mediaAsset: true },
           orderBy: { order: "asc" },

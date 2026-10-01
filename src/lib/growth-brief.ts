@@ -237,10 +237,24 @@ function generateWeeklyHighlights(
   };
 }
 
-export function generateMockPlatformStats(
-  postsWithPlatform: { platform: Platform; status: PostStatus }[]
+/** Window used to compare recent activity with the window before it. */
+const TREND_WINDOW_DAYS = 7;
+
+/**
+ * Per-platform activity counts, and a trend derived from real timestamps.
+ *
+ * The trend used to be `Math.floor(Math.random() * 3) - 1`, which rendered as
+ * "up"/"down"/"stable" next to a real count. It looked like analysis and was a
+ * coin flip — exactly the fabricated insight this codebase forbids. It is now
+ * the sign of (posts in the last 7 days) − (posts in the 7 days before that),
+ * and 0 ("stable") when there is not enough dated history to say.
+ */
+export function computePlatformStats(
+  postsWithPlatform: { platform: Platform; status: PostStatus; createdAt?: Date | string | null }[]
 ): PlatformStats[] {
   const statsByPlatform = new Map<Platform, PlatformStats>();
+  const recentCounts = new Map<Platform, number>();
+  const previousCounts = new Map<Platform, number>();
 
   for (const platform of Object.values(Platform)) {
     statsByPlatform.set(platform, {
@@ -250,7 +264,13 @@ export function generateMockPlatformStats(
       pending: 0,
       recentTrend: 0,
     });
+    recentCounts.set(platform, 0);
+    previousCounts.set(platform, 0);
   }
+
+  const now = Date.now();
+  const recentCutoff = now - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const previousCutoff = now - 2 * TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
   for (const post of postsWithPlatform) {
     const stat = statsByPlatform.get(post.platform)!;
@@ -265,10 +285,21 @@ export function generateMockPlatformStats(
         stat.pending++;
         break;
     }
+
+    const created = post.createdAt ? new Date(post.createdAt).getTime() : NaN;
+    if (Number.isFinite(created)) {
+      if (created > recentCutoff) {
+        recentCounts.set(post.platform, (recentCounts.get(post.platform) ?? 0) + 1);
+      } else if (created > previousCutoff) {
+        previousCounts.set(post.platform, (previousCounts.get(post.platform) ?? 0) + 1);
+      }
+    }
   }
 
   for (const stat of statsByPlatform.values()) {
-    stat.recentTrend = Math.floor(Math.random() * 3) - 1;
+    const recent = recentCounts.get(stat.platform) ?? 0;
+    const previous = previousCounts.get(stat.platform) ?? 0;
+    stat.recentTrend = recent > previous ? 1 : recent < previous ? -1 : 0;
   }
 
   return Array.from(statsByPlatform.values()).filter(

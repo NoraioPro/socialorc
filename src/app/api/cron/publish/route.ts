@@ -93,17 +93,27 @@ export async function GET(req: NextRequest) {
     });
 
     for (const job of dueJobs) {
-      results.processed++;
-
       try {
-        await prisma.scheduledJob.update({
-          where: { id: job.id },
+        // Atomic claim. The unconditional update this replaces let two
+        // overlapping cron invocations (Vercel can overlap a 5-minute schedule)
+        // both read the same PENDING job, both move it to PROCESSING, and both
+        // publish the post. Only the run that actually wins the
+        // PENDING -> PROCESSING transition owns the job; the loser skips it.
+        const claim = await prisma.scheduledJob.updateMany({
+          where: { id: job.id, status: JobStatus.PENDING },
           data: {
             status: JobStatus.PROCESSING,
             startedAt: new Date(),
             attempts: { increment: 1 },
           },
         });
+
+        if (claim.count === 0) {
+          console.log(`[cron] job ${job.id} claimed by another run, skipping`);
+          continue;
+        }
+
+        results.processed++;
 
         const attempt = job.attempts + 1;
 
@@ -172,6 +182,34 @@ export async function GET(req: NextRequest) {
           ]);
           results.failed++;
           results.errors.push({ postId: job.postId, error: "No social account linked" });
+          continue;
+        }
+
+        // The linked account must belong to the post's owner. `socialAccountId`
+        // was writable from the client and is a separate row, so a post could be
+        // pointed at another tenant's account; publishing it would decrypt and
+        // use *their* stored token. Permanent: retrying cannot fix ownership.
+        if (post.socialAccount.userId !== post.userId) {
+          await prisma.$transaction([
+            prisma.post.update({
+              where: { id: post.id },
+              data: {
+                status: PostStatus.FAILED,
+                errorMessage: "Linked social account does not belong to this post",
+              },
+            }),
+            prisma.scheduledJob.update({
+              where: { id: job.id },
+              data: {
+                status: JobStatus.FAILED,
+                completedAt: new Date(),
+                errorMessage: "Account ownership mismatch",
+              },
+            }),
+          ]);
+          results.permanent++;
+          results.failed++;
+          results.errors.push({ postId: job.postId, error: "Account ownership mismatch" });
           continue;
         }
 

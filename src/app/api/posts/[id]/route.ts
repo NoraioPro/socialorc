@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Platform } from "@prisma/client";
 import { z } from "zod";
+import {
+  POST_SAFE_INCLUDE,
+  findOwnedSocialAccount,
+  unownedMediaAssetIds,
+} from "@/lib/social/account-select";
 
 const updatePostSchema = z.object({
   title: z.string().optional(),
@@ -20,22 +25,16 @@ type RouteContext = {
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const session = await requirePermission("dashboard:view");
+    if (!session.ok) {
+      return NextResponse.json({ error: session.error }, { status: session.status });
     }
 
     const { id } = await context.params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
-      include: {
-        socialAccount: true,
-        mediaAssets: {
-          include: { mediaAsset: true },
-          orderBy: { order: "asc" },
-        },
-      },
+      where: { id, userId: session.userId },
+      include: POST_SAFE_INCLUDE,
     });
 
     if (!post) {
@@ -54,9 +53,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Editing a post is authoring work: the same permission that lets you create
+    // one. A CLIENT (read-only) account cannot rewrite somebody's draft.
+    const guard = await requirePermission("posts:create");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { id } = await context.params;
@@ -71,7 +72,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const existingPost = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: guard.userId },
     });
 
     if (!existingPost) {
@@ -87,6 +88,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     const { mediaAssetIds, socialAccountId, scheduledFor, platformContent, ...restData } = validation.data;
 
+    // A `socialAccountId` from the request body is a capability handle: writing
+    // it unchecked let anyone point their own draft at another tenant's account
+    // and publish through it. Refuse unless the caller owns that account.
+    if (socialAccountId !== undefined && socialAccountId !== null) {
+      const owned = await findOwnedSocialAccount(guard.userId, socialAccountId);
+      if (!owned) {
+        return NextResponse.json(
+          { error: "Social account not found" },
+          { status: 404 }
+        );
+      }
+    }
+
+    // Same for media: attaching someone else's asset leaked its URL back to the
+    // caller and let them publish a file they never uploaded.
+    if (mediaAssetIds !== undefined) {
+      const unowned = await unownedMediaAssetIds(guard.userId, mediaAssetIds);
+      if (unowned.length > 0) {
+        return NextResponse.json(
+          { error: "One or more media assets were not found" },
+          { status: 404 }
+        );
+      }
+    }
+
     const updatePayload: Record<string, unknown> = {
       ...restData,
       status: "DRAFT",
@@ -97,11 +123,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (scheduledFor !== undefined) {
       updatePayload.scheduledFor = scheduledFor ? new Date(scheduledFor) : null;
     }
-    
+
     if (socialAccountId !== undefined) {
       updatePayload.socialAccountId = socialAccountId;
     }
-    
+
     if (platformContent !== undefined) {
       updatePayload.platformContent = platformContent ?? undefined;
     }
@@ -109,18 +135,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     await prisma.post.update({
       where: { id },
       data: updatePayload,
-      include: {
-        socialAccount: true,
-        mediaAssets: {
-          include: { mediaAsset: true },
-          orderBy: { order: "asc" },
-        },
-      },
+      include: POST_SAFE_INCLUDE,
     });
 
     if (mediaAssetIds !== undefined) {
       await prisma.postMedia.deleteMany({ where: { postId: id } });
-      
+
       if (mediaAssetIds.length > 0) {
         await prisma.postMedia.createMany({
           data: mediaAssetIds.map((mediaAssetId, index) => ({
@@ -134,13 +154,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     const updatedPost = await prisma.post.findUnique({
       where: { id },
-      include: {
-        socialAccount: true,
-        mediaAssets: {
-          include: { mediaAsset: true },
-          orderBy: { order: "asc" },
-        },
-      },
+      include: POST_SAFE_INCLUDE,
     });
 
     return NextResponse.json(updatedPost);
@@ -155,15 +169,17 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // `posts:delete` exists in the role matrix (ADMIN only) but was never
+    // enforced anywhere, so every signed-in account could delete any post.
+    const guard = await requirePermission("posts:delete");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { id } = await context.params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: guard.userId },
     });
 
     if (!post) {

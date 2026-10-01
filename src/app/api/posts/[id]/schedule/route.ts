@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { z } from "zod";
+import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
 const scheduleSchema = z.object({
   scheduledFor: z.string(),
@@ -31,7 +32,7 @@ export async function POST(
 
     const post = await prisma.post.findFirst({
       where: { id, userId: guard.userId },
-      include: { socialAccount: true },
+      include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     });
 
     if (!post) {
@@ -70,7 +71,7 @@ export async function POST(
           scheduledFor,
         },
         include: {
-          socialAccount: true,
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
             include: { mediaAsset: true },
             orderBy: { order: "asc" },
@@ -151,7 +152,7 @@ export async function DELETE(
     const updatedPost = await prisma.post.findUnique({
       where: { id },
       include: {
-        socialAccount: true,
+        socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
           include: { mediaAsset: true },
           orderBy: { order: "asc" },

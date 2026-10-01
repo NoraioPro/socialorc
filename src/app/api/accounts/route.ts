@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Platform, PostStatus, JobStatus } from "@prisma/client";
 import { getAdapterStatus, getAdapter } from "@/lib/adapters";
@@ -108,9 +108,13 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Connecting and disconnecting are the same trust decision, and
+    // `accounts:connect` existed in the role matrix but was enforced nowhere —
+    // so any signed-in account, including a read-only CLIENT, could disconnect
+    // a workspace's connection.
+    const guard = await requirePermission("accounts:connect");
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const { searchParams } = new URL(req.url);
@@ -124,7 +128,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const account = await prisma.socialAccount.findFirst({
-      where: { id: accountId, userId: session.user.id },
+      where: { id: accountId, userId: guard.userId },
       include: { posts: { select: { id: true, status: true } } },
     });
 
