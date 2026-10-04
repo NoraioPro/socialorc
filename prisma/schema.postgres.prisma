@@ -88,17 +88,22 @@ model User {
 model Brain {
   id        String   @id @default(cuid())
   userId    String
+  /// Owning tenant. docs/SAAS-PLAN.md §3: Workspace is the tenant and Brain is a
+  /// project inside it. Nullable until the Phase 0 backfill stamps it.
+  workspaceId String?
   name      String
   /// The brain shown by default (e.g. auto-created on first use).
   isDefault Boolean  @default(false)
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace      Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   socialAccounts SocialAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([workspaceId])
 }
 
 model VerificationToken {
@@ -114,7 +119,10 @@ model SocialAccount {
   id              String   @id @default(cuid())
   userId          String
   /** Owning workspace. Nullable so the connector path keeps working before a
-   *  workspace is resolved; the migration backfills it for existing rows. */
+   *  workspace is resolved; the migration backfills it for existing rows.
+   *  Orthogonal to `brainId` below: workspaces are the (not yet wired up)
+   *  team/brand-knowledge container, brains are the per-project connection
+   *  container the current Settings > Integrations UI actually uses. */
   workspaceId     String?
   /// Which brain (project) this connection belongs to. Resolved on connect when missing.
   brainId         String?
@@ -153,7 +161,7 @@ model SocialAccount {
   needsReconnect  Boolean  @default(false)
   
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   brain           Brain?   @relation(fields: [brainId], references: [id], onDelete: SetNull)
   posts           Post[]
   publishingJobs  PublishingJob[]
@@ -182,6 +190,10 @@ enum Platform {
 model Post {
   id              String      @id @default(cuid())
   userId          String
+  /// Owning tenant. Nullable during the Phase 0 rollout: the writers stamp it,
+  /// the backfill fills history, and a later migration makes it NOT NULL
+  /// (docs/SAAS-PLAN.md §6 — the reverse order fails every build).
+  workspaceId     String?
   socialAccountId String?
   
   // Content
@@ -216,6 +228,7 @@ model Post {
   
   // Relations
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace       Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   socialAccount   SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
   feedReactions   FeedReaction[]
   feedComments    FeedComment[]
@@ -224,6 +237,7 @@ model Post {
   updatedAt       DateTime @updatedAt
 
   @@index([userId])
+  @@index([workspaceId])
   @@index([status])
   @@index([platform])
   @@index([scheduledFor])
@@ -273,6 +287,8 @@ enum PostStatus {
 model MediaAsset {
   id          String    @id @default(cuid())
   userId      String
+  /// Owning tenant, nullable during the Phase 0 rollout (see Post.workspaceId).
+  workspaceId String?
   
   filename    String
   mimeType    String
@@ -287,11 +303,13 @@ model MediaAsset {
   
   posts       PostMedia[]
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([userId])
+  @@index([workspaceId])
 }
 
 // Junction table for Post-Media relationship
@@ -355,6 +373,10 @@ model PublishingJob {
 model ScheduledJob {
   id          String        @id @default(cuid())
   postId      String        @unique
+  /// Owning tenant, for METERING, per-tenant caps and fair ordering — not for
+  /// filtering. The worker must keep claiming jobs GLOBALLY, or a busy tenant
+  /// starves every other one (docs/SAAS-PLAN.md §7).
+  workspaceId String?
   status      JobStatus     @default(PENDING)
   scheduledAt DateTime
   startedAt   DateTime?
@@ -367,6 +389,7 @@ model ScheduledJob {
 
   @@index([status])
   @@index([scheduledAt])
+  @@index([workspaceId])
 }
 
 enum JobStatus {
@@ -409,6 +432,9 @@ model Workspace {
   updatedAt DateTime @updatedAt
 
   members         WorkspaceMember[]
+  brains          Brain[]
+  posts           Post[]
+  mediaAssets     MediaAsset[]
   brandProfile    BrandProfile?
   sources         BrainSource[]
   chunks          BrainChunk[]
