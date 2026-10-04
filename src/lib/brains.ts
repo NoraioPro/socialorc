@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
+import { workspaceIdForStamping, workspaceIdForWrite } from "@/lib/tenancy/workspace";
 
 /**
  * A brain is a project: the container social accounts are connected into.
@@ -50,7 +50,7 @@ export async function getOrCreateDefaultBrain(userId: string) {
       userId,
       name: "Default",
       isDefault: true,
-      workspaceId: await workspaceIdForStamping(userId),
+      workspaceId: await workspaceIdForWrite(userId),
     },
   });
 }

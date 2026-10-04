@@ -13,6 +13,7 @@
  */
 import "dotenv/config";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 
 const PROBE_NAME = "__stamp_probe__";
 
@@ -33,7 +34,11 @@ async function main() {
   console.log("expected workspace :", membership?.workspaceId ?? "(none)");
 
   const brain = await prisma.brain.create({
-    data: { userId: user.id, name: PROBE_NAME },
+    data: {
+      userId: user.id,
+      name: PROBE_NAME,
+      workspaceId: await workspaceIdForWrite(user.id),
+    },
   });
   console.log("brain created      :", brain.id);
   console.log("brain.workspaceId   :", brain.workspaceId ?? "(null — NOT stamped)");

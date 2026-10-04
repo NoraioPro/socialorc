@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getOrCreateDefaultBrain } from "@/lib/brains";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 
 /** List the signed-in user's brains (projects), creating the first one if none exist yet. */
 export async function GET() {
@@ -43,7 +44,15 @@ export async function POST(req: NextRequest) {
   }
 
   const brain = await prisma.brain.create({
-    data: { userId: session.user.id, name, isDefault: false },
+    data: {
+      userId: session.user.id,
+      name,
+      isDefault: false,
+      // The tenant is explicit, not left to the client-layer stamping in
+      // src/lib/tenancy/stamp.ts: these are the sites Phase 0.5's NOT NULL
+      // migration needs to already carry it.
+      workspaceId: await workspaceIdForWrite(session.user.id),
+    },
   });
 
   return NextResponse.json({ brain: { id: brain.id, name: brain.name, isDefault: brain.isDefault, connectedAccounts: 0 } });
