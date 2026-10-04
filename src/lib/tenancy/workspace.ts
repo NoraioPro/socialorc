@@ -118,6 +118,31 @@ export async function requireWorkspace(userId: string): Promise<WorkspaceContext
 }
 
 /**
+ * The tenant id for a write that must have one.
+ *
+ * Phase 0.5 made the tenant columns required, so a create has to supply a
+ * `string` the type system accepts — `workspaceIdForStamping` returns
+ * `string | null` and therefore cannot be used at a create site. This is the
+ * strict counterpart: resolve, or throw.
+ *
+ * Throwing is the point. A write with no tenant is not a row to be repaired
+ * later any more — it is a request that cannot be served correctly. Every user
+ * has a membership by construction (signup creates one, the backfill covered the
+ * history), so in practice this never fires; when it does, it means the account
+ * is in a state the caller must fix rather than paper over.
+ */
+export async function workspaceIdForWrite(userId: string): Promise<string> {
+  const context = await findWorkspaceForUser(userId);
+  if (!context || context.workspaceId === "") {
+    throw new WorkspaceResolutionError(
+      "Cannot write without a workspace: this user has no membership",
+      userId,
+    );
+  }
+  return context.workspaceId;
+}
+
+/**
  * Best-effort tenant id, for stamping a row on a write path.
  *
  * Returns `null` — never an empty string, and never a newly conjured workspace —
