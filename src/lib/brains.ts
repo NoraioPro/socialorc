@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
 
 /**
  * A brain is a project: the container social accounts are connected into.
@@ -7,16 +8,50 @@ import prisma from "@/lib/prisma";
  *
  * Every user needs at least one brain to connect anything to, so the first
  * one is created lazily rather than requiring an explicit setup step.
+ *
+ * Phase 0 (`docs/SAAS-PLAN.md` §3): a brain also belongs to a workspace — the
+ * tenant — and this is the one path every user passes through, so stamping it
+ * here is what gives the tenant key coverage without touching every route.
+ * Existing brains created before Phase 0 carry a null workspace; they are filled
+ * on the next access as well as by the backfill script (Phase 0.4), so the
+ * rollout does not depend on running the backfill first.
  */
 export async function getOrCreateDefaultBrain(userId: string) {
   const existing = await prisma.brain.findFirst({
     where: { userId },
     orderBy: { createdAt: "asc" },
   });
-  if (existing) return existing;
+
+  if (existing) {
+    if (existing.workspaceId !== null) return existing;
+
+    const workspaceId = await workspaceIdForStamping(userId);
+    if (workspaceId === null) return existing;
+
+    try {
+      await prisma.brain.update({
+        where: { id: existing.id },
+        data: { workspaceId },
+      });
+      return { ...existing, workspaceId };
+    } catch (error) {
+      // Stamping is best effort: a brain that stays unstamped is fixed by the
+      // backfill, and nothing reads the tenant yet.
+      console.error("[tenancy] could not stamp brain with its workspace", {
+        brainId: existing.id,
+        error,
+      });
+      return existing;
+    }
+  }
 
   return prisma.brain.create({
-    data: { userId, name: "Default", isDefault: true },
+    data: {
+      userId,
+      name: "Default",
+      isDefault: true,
+      workspaceId: await workspaceIdForStamping(userId),
+    },
   });
 }
 

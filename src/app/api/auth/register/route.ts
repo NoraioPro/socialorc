@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
 import { signupDecision } from "@/lib/signup-policy";
+import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -86,6 +87,13 @@ export async function POST(req: NextRequest) {
         timezone: "Europe/Oslo",
       },
     });
+
+    // Phase 0 (docs/SAAS-PLAN.md): an account belongs to a workspace from the
+    // moment it exists, so the tenant keys on everything it later creates have
+    // something to point at. Best effort on purpose — nothing filters on the
+    // tenant yet, so a failure here must not fail a signup that otherwise
+    // succeeded; the backfill (Phase 0.4) fills whatever is left null.
+    await workspaceIdForStamping(user.id);
 
     return NextResponse.json({
       id: user.id,
