@@ -1,6 +1,7 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import { withTenantStamping } from "@/lib/tenancy/stamp";
 
 /**
  * One client, two drivers.
@@ -21,11 +22,17 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-  });
+/**
+ * The client is wrapped so that creates on the tenant models pick up their
+ * workspace automatically (docs/SAAS-PLAN.md Phase 0.3). Doing it here rather
+ * than at ~70 call sites is what stops the next new call site from being the one
+ * that forgets — see src/lib/tenancy/stamp.ts.
+ */
+function createClient(): PrismaClient {
+  return withTenantStamping(new PrismaClient({ adapter }));
+}
+
+export const prisma = globalForPrisma.prisma ?? createClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
