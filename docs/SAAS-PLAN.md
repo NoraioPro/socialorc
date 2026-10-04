@@ -311,10 +311,27 @@ migrate `BrandBrain` → `BrandProfile` → stamp `ScheduledJob` through its pos
 > the workspace. `ADMIN` becomes the admin-below-owner seat, unused until somebody is
 > invited into it.
 >
-> Items **3–6** (plans and limits, payment provider, email provider, per-tenant platform
-> credentials) remain open and are needed by Phases 4, 5, 5 and 6 respectively. Item **7
-> is closed**: the per-tenant Telegram destination shipped in `73841ed` — the chat now
-> travels with the account instead of coming from the environment.
+> Items **3–5** (plans and limits, payment provider, email provider) remain open and are
+> needed by Phases 4, 5 and 5 respectively. Item **6 is closed**: platform credentials stay
+> a *shared application* — one registered app per platform, read from the deployment's env,
+> which is what the whole connector layer does today (`YOUTUBE_CLIENT_ID`,
+> `LINKEDIN_CLIENT_ID`, `TELEGRAM_BOT_TOKEN`, …) — **plus a per-workspace override** for
+> agencies and larger customers who bring their own app. Phase 4 builds the override as an
+> encrypted `Workspace.platformCredentials`, resolved ahead of the env fallback.
+>
+> Why not per-tenant only: a shared app is precisely what lets a self-serve customer connect
+> in a minute without running App Review themselves — requiring seven registered apps per
+> customer ends self-serve signup. The cost is accepted explicitly: publishing gates are
+> app-level, so TikTok `SELF_ONLY`, YouTube's private-until-verified uploads and Meta's App
+> Review apply to *every* tenant on the shared app. §7 already requires the app to state that
+> limit in its own words rather than fail silently.
+>
+> What is *already* per-account and enforced: `SocialAccount.userId` plus the ownership
+> checks in `loadOwnedAccount()` / `findOwnedSocialAccount()`, and the OAuth callback's
+> refusal to move an existing account to a second user.
+>
+> Item **7 is closed**: the per-tenant Telegram destination shipped in `73841ed` — the chat
+> now travels with the account instead of coming from the environment.
 
 1. **Workspace vs Brain as tenant** — recommendation in §3, with the three
    consequences.
