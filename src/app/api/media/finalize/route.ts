@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import {
   ALLOWED_UPLOAD_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
     const asset = await prisma.mediaAsset.create({
       data: {
         userId: session.user.id,
+        workspaceId: await workspaceIdForWrite(session.user.id),
         filename,
         mimeType,
         size,

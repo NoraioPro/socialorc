@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { put } from "@vercel/blob";
 import { mediaStorage } from "@/lib/media-storage";
 
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
     const asset = await prisma.mediaAsset.create({
       data: {
         userId: session.user.id,
+        workspaceId: await workspaceIdForWrite(session.user.id),
         filename: file.name,
         mimeType: file.type,
         size: file.size,
