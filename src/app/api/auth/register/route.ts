@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
 import { signupDecision } from "@/lib/signup-policy";
-import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
+import { createWorkspaceForNewUser } from "@/lib/tenancy/workspace";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -88,12 +88,20 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Phase 0 (docs/SAAS-PLAN.md): an account belongs to a workspace from the
-    // moment it exists, so the tenant keys on everything it later creates have
-    // something to point at. Best effort on purpose — nothing filters on the
-    // tenant yet, so a failure here must not fail a signup that otherwise
-    // succeeded; the backfill (Phase 0.4) fills whatever is left null.
-    await workspaceIdForStamping(user.id);
+    // Phase 0 (docs/SAAS-PLAN.md): a new account starts its own workspace and
+    // owns it, so the tenant keys on everything it later creates have something
+    // to point at. Best effort on purpose — nothing filters on the tenant yet,
+    // so a failure here must not fail a signup that otherwise succeeded; the
+    // backfill (Phase 0.4) covers whatever is left unstamped.
+    try {
+      await createWorkspaceForNewUser({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+      });
+    } catch (error) {
+      console.error("[register] could not create the workspace for a new account", error);
+    }
 
     return NextResponse.json({
       id: user.id,

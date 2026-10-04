@@ -1,24 +1,28 @@
 /**
  * The tenant boundary: which workspace a user belongs to.
  *
- * Phase 0 of `docs/SAAS-PLAN.md`. Read the two rules before using anything here:
+ * Phase 0 of `docs/SAAS-PLAN.md`. Three rules govern everything here:
  *
  *  1. **This does not filter anything yet.** Permissions still come from
- *     `User.role`, and every existing query still scopes by `userId`. Phase 0
- *     only *records* the tenant on new rows so the backfill (Phase 0.4) has a
- *     key it can rely on. Turning the tenant into a filter is Phase 1, and
- *     switching early would break every route at once.
- *  2. **Stamping is best effort, resolving is not.** Use
- *     `workspaceIdForStamping()` on a write path: a workspace that cannot be
- *     resolved must not fail a request that would otherwise have succeeded,
- *     because nothing reads the value yet. `requireWorkspace()` is the strict
- *     variant Phase 1 uses, where an unresolvable tenant is a real error.
+ *     `User.role`, and every query still scopes by `userId`. Phase 0 only
+ *     *records* the tenant on new rows so the backfill (Phase 0.4) has a key it
+ *     can rely on. Turning the tenant into a filter is Phase 1.
+ *  2. **Resolution does not create.** `findWorkspaceForUser` returns null when a
+ *     user has no membership, and it must stay that way. If it conjured a
+ *     workspace on demand, the first existing account to touch any write path
+ *     would get a *personal* workspace — and the backfill, which must gather the
+ *     whole existing deployment into ONE workspace, would then see that user as
+ *     already placed and leave the deployment fragmented. Creation belongs to
+ *     signup (a genuinely new account) and to the backfill (the deployment).
+ *  3. **Stamping is best effort.** Use `workspaceIdForStamping()` on a write
+ *     path: nothing reads the value yet, so a null tenant must not fail a
+ *     request that would otherwise have succeeded. `requireWorkspace()` is the
+ *     strict variant Phase 1 uses, where an unresolvable tenant is a real error.
  */
 
 import prisma from "@/lib/prisma";
-import { parseRole } from "@/lib/roles";
 import { workspaceNameFor, workspaceSlugFor } from "./workspace-slug";
-import { parseWorkspaceRole, workspaceRoleFor, type WorkspaceRole } from "./workspace-role";
+import { parseWorkspaceRole, type WorkspaceRole } from "./workspace-role";
 
 export interface WorkspaceContext {
   workspaceId: string;
@@ -37,54 +41,64 @@ export class WorkspaceResolutionError extends Error {
 }
 
 /**
- * The workspace a user belongs to, creating it on first use.
+ * The workspace a user already belongs to, or `null`.
  *
- * Idempotent and safe to call from any request path, including concurrently:
- * `Workspace.slug` is unique and derived from the user id, so two racing calls
- * both try the same INSERT and the database picks one winner. The membership
- * upsert is anchored on `@@unique([workspaceId, userId])` for the same reason.
- *
- * The created membership records the role the user has **today**, mapped
- * losslessly onto the workspace vocabulary — never a promotion. `update: {}` is
- * deliberate: an existing membership's role is never rewritten by a lazy
- * resolution, so calling this can never quietly change what somebody can do.
+ * Oldest membership first: a user is in one workspace today, and if that ever
+ * stops being true the stable "first" answer is worth more than a random one.
  */
-export async function getOrCreateWorkspaceForUser(userId: string): Promise<WorkspaceContext> {
-  const existing = await prisma.workspaceMember.findFirst({
+export async function findWorkspaceForUser(userId: string): Promise<WorkspaceContext | null> {
+  const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
     orderBy: { createdAt: "asc" },
     select: { workspaceId: true, role: true },
   });
 
-  if (existing) {
-    return {
-      workspaceId: existing.workspaceId,
-      role: parseWorkspaceRole(existing.role),
-    };
-  }
+  if (!membership) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { name: true, email: true, role: true },
-  });
+  return {
+    workspaceId: membership.workspaceId,
+    role: parseWorkspaceRole(membership.role),
+  };
+}
 
-  const slug = workspaceSlugFor(userId);
+/**
+ * Create the workspace a **brand-new** account owns, and its OWNER membership.
+ *
+ * Called from signup only — a password registration or a first OAuth sign-in —
+ * never from a read path. That is the SaaS shape: a new account starts its own
+ * workspace and owns it.
+ *
+ * The creator is recorded as OWNER rather than mapped from `User.role`, because
+ * they own the workspace they just created. This grants nothing today: the role
+ * that decides permissions is still `User.role`, and `WorkspaceMember.role` is
+ * recorded and not yet consulted (Phase 3 flips that).
+ *
+ * Idempotent under concurrency: `Workspace.slug` is unique and derived from the
+ * user id, so two racing calls collide on the INSERT and one wins; the loser
+ * re-reads. `update: {}` means an existing membership's role is never rewritten.
+ */
+export async function createWorkspaceForNewUser(input: {
+  userId: string;
+  name?: string | null;
+  email?: string | null;
+}): Promise<WorkspaceContext> {
+  const existing = await findWorkspaceForUser(input.userId);
+  if (existing) return existing;
+
+  const slug = workspaceSlugFor(input.userId);
   const workspace = await prisma.workspace.upsert({
     where: { slug },
     create: {
-      name: workspaceNameFor({ name: user?.name, email: user?.email }),
+      name: workspaceNameFor({ name: input.name, email: input.email }),
       slug,
     },
     update: {},
   });
 
-  // parseRole is the least-privilege parser: an unreadable role becomes CLIENT,
-  // which maps to VIEWER — never OWNER.
-  const role = workspaceRoleFor(parseRole(user?.role));
-
+  const role: WorkspaceRole = "OWNER";
   await prisma.workspaceMember.upsert({
-    where: { workspaceId_userId: { workspaceId: workspace.id, userId } },
-    create: { workspaceId: workspace.id, userId, role },
+    where: { workspaceId_userId: { workspaceId: workspace.id, userId: input.userId } },
+    create: { workspaceId: workspace.id, userId: input.userId, role },
     update: {},
   });
 
@@ -96,8 +110,8 @@ export async function getOrCreateWorkspaceForUser(userId: string): Promise<Works
  * rather than something to work around.
  */
 export async function requireWorkspace(userId: string): Promise<WorkspaceContext> {
-  const context = await getOrCreateWorkspaceForUser(userId);
-  if (!context.workspaceId) {
+  const context = await findWorkspaceForUser(userId);
+  if (!context || context.workspaceId === "") {
     throw new WorkspaceResolutionError("Could not resolve a workspace for this user", userId);
   }
   return context;
@@ -106,16 +120,15 @@ export async function requireWorkspace(userId: string): Promise<WorkspaceContext
 /**
  * Best-effort tenant id, for stamping a row on a write path.
  *
- * Returns `null` rather than throwing, and logs, because in Phase 0 the value is
- * recorded and never read — the backfill will fill in whatever a transient
- * failure leaves null. Returning null (rather than an empty string) is
- * deliberate: an empty tenant id is the kind of value that silently disables a
- * filter later, which plan §7 calls out as a hazard.
+ * Returns `null` — never an empty string, and never a newly conjured workspace —
+ * when the user has no membership yet. An empty tenant id is the value that
+ * silently disables a filter later (plan §7), and inventing a workspace here is
+ * what would fragment the existing deployment; a null is fixed by the backfill.
  */
 export async function workspaceIdForStamping(userId: string): Promise<string | null> {
   try {
-    const { workspaceId } = await getOrCreateWorkspaceForUser(userId);
-    return workspaceId === "" ? null : workspaceId;
+    const context = await findWorkspaceForUser(userId);
+    return context && context.workspaceId !== "" ? context.workspaceId : null;
   } catch (error) {
     console.error("[tenancy] could not resolve a workspace to stamp", { userId, error });
     return null;

@@ -8,6 +8,8 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { ROLES, permissionsFor } from "../../src/lib/roles";
 import {
   FALLBACK_WORKSPACE_ROLE,
@@ -109,6 +111,43 @@ describe("workspace slugs are derived from the id, never the name", () => {
     // Returning "" would make every such user share one workspace row.
     assert.throws(() => workspaceSlugFor("---"), /alphanumeric/);
     assert.throws(() => workspaceSlugFor("   "), /alphanumeric/);
+  });
+});
+
+describe("tenant resolution never invents a workspace", () => {
+  const source = readFileSync(
+    path.resolve(__dirname, "..", "..", "src", "lib", "tenancy", "workspace.ts"),
+    "utf8",
+  );
+
+  it("creates a workspace in exactly one place", () => {
+    // Regression guard for a hazard that was real in the first cut: resolution
+    // used to create a workspace on demand, so the first existing account to
+    // touch a write path got a *personal* one — and the backfill, which has to
+    // gather the whole existing deployment into ONE workspace, would then see
+    // that user as already placed and leave the deployment fragmented.
+    const creates = source.match(/prisma\.workspace\.upsert/g) ?? [];
+    assert.equal(creates.length, 1, "only the signup helper may create a workspace");
+  });
+
+  it("keeps that one creation inside createWorkspaceForNewUser", () => {
+    const creatorAt = source.indexOf("export async function createWorkspaceForNewUser");
+    const createAt = source.indexOf("prisma.workspace.upsert");
+    const nextExportAt = source.indexOf("\nexport ", creatorAt + 1);
+
+    assert.notEqual(creatorAt, -1, "createWorkspaceForNewUser must exist");
+    assert.ok(createAt > creatorAt, "creation must sit inside the signup helper");
+    assert.ok(
+      nextExportAt === -1 || createAt < nextExportAt,
+      "creation must not have drifted into the resolver below it",
+    );
+  });
+
+  it("hands back null — never an empty id — when a user has no membership", () => {
+    // An empty tenant id is the value that silently disables a filter later
+    // (plan §7).
+    assert.equal(/workspaceId === ""/.test(source), true);
+    assert.match(source, /return null;/);
   });
 });
 

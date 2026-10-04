@@ -7,7 +7,7 @@ import { facebookCredentials, googleCredentials } from "@/lib/auth-providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import prisma from "./prisma";
-import { workspaceIdForStamping } from "./tenancy/workspace";
+import { createWorkspaceForNewUser, workspaceIdForStamping } from "./tenancy/workspace";
 import {
   DEFAULT_ROLE,
   can,
@@ -75,11 +75,18 @@ export const authOptions: NextAuthOptions = {
         console.error("[auth] could not set signup role for new OAuth user", error);
       }
 
-      // Phase 0 (docs/SAAS-PLAN.md): an OAuth sign-up gets its workspace here,
-      // exactly like a password registration, so both entry points agree and
-      // neither leaves an account without a tenant. Best effort — see
-      // workspaceIdForStamping.
-      await workspaceIdForStamping(user.id);
+      // Phase 0 (docs/SAAS-PLAN.md): an OAuth sign-up gets its own workspace
+      // here, exactly like a password registration, so both entry points agree
+      // and neither leaves a new account without a tenant.
+      try {
+        await createWorkspaceForNewUser({
+          userId: user.id,
+          name: user.name,
+          email: user.email,
+        });
+      } catch (error) {
+        console.error("[auth] could not create the workspace for a new OAuth user", error);
+      }
     },
   },
   providers: [
