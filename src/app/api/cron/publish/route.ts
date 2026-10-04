@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
+import { destinationForAccount } from "@/lib/adapters/destination";
 import { recoverStaleProcessingJobs } from "@/lib/jobs/lease-recovery";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
@@ -304,6 +305,10 @@ export async function GET(req: NextRequest) {
         const sendOptions = {
           text: post.content,
           mediaUrls: mediaUrls.map((m) => m.mediaAsset.url),
+          // Addressing travels with the account, not with the process: a
+          // Telegram account publishes into its own chat. Reaching for a global
+          // env chat here is what made every tenant post into the owner's chat.
+          additionalOptions: destinationForAccount(post.socialAccount.metadata),
           // Real MIME type and byte size so validation cannot be fooled by a URL
           // whose extension is missing or is a `data:` payload.
           media: mediaUrls.map((m) => ({

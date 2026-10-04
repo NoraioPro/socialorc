@@ -74,10 +74,8 @@ const MATRIX: Record<Permission, readonly Role[]> = {
 
 export interface RoleMeta {
   label: string;
-  /** One line used in the dev role switcher and in docs. */
+  /** One line used in docs and any future dev tooling. */
   blurb: string;
-  demoName: string;
-  demoEmail: string;
   /** Tailwind classes for the role badge, kept here so every surface agrees. */
   badgeClassName: string;
 }
@@ -86,29 +84,21 @@ export const ROLE_META: Record<Role, RoleMeta> = {
   ADMIN: {
     label: "Admin",
     blurb: "Owns the workspace: connects accounts, approves, schedules, manages users.",
-    demoName: "Ada Admin",
-    demoEmail: "demo-admin@socialorc.local",
     badgeClassName: "bg-violet-100 text-violet-800 border-violet-200",
   },
   MANAGER: {
     label: "Manager",
     blurb: "Reviews and ships content: approves, schedules and connects accounts.",
-    demoName: "Mo Manager",
-    demoEmail: "demo-manager@socialorc.local",
     badgeClassName: "bg-blue-100 text-blue-800 border-blue-200",
   },
   EDITOR: {
     label: "Editor",
     blurb: "Writes and submits drafts, but cannot approve or schedule them.",
-    demoName: "Ed Editor",
-    demoEmail: "demo-editor@socialorc.local",
     badgeClassName: "bg-amber-100 text-amber-900 border-amber-200",
   },
   CLIENT: {
     label: "Client",
     blurb: "Read-only stakeholder: sees the calendar and content, changes nothing.",
-    demoName: "Cleo Client",
-    demoEmail: "demo-client@socialorc.local",
     badgeClassName: "bg-slate-100 text-slate-700 border-slate-200",
   },
 };

@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
     platformPostId,
     cursor: cursor ?? undefined,
     limit: Number.isFinite(limit) ? limit : undefined,
+    additionalOptions: ctx.destinationOptions,
   });
 
   if (!result.success) {
@@ -120,8 +121,13 @@ export async function POST(req: NextRequest) {
         commentId: parentCommentId,
         text,
         platformPostId,
+        additionalOptions: ctx.destinationOptions,
       })
-    : await ctx.adapter.createComment!(ctx.accessToken, { platformPostId, text });
+    : await ctx.adapter.createComment!(ctx.accessToken, {
+        platformPostId,
+        text,
+        additionalOptions: ctx.destinationOptions,
+      });
 
   if (!result.success) {
     const failure = await handleEngagementResultFailure(
@@ -193,7 +199,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json(supported.body, { status: supported.status });
   }
 
-  const result = await ctx.adapter.deleteComment!(ctx.accessToken, { commentId });
+  const result = await ctx.adapter.deleteComment!(ctx.accessToken, {
+    commentId,
+    additionalOptions: ctx.destinationOptions,
+  });
   if (!result.success) {
     const failure = await handleEngagementResultFailure(
       ctx.account.id,

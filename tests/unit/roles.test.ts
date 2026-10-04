@@ -1,13 +1,19 @@
 /**
- * Role matrix, dev role login gating and the login error copy.
+ * Role matrix, its metadata, and the guard that keeps the dev quick-login
+ * surface removed.
  *
  * These are pure functions, so the tests read the module's own source for the
  * forbidden imports that would make them non-deterministic.
+ *
+ * `src/lib/dev-login.ts` used to export one-click dev sign-in helpers backed by
+ * seeded `demo-*@socialorc.local` accounts. That surface was removed on purpose
+ * (it put a credential path and real-looking demo accounts in front of the
+ * browser), so the last block here fails if any of it comes back.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_ROLE,
@@ -22,17 +28,14 @@ import {
   parseRole,
   permissionsFor,
 } from "../../src/lib/roles";
-import {
-  DEV_ROLE_LOGIN_ENV,
-  DEV_ROLE_LOGIN_PUBLIC_ENV,
-  demoEmailFor,
-  devRoleFromCredential,
-  devRoleOptions,
-  isDevRoleLoginEnabled,
-  isDevRoleLoginVisible,
-} from "../../src/lib/dev-login";
 
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
+
+/** Read a repo file, or null when it is absent (absence is asserted elsewhere). */
+function readProjectFile(relative: string): string | null {
+  const absolute = path.join(PROJECT_ROOT, relative);
+  return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
+}
 
 describe("roles: strict parsing", () => {
   it("accepts exactly the four defined roles", () => {
@@ -128,111 +131,34 @@ describe("roles: permission matrix", () => {
 });
 
 describe("roles: metadata stays in sync", () => {
-  it("describes every role with a distinct demo account", () => {
-    const emails = new Set<string>();
+  it("describes every role", () => {
     for (const role of ROLES) {
       const meta = ROLE_META[role];
       assert.ok(meta.label.length > 0, `label for ${role}`);
       assert.ok(meta.blurb.length > 0, `blurb for ${role}`);
       assert.ok(meta.badgeClassName.includes("bg-"), `badge classes for ${role}`);
-      assert.equal(emails.has(meta.demoEmail), false, `duplicate demo email ${meta.demoEmail}`);
-      emails.add(meta.demoEmail);
-      assert.equal(meta.demoEmail, demoEmailFor(role));
     }
   });
 
-  it("orders the dev role options by privilege and matches the demo emails", () => {
-    const options = devRoleOptions();
-    assert.deepEqual(
-      options.map((option) => option.role),
-      [...ROLES]
-    );
-    assert.equal(options[0].role, "ADMIN");
-    assert.equal(options[options.length - 1].role, "CLIENT");
-  });
-});
-
-describe("dev role login fails closed", () => {
-  it("is off unless the flag is explicitly true", () => {
-    const disabled = [
-      {},
-      { [DEV_ROLE_LOGIN_ENV]: "false" },
-      { [DEV_ROLE_LOGIN_ENV]: "1" },
-      { [DEV_ROLE_LOGIN_ENV]: "yes" },
-      { [DEV_ROLE_LOGIN_ENV]: "TRUE" },
-    ];
-
-    for (const env of disabled) {
-      assert.equal(
-        isDevRoleLoginEnabled({ NODE_ENV: "development", ...env } as NodeJS.ProcessEnv),
-        false,
-        JSON.stringify(env)
-      );
+  it("gives every role its own badge style", () => {
+    const badges = new Set<string>();
+    for (const role of ROLES) {
+      const { badgeClassName } = ROLE_META[role];
+      assert.equal(badges.has(badgeClassName), false, `duplicate badge for ${role}`);
+      badges.add(badgeClassName);
     }
   });
 
-  it("is off in a production build even when the flag is set", () => {
-    assert.equal(
-      isDevRoleLoginEnabled({
-        NODE_ENV: "production",
-        [DEV_ROLE_LOGIN_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      false
-    );
-  });
-
-  it("is on only for the exact opt-in outside production", () => {
-    assert.equal(
-      isDevRoleLoginEnabled({
-        NODE_ENV: "development",
-        [DEV_ROLE_LOGIN_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      true
-    );
-    assert.equal(
-      isDevRoleLoginEnabled({
-        NODE_ENV: "test",
-        [DEV_ROLE_LOGIN_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      true
-    );
-  });
-
-  it("gates the browser panel on its own public flag", () => {
-    assert.equal(
-      isDevRoleLoginVisible({
-        NODE_ENV: "development",
-        [DEV_ROLE_LOGIN_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      false,
-      "server flag alone must not render the panel from public config"
-    );
-    assert.equal(
-      isDevRoleLoginVisible({
-        NODE_ENV: "development",
-        [DEV_ROLE_LOGIN_PUBLIC_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      true
-    );
-    assert.equal(
-      isDevRoleLoginVisible({
-        NODE_ENV: "production",
-        [DEV_ROLE_LOGIN_PUBLIC_ENV]: "true",
-      } as NodeJS.ProcessEnv),
-      false
-    );
-  });
-
-  it("refuses a devRole credential that is not a real role", () => {
-    assert.equal(devRoleFromCredential("ADMIN"), "ADMIN");
-    assert.equal(devRoleFromCredential("CLIENT"), "CLIENT");
-    for (const bad of ["admin", "ADMIN ", "OWNER", "", undefined, null, 1, {}]) {
-      assert.equal(devRoleFromCredential(bad), null, JSON.stringify(bad));
+  it("carries no demo-account fields", () => {
+    for (const role of ROLES) {
+      const meta = ROLE_META[role] as unknown as Record<string, unknown>;
+      assert.equal("demoEmail" in meta, false, `demoEmail still on ${role}`);
+      assert.equal("demoName" in meta, false, `demoName still on ${role}`);
     }
   });
 });
 
-describe("roles + dev-login stay pure and offline", () => {
+describe("roles.ts stays pure and offline", () => {
   const forbidden = [
     "fetch(",
     "axios",
@@ -243,26 +169,83 @@ describe("roles + dev-login stay pure and offline", () => {
     "Math.random",
   ];
 
-  for (const file of ["src/lib/roles.ts", "src/lib/dev-login.ts"]) {
-    it(`${file} imports nothing impure`, () => {
-      const source = readFileSync(path.join(PROJECT_ROOT, file), "utf8");
-      for (const token of forbidden) {
-        assert.equal(
-          source.includes(token),
-          false,
-          `${file} must not contain "${token}"`
-        );
-      }
+  it("src/lib/roles.ts imports nothing impure", () => {
+    const source = readProjectFile("src/lib/roles.ts") ?? "";
+    for (const token of forbidden) {
+      assert.equal(
+        source.includes(token),
+        false,
+        `src/lib/roles.ts must not contain "${token}"`
+      );
+    }
+  });
+});
+
+describe("the dev quick-login surface stays removed", () => {
+  /**
+   * Files that only existed to serve one-click dev role sign-in. They are
+   * deleted, not feature-flagged: a flag can be flipped by a stray env var.
+   */
+  const DELETED_FILES = [
+    "src/components/dev/role-switcher.tsx",
+    "src/app/api/dev/login-as/route.ts",
+  ];
+
+  for (const file of DELETED_FILES) {
+    it(`${file} no longer exists`, () => {
+      assert.equal(existsSync(path.join(PROJECT_ROOT, file)), false, file);
     });
   }
 
+  it("the credentials provider accepts no devRole credential", () => {
+    const source = readProjectFile("src/lib/auth.ts") ?? "";
+    assert.equal(
+      source.includes("devRole"),
+      false,
+      "src/lib/auth.ts must not know about a devRole credential"
+    );
+    assert.equal(
+      source.includes("ALLOW_DEV_ROLE_LOGIN"),
+      false,
+      "src/lib/auth.ts must not read ALLOW_DEV_ROLE_LOGIN"
+    );
+    assert.equal(
+      source.includes("resolveDemoUser"),
+      false,
+      "src/lib/auth.ts must not resolve a demo user"
+    );
+  });
+
+  it("the login page renders no role switcher", () => {
+    const source = readProjectFile("src/app/(auth)/login/page.tsx") ?? "";
+    assert.equal(source.includes("RoleSwitcher"), false, "login page must not render RoleSwitcher");
+    assert.equal(
+      source.includes("isDevRoleLoginVisible"),
+      false,
+      "login page must not read a dev-visibility flag"
+    );
+  });
+
+  it("no module imports the dev-login note", () => {
+    for (const file of ["src/lib/roles.ts", "src/lib/auth.ts"]) {
+      const source = readProjectFile(file) ?? "";
+      assert.equal(source.includes("dev-login"), false, `${file} must not import dev-login`);
+    }
+  });
+
+  it("src/lib/dev-login.ts is a comment-only note", () => {
+    const source = readProjectFile("src/lib/dev-login.ts");
+    assert.notEqual(source, null, "src/lib/dev-login.ts should stay as the historical note");
+    assert.equal(
+      /\bexport\b/.test(source as string),
+      false,
+      "src/lib/dev-login.ts must export nothing"
+    );
+  });
+
   it("keeps demo-account passwords out of the shared modules", () => {
-    for (const file of [
-      "src/lib/roles.ts",
-      "src/lib/dev-login.ts",
-      "src/components/dev/role-switcher.tsx",
-    ]) {
-      const source = readFileSync(path.join(PROJECT_ROOT, file), "utf8");
+    for (const file of ["src/lib/roles.ts", "src/lib/dev-login.ts"]) {
+      const source = readProjectFile(file) ?? "";
       assert.equal(source.includes("DEV_PASSWORD"), false, file);
       assert.equal(/password\s*:\s*["'`]/.test(source), false, file);
     }

@@ -115,6 +115,14 @@ describe("OAuth client secret shape validation", () => {
 });
 
 describe("Telegram credential validation", () => {
+  /**
+   * A shape-valid bot token: `{7-12 digit id}:{30-50 char token}`.
+   *
+   * Spelled out on purpose — a shortened placeholder like `123456789:***` is
+   * rejected by `isValidTelegramBotTokenShape`, so a test built on one passes
+   * only if a real `TELEGRAM_BOT_TOKEN` has leaked in from the environment.
+   */
+  const VALID_TOKEN = `123456789:${"A".repeat(35)}`;
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -127,11 +135,31 @@ describe("Telegram credential validation", () => {
     process.env = originalEnv;
   });
 
-  test("reports missing when no credentials are set", () => {
+  test("requires the bot token and treats the chat id as optional", () => {
+    // The bot token is the deployment's own application credential. The chat id
+    // is per-account since the per-tenant fix, so a deployment that sets only
+    // the token is configured — each account supplies its own chat.
     const result = validateTelegramCredentials();
     assert.equal(result.valid, false);
-    assert.deepEqual(result.missing.sort(), ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+    assert.deepEqual(result.missing, ["TELEGRAM_BOT_TOKEN"]);
     assert.equal(result.invalid.length, 0);
+  });
+
+  test("is valid with a bot token and no chat id at all", () => {
+    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
+    const result = validateTelegramCredentials();
+    assert.equal(result.valid, true);
+    assert.equal(result.missing.length, 0);
+    assert.equal(result.invalid.length, 0);
+  });
+
+  test("still rejects a malformed chat id when one is configured", () => {
+    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
+    process.env.TELEGRAM_CHAT_ID = "not-a-number";
+    const result = validateTelegramCredentials();
+    assert.equal(result.valid, false);
+    assert.equal(result.missing.length, 0);
+    assert.deepEqual(result.invalid.map((i) => i.key), ["TELEGRAM_CHAT_ID"]);
   });
 
   test("reports invalid when credentials have wrong format", () => {
@@ -146,7 +174,7 @@ describe("Telegram credential validation", () => {
   });
 
   test("passes with valid credentials", () => {
-    process.env.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz12345";
+    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
     process.env.TELEGRAM_CHAT_ID = "5896074160";
     const result = validateTelegramCredentials();
     assert.equal(result.valid, true);
@@ -155,7 +183,7 @@ describe("Telegram credential validation", () => {
   });
 
   test("accepts negative chat IDs for groups/channels", () => {
-    process.env.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz12345";
+    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
     process.env.TELEGRAM_CHAT_ID = "-1001234567890";
     const result = validateTelegramCredentials();
     assert.equal(result.valid, true);

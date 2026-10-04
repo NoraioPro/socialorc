@@ -58,6 +58,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // A port nothing listens on: guarantees ECONNREFUSED, a real transient failure.
 const DEAD_API_BASE = process.env.E2E_DEAD_API_BASE || "http://127.0.0.1:9";
+
+// The target chat lives on the ACCOUNT (metadata.chatId) now, not in the
+// process environment: a global chat is exactly what made every tenant publish
+// into the owner's chat. The value stays fake, as the header promises.
+const TELEGRAM_TEST_CHAT_ID = "1";
 const REAL_API_BASE = "https://api.telegram.org";
 
 // How far ahead `injectPost` schedules. Must exceed Next dev's cold route
@@ -331,6 +336,7 @@ async function injectPost(api, token, label, tokenMeta = {}) {
       refreshToken: encryptedRefresh,
       tokenExpiresAt: tokenMeta.expiresAt ?? null,
       isActive: true,
+      metadata: { chatId: TELEGRAM_TEST_CHAT_ID },
     },
     update: {
       accessToken: encryptedToken,
@@ -338,6 +344,7 @@ async function injectPost(api, token, label, tokenMeta = {}) {
       tokenExpiresAt: tokenMeta.expiresAt ?? null,
       isActive: true,
       userId: user.id,
+      metadata: { chatId: TELEGRAM_TEST_CHAT_ID },
     },
   });
   await prisma.$disconnect();

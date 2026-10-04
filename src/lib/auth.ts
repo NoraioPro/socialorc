@@ -6,7 +6,6 @@ import FacebookProvider from "next-auth/providers/facebook";
 import { facebookCredentials, googleCredentials } from "@/lib/auth-providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "node:crypto";
 import prisma from "./prisma";
 import {
   DEFAULT_ROLE,
@@ -17,12 +16,6 @@ import {
   type Permission,
   type Role,
 } from "./roles";
-import {
-  demoEmailFor,
-  demoNameFor,
-  devRoleFromCredential,
-  isDevRoleLoginEnabled,
-} from "./dev-login";
 
 /** Read a stored role, defaulting legacy/corrupt values to the safe role. */
 async function roleForUser(userId: string): Promise<Role> {
@@ -31,28 +24,6 @@ async function roleForUser(userId: string): Promise<Role> {
     select: { role: true },
   });
   return row?.role && isRole(row.role) ? row.role : parseRole(row?.role);
-}
-
-/**
- * Dev-only: resolve the demo account for a role, creating it on first use.
- * The account gets an unusable random password so it can only be reached
- * through role login while the dev flag is on.
- */
-async function resolveDemoUser(role: Role) {
-  const email = demoEmailFor(role);
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return existing;
-
-  const unusable = await bcrypt.hash(randomUUID(), 12);
-  return prisma.user.create({
-    data: {
-      email,
-      name: demoNameFor(role),
-      password: unusable,
-      role,
-      timezone: "Europe/Oslo",
-    },
-  });
 }
 
 // OAuth sign-in is offered only when its credentials exist: an unconfigured
@@ -139,28 +110,8 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        // Only honoured while ALLOW_DEV_ROLE_LOGIN is on (see src/lib/dev-login.ts).
-        devRole: { label: "Dev role", type: "text" },
       },
       async authorize(credentials) {
-        const devRole = devRoleFromCredential(credentials?.devRole);
-
-        if (devRole !== null) {
-          if (!isDevRoleLoginEnabled()) {
-            return null;
-          }
-
-          const user = await resolveDemoUser(devRole);
-
-          return {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            image: user.image,
-            role: devRole,
-          };
-        }
-
         if (!credentials?.email || !credentials?.password) {
           return null;
         }

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
+import { isValidTelegramChatIdShape } from "@/lib/adapters/credentials";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { resolveBrainForUser } from "@/lib/brains";
 import { requirePermission } from "@/lib/auth";
@@ -66,11 +67,39 @@ export async function GET(req: NextRequest) {
     }
 
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
-    const chatId = process.env.TELEGRAM_CHAT_ID as string;
+
+    // The chat belongs to the ACCOUNT, not to the deployment. Env only supplies
+    // the default offered here; a tenant that brings its own chat passes it in.
+    // This is the fix for the cross-tenant bug where every post landed in the
+    // owner's private chat because the destination came from the environment.
+    const requestedChat = searchParams.get("chatId")?.trim() ?? "";
+    const chatId = requestedChat !== "" ? requestedChat : (process.env.TELEGRAM_CHAT_ID ?? "").trim();
+
+    if (!chatId) {
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=telegram_chat_required${popupSuffix}`, req.url)
+      );
+    }
+
+    if (!isValidTelegramChatIdShape(chatId)) {
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=telegram_chat_invalid${popupSuffix}`, req.url)
+      );
+    }
 
     const brain = await resolveBrainForUser(user.userId, requestedBrainId);
 
     const info = await telegramAdapter.getAccountInfo(token);
+
+    // Refuse a chat the bot cannot reach NOW, with Telegram's own reason, rather
+    // than discovering it at the first publish hours later.
+    const chat = await telegramAdapter.getChat(token, chatId);
+    if (!chat.ok) {
+      console.error("Telegram connect refused: chat unreachable —", chat.error);
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=telegram_chat_unreachable${popupSuffix}`, req.url)
+      );
+    }
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
 
     // Same takeover rule as the shared OAuth callback: an existing connection

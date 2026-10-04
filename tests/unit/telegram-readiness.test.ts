@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { telegramAdapter } from "../../src/lib/adapters/telegram";
 import { validateTelegramCredentials } from "../../src/lib/adapters/credentials";
+import { isPermanent, type AdapterErrorCode } from "../../src/lib/adapters/errors";
 import type { PostOptions } from "../../src/types/platform";
 
 /**
@@ -205,17 +206,69 @@ test("the bot token must match Telegram's shape, and the chat id must be numeric
   );
 
   withEnv(
-    { TELEGRAM_BOT_TOKEN: "123456789:AAFakeTokenForUnitTestsOnly_0000000000", TELEGRAM_CHAT_ID: "-1001234567890" },
+    // A shape-valid token: `{7-12 digit id}:{30-50 char token}`.
+    { TELEGRAM_BOT_TOKEN: `123456789:${"A".repeat(35)}`, TELEGRAM_CHAT_ID: "-1001234567890" },
     () => {
       assert.equal(validateTelegramCredentials().valid, true);
     },
   );
 });
 
-test("missing Telegram credentials are reported by name", () => {
+test("the bot token is required by name; the chat id is not", () => {
   withEnv({ TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined }, () => {
     const result = validateTelegramCredentials();
     assert.equal(result.valid, false);
-    assert.deepEqual(result.missing, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+    // The chat id is per-account since the per-tenant fix, so a deployment with
+    // only the bot token is configured; accounts bring their own chats.
+    assert.deepEqual(result.missing, ["TELEGRAM_BOT_TOKEN"]);
   });
+});
+
+test("a global TELEGRAM_CHAT_ID is never used as a destination", async () => {
+  const calls = stubFetch();
+  const saved = process.env.TELEGRAM_CHAT_ID;
+  process.env.TELEGRAM_CHAT_ID = "999999999";
+  try {
+    const result = await telegramAdapter.createPost(BOT_TOKEN, {
+      text: "Must not go to the deployment owner's chat",
+    } as unknown as PostOptions);
+
+    assert.equal(result.success, false, "the env chat must never be the destination");
+    assert.equal(calls.length, 0, "nothing may be sent when the account has no chat id");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved === undefined) delete process.env.TELEGRAM_CHAT_ID;
+    else process.env.TELEGRAM_CHAT_ID = saved;
+  }
+});
+
+test("the account's own chat id wins over a global TELEGRAM_CHAT_ID", async () => {
+  const calls = stubFetch();
+  const saved = process.env.TELEGRAM_CHAT_ID;
+  process.env.TELEGRAM_CHAT_ID = "999999999";
+  try {
+    const result = await telegramAdapter.createPost(BOT_TOKEN, {
+      text: "Hello",
+      additionalOptions: { chatId: "-1001234567890" },
+    } as unknown as PostOptions);
+
+    assert.equal(result.success, true);
+    const sent = calls.find((c) => c.url.includes("/sendMessage"));
+    assert.ok(sent, "expected a sendMessage call");
+    assert.equal(sent.body?.chat_id, "-1001234567890");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved === undefined) delete process.env.TELEGRAM_CHAT_ID;
+    else process.env.TELEGRAM_CHAT_ID = saved;
+  }
+});
+
+test("an account with no chat id fails permanently, so it is not retried", async () => {
+  const result = await telegramAdapter.createPost(BOT_TOKEN, {
+    text: "Nowhere to send this",
+  } as unknown as PostOptions);
+
+  assert.equal(result.success, false);
+  assert.equal(result.code, "NOT_FOUND");
+  assert.equal(isPermanent(result.code as AdapterErrorCode), true);
 });

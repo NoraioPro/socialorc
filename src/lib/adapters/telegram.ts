@@ -26,6 +26,17 @@ import {
 const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
 /**
+ * Raised when the account a call is acting for has no chat id.
+ *
+ * This is a mis-configured account, not a transient failure, so callers classify
+ * it permanent and dead-letter on the first attempt with an instruction rather
+ * than retrying three times against a destination that cannot exist.
+ */
+const MISSING_CHAT_ERROR =
+  "This Telegram account has no target chat id, so there is nowhere to publish. " +
+  "Reconnect the account and choose the chat the bot should post into.";
+
+/**
  * Telegram adapter.
  *
  * Telegram has no browser OAuth handshake: a bot token + a target chat id are
@@ -69,6 +80,10 @@ export class TelegramAdapter extends BasePlatformAdapter {
     return `${baseUrl}/api/social/telegram/connect?state=${state}&platform=TELEGRAM`;
   }
 
+  /**
+   * Bot tokens are the deployment's own credential; only the *chat* is
+   * per-account. See resolveChatId.
+   */
   async exchangeCodeForTokens(): Promise<OAuthTokens> {
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
     return {
@@ -111,15 +126,10 @@ export class TelegramAdapter extends BasePlatformAdapter {
       return { success: false, error: invalidContent.message, code: invalidContent.code };
     }
 
-    const chatId =
-      (options.additionalOptions?.chatId as string | undefined) ||
-      process.env.TELEGRAM_CHAT_ID;
+    const chatId = this.resolveChatId(options.additionalOptions);
 
     if (!chatId) {
-      return {
-        success: false,
-        error: "No target chat configured (TELEGRAM_CHAT_ID missing)",
-      };
+      return { success: false, error: MISSING_CHAT_ERROR, code: "NOT_FOUND" };
     }
 
     const mediaUrls = options.mediaUrls ?? [];
@@ -163,8 +173,59 @@ export class TelegramAdapter extends BasePlatformAdapter {
     };
   }
 
-  private resolveChatId(): string | null {
-    return process.env.TELEGRAM_CHAT_ID ?? null;
+  /**
+   * The chat a call acts in.
+   *
+   * Telegram's bot token is a single process-wide credential (the normal SaaS
+   * shape: one SocialOrc-owned bot serving every tenant), but the chat it posts
+   * into belongs to ONE connected account. This used to fall back to
+   * `process.env.TELEGRAM_CHAT_ID` whenever the caller supplied nothing, which
+   * meant every tenant published into — and read and deleted engagement from —
+   * the deployment owner's private chat.
+   *
+   * Env is now only the *default offered at connect time*. At publish and
+   * engagement time the account's own chat id is the only source, and its
+   * absence is a loud, permanent failure instead of a silent redirect.
+   */
+  private resolveChatId(additionalOptions?: Record<string, unknown>): string | null {
+    const raw = additionalOptions?.chatId;
+    if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
+    if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+    return null;
+  }
+
+  /**
+   * Resolve a chat the bot can actually reach.
+   *
+   * Used by the connect route so a wrong chat id is refused when somebody
+   * connects, with Telegram's own reason, rather than surfacing as a failed
+   * publish hours later.
+   */
+  async getChat(
+    accessToken: string,
+    chatId: string,
+  ): Promise<
+    { ok: true; title: string | null; type: string | null } | { ok: false; error: string }
+  > {
+    const res = await fetch(
+      `${TELEGRAM_API}/bot${accessToken}/getChat?chat_id=${encodeURIComponent(chatId)}`,
+    );
+
+    const json = (await res.json()) as {
+      ok: boolean;
+      description?: string;
+      result?: { title?: string; username?: string; first_name?: string; type?: string };
+    };
+
+    if (!json.ok || !json.result) {
+      return { ok: false, error: json.description ?? `HTTP ${res.status}` };
+    }
+
+    return {
+      ok: true,
+      title: json.result.title ?? json.result.username ?? json.result.first_name ?? null,
+      type: json.result.type ?? null,
+    };
   }
 
   private reactionEmoji(kind: ReactionKind): string {
@@ -194,9 +255,9 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     options: ListCommentsOptions,
   ): Promise<ListCommentsResult> {
-    const chatId = this.resolveChatId();
+    const chatId = this.resolveChatId(options.additionalOptions);
     if (!chatId) {
-      return { success: false, error: "No target chat configured (TELEGRAM_CHAT_ID missing)" };
+      return { success: false, error: MISSING_CHAT_ERROR };
     }
 
     const postMessageId = Number(options.platformPostId);
@@ -287,6 +348,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
       commentId: options.platformPostId,
       text: options.text,
       platformPostId: options.platformPostId,
+      additionalOptions: options.additionalOptions,
     });
   }
 
@@ -294,9 +356,9 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     options: ReplyToCommentOptions,
   ): Promise<EngagementResult> {
-    const chatId = this.resolveChatId();
+    const chatId = this.resolveChatId(options.additionalOptions);
     if (!chatId) {
-      return { success: false, error: "No target chat configured (TELEGRAM_CHAT_ID missing)" };
+      return { success: false, error: MISSING_CHAT_ERROR };
     }
 
     const res = await fetch(`${TELEGRAM_API}/bot${accessToken}/sendMessage`, {
@@ -330,9 +392,9 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     options: DeleteCommentOptions,
   ): Promise<EngagementResult> {
-    const chatId = this.resolveChatId();
+    const chatId = this.resolveChatId(options.additionalOptions);
     if (!chatId) {
-      return { success: false, error: "No target chat configured (TELEGRAM_CHAT_ID missing)" };
+      return { success: false, error: MISSING_CHAT_ERROR };
     }
 
     const res = await fetch(`${TELEGRAM_API}/bot${accessToken}/deleteMessage`, {
@@ -360,10 +422,11 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     messageId: string,
     kind: ReactionKind | null,
+    additionalOptions?: Record<string, unknown>,
   ): Promise<EngagementResult> {
-    const chatId = this.resolveChatId();
+    const chatId = this.resolveChatId(additionalOptions);
     if (!chatId) {
-      return { success: false, error: "No target chat configured (TELEGRAM_CHAT_ID missing)" };
+      return { success: false, error: MISSING_CHAT_ERROR };
     }
 
     const reaction =
@@ -397,28 +460,48 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     options: ReactToPostOptions,
   ): Promise<EngagementResult> {
-    return this.setReaction(accessToken, options.platformPostId, options.kind);
+    return this.setReaction(
+      accessToken,
+      options.platformPostId,
+      options.kind,
+      options.additionalOptions,
+    );
   }
 
   async unreactToPost(
     accessToken: string,
     options: UnreactToPostOptions,
   ): Promise<EngagementResult> {
-    return this.setReaction(accessToken, options.platformPostId, null);
+    return this.setReaction(
+      accessToken,
+      options.platformPostId,
+      null,
+      options.additionalOptions,
+    );
   }
 
   async reactToComment(
     accessToken: string,
     options: ReactToCommentOptions,
   ): Promise<EngagementResult> {
-    return this.setReaction(accessToken, options.commentId, options.kind);
+    return this.setReaction(
+      accessToken,
+      options.commentId,
+      options.kind,
+      options.additionalOptions,
+    );
   }
 
   async unreactToComment(
     accessToken: string,
     options: UnreactToCommentOptions,
   ): Promise<EngagementResult> {
-    return this.setReaction(accessToken, options.commentId, null);
+    return this.setReaction(
+      accessToken,
+      options.commentId,
+      null,
+      options.additionalOptions,
+    );
   }
 }
 

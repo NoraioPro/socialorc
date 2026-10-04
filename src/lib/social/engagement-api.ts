@@ -5,6 +5,7 @@
 
 import prisma from "@/lib/prisma";
 import { getAdapter } from "@/lib/adapters";
+import { destinationForAccount } from "@/lib/adapters/destination";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
@@ -129,6 +130,12 @@ export interface EngagementContext {
   account: SocialAccount;
   adapter: PlatformAdapter;
   accessToken: string;
+  /**
+   * Platform-specific addressing for THIS account (Telegram: its own chat id).
+   * Every adapter call receives it, so engagement can never fall back to a
+   * global destination that belongs to a different tenant.
+   */
+  destinationOptions: Record<string, unknown>;
 }
 
 /**
@@ -217,7 +224,15 @@ export async function prepareEngagementContext(
     }
   }
 
-  return { ok: true, ctx: { account, adapter, accessToken } };
+  return {
+    ok: true,
+    ctx: {
+      account,
+      adapter,
+      accessToken,
+      destinationOptions: destinationForAccount(account.metadata),
+    },
+  };
 }
 
 export async function markAccountNeedsReconnect(

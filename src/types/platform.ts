@@ -226,7 +226,19 @@ export interface CommentPage {
   nextCursor?: string | null;
 }
 
-export interface ListCommentsOptions {
+/**
+ * Platform-specific addressing an engagement call cannot infer on its own.
+ *
+ * Telegram is the reason this exists: its bot is one process-wide credential,
+ * but the chat it acts in belongs to ONE connected account. The caller passes
+ * that account's own destination here so the adapter never has to reach for a
+ * global env var. Mirrors `PostOptions.additionalOptions`.
+ */
+export interface EngagementOptions {
+  additionalOptions?: Record<string, unknown>;
+}
+
+export interface ListCommentsOptions extends EngagementOptions {
   platformPostId: string;
   cursor?: string | null;
   limit?: number;
@@ -240,39 +252,39 @@ export interface ListCommentsResult {
   rawResponse?: unknown;
 }
 
-export interface WriteCommentOptions {
+export interface WriteCommentOptions extends EngagementOptions {
   platformPostId: string;
   text: string;
 }
 
-export interface ReplyToCommentOptions {
+export interface ReplyToCommentOptions extends EngagementOptions {
   commentId: string;
   text: string;
   /** Required on some platforms when the reply target is not globally unique. */
   platformPostId?: string;
 }
 
-export interface DeleteCommentOptions {
+export interface DeleteCommentOptions extends EngagementOptions {
   commentId: string;
 }
 
-export interface ReactToPostOptions {
+export interface ReactToPostOptions extends EngagementOptions {
   platformPostId: string;
   kind: ReactionKind;
 }
 
-export interface ReactToCommentOptions {
+export interface ReactToCommentOptions extends EngagementOptions {
   commentId: string;
   kind: ReactionKind;
   platformPostId?: string;
 }
 
-export interface UnreactToPostOptions {
+export interface UnreactToPostOptions extends EngagementOptions {
   platformPostId: string;
   kind?: ReactionKind;
 }
 
-export interface UnreactToCommentOptions {
+export interface UnreactToCommentOptions extends EngagementOptions {
   commentId: string;
   kind?: ReactionKind;
 }

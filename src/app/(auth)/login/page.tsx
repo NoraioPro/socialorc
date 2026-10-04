@@ -10,8 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { RoleSwitcher } from "@/components/dev/role-switcher";
-import { isDevRoleLoginVisible } from "@/lib/dev-login";
 import { OrcMark } from "@/components/icons/orc-mark";
 
 /** Turn NextAuth's error codes into something a human can act on. */
@@ -106,15 +104,6 @@ function LoginForm() {
 
   return (
     <>
-      {isDevRoleLoginVisible() && (
-        <CardContent className="quick-login-panel pb-4">
-          <Suspense fallback={null}>
-            <RoleSwitcher callbackUrl={callbackUrl} />
-          </Suspense>
-          <Separator className="mt-4" />
-          <p className="mt-3 text-center text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Or sign in with email</p>
-        </CardContent>
-      )}
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {justRegistered && (

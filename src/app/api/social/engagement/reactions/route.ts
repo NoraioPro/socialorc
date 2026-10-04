@@ -79,21 +79,25 @@ export async function POST(req: NextRequest) {
       ? await ctx.adapter.unreactToPost!(ctx.accessToken, {
           platformPostId: targetId,
           kind,
+          additionalOptions: ctx.destinationOptions,
         })
       : await ctx.adapter.reactToPost!(ctx.accessToken, {
           platformPostId: targetId,
           kind,
+          additionalOptions: ctx.destinationOptions,
         });
   } else {
     result = remove
       ? await ctx.adapter.unreactToComment!(ctx.accessToken, {
           commentId: targetId,
           kind,
+          additionalOptions: ctx.destinationOptions,
         })
       : await ctx.adapter.reactToComment!(ctx.accessToken, {
           commentId: targetId,
           kind,
           platformPostId,
+          additionalOptions: ctx.destinationOptions,
         });
   }
 
