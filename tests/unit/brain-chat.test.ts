@@ -35,41 +35,62 @@ import {
   type SourceWritePort,
 } from "../../src/lib/brain/ingest";
 
-const NO_KEYS = {} as NodeJS.ProcessEnv;
+// The key is never read from the environment: it is passed in by the caller,
+// which resolved it for the account that is paying (src/lib/ai-config.ts).
+const NO_KEY = null;
 
 // --- provider configuration -------------------------------------------------
 
-test("resolveAiConfig is null with no key and prefers AI_* over OPENAI_*", () => {
-  assert.equal(resolveAiConfig(NO_KEYS), null);
-  assert.equal(isAiConfigured(NO_KEYS), false);
-  assert.equal(activeModelName(NO_KEYS), "none");
+test("resolveAiConfig is null without a key", () => {
+  assert.equal(resolveAiConfig(NO_KEY), null);
+  assert.equal(resolveAiConfig(undefined), null);
+  assert.equal(resolveAiConfig(""), null);
+  assert.equal(isAiConfigured(NO_KEY), false);
+  assert.equal(activeModelName(resolveAiConfig(NO_KEY)), "none");
+});
 
-  const openaiOnly = { OPENAI_API_KEY: "sk-o", OPENAI_MODEL: "gpt-4o" } as unknown as NodeJS.ProcessEnv;
-  assert.deepEqual(resolveAiConfig(openaiOnly), {
-    apiKey: "sk-o",
-    baseUrl: undefined,
-    chatModel: "gpt-4o",
-    embedModel: undefined,
-  });
+test("a platform key sitting in the environment is never picked up", () => {
+  const saved = { ai: process.env.AI_API_KEY, openai: process.env.OPENAI_API_KEY };
+  process.env.AI_API_KEY = "sk-platform-must-never-be-spent";
+  process.env.OPENAI_API_KEY = "sk-platform-must-never-be-spent";
+  try {
+    assert.equal(resolveAiConfig(NO_KEY), null);
+    assert.equal(isAiConfigured(NO_KEY), false);
+  } finally {
+    if (saved.ai === undefined) delete process.env.AI_API_KEY;
+    else process.env.AI_API_KEY = saved.ai;
+    if (saved.openai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = saved.openai;
+  }
+});
 
-  const both = {
-    AI_API_KEY: "sk-ai",
-    AI_CHAT_MODEL: "deepseek-v4",
-    OPENAI_API_KEY: "sk-o",
-    OPENAI_MODEL: "gpt-4o",
-  } as unknown as NodeJS.ProcessEnv;
-  assert.equal(resolveAiConfig(both)?.apiKey, "sk-ai");
-  assert.equal(resolveAiConfig(both)?.chatModel, "deepseek-v4");
-  assert.equal(activeModelName(both), "deepseek-v4");
+test("the key is the caller's, while model and base URL still come from the environment", () => {
+  const saved = process.env.AI_CHAT_MODEL;
+  process.env.AI_CHAT_MODEL = "deepseek-v4";
+  try {
+    assert.equal(resolveAiConfig("sk-customer")?.apiKey, "sk-customer");
+    assert.equal(resolveAiConfig("sk-customer")?.chatModel, "deepseek-v4");
+    assert.equal(activeModelName(resolveAiConfig("sk-customer")), "deepseek-v4");
+  } finally {
+    if (saved === undefined) delete process.env.AI_CHAT_MODEL;
+    else process.env.AI_CHAT_MODEL = saved;
+  }
 });
 
 test("resolveAiConfig defaults the chat model instead of leaving it undefined", () => {
-  const config = resolveAiConfig({ AI_API_KEY: "k" } as unknown as NodeJS.ProcessEnv);
-  assert.equal(config?.chatModel, "gpt-4o-mini");
+  const saved = { ai: process.env.AI_CHAT_MODEL, openai: process.env.OPENAI_MODEL };
+  delete process.env.AI_CHAT_MODEL;
+  delete process.env.OPENAI_MODEL;
+  try {
+    assert.equal(resolveAiConfig("k")?.chatModel, "gpt-4o-mini");
+  } finally {
+    if (saved.ai !== undefined) process.env.AI_CHAT_MODEL = saved.ai;
+    if (saved.openai !== undefined) process.env.OPENAI_MODEL = saved.openai;
+  }
 });
 
 test("embedWithPlan falls back to the offline embedder and says so", async () => {
-  const result = await embedWithPlan(["tone of voice", "audience"], NO_KEYS);
+  const result = await embedWithPlan(["tone of voice", "audience"]);
   assert.equal(result.degraded, true);
   assert.equal(result.model, LOCAL_EMBEDDING_MODEL);
   assert.equal(result.vectors.length, 2);
@@ -392,25 +413,31 @@ test("a configured provider that cannot be reached throws instead of returning z
   // typed error, never silently return placeholder vectors. The message depends
   // on the environment (missing SDK, 401, network), so assert the type rather
   // than a vendor string.
-  await assert.rejects(
-    () =>
-      embedWithPlan(["text"], {
-        AI_API_KEY: "test-key",
-        AI_EMBED_MODEL: "text-embedding-3-small",
-      } as unknown as NodeJS.ProcessEnv),
-    (error: unknown) => {
-      assert.ok(
-        error instanceof AiRequestError || error instanceof AiNotConfiguredError,
-        `expected a typed AI error, got ${String(error)}`,
-      );
-      assert.ok((error as Error).message.length > 0);
-      return true;
-    },
-  );
+  //
+  // A model name has to be in the environment for a provider to be chosen at
+  // all; the key is the part the caller passes in.
+  const saved = process.env.AI_EMBED_MODEL;
+  process.env.AI_EMBED_MODEL = "text-embedding-3-small";
+  try {
+    await assert.rejects(
+      () => embedWithPlan(["text"], "test-key"),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof AiRequestError || error instanceof AiNotConfiguredError,
+          `expected a typed AI error, got ${String(error)}`,
+        );
+        assert.ok((error as Error).message.length > 0);
+        return true;
+      },
+    );
+  } finally {
+    if (saved === undefined) delete process.env.AI_EMBED_MODEL;
+    else process.env.AI_EMBED_MODEL = saved;
+  }
 });
 
 test("the offline path never claims to be a real model", async () => {
-  const result = await embedWithPlan(["tone of voice"], NO_KEYS);
+  const result = await embedWithPlan(["tone of voice"]);
   assert.equal(result.degraded, true);
   assert.equal(result.model, LOCAL_EMBEDDING_MODEL);
 });
@@ -418,5 +445,5 @@ test("the offline path never claims to be a real model", async () => {
 test("AiNotConfiguredError is a typed, catchable failure", () => {
   const error = new AiNotConfiguredError();
   assert.equal(error.name, "AiNotConfiguredError");
-  assert.match(error.message, /AI_API_KEY/);
+  assert.match(error.message, /Settings/);
 });

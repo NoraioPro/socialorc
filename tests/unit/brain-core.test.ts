@@ -160,16 +160,23 @@ test("embedding round-trips through base64 storage", () => {
 });
 
 test("embeddingPlan reports the offline embedder as degraded", () => {
-  const offline = embeddingPlan({} as NodeJS.ProcessEnv);
+  const offline = embeddingPlan(null);
   assert.equal(offline.model, LOCAL_EMBEDDING_MODEL);
   assert.equal(offline.degraded, true);
 
-  const provider = embeddingPlan({
-    AI_API_KEY: "k",
-    AI_EMBED_MODEL: "text-embedding-3-small",
-  } as unknown as NodeJS.ProcessEnv);
-  assert.equal(provider.model, "text-embedding-3-small");
-  assert.equal(provider.degraded, false);
+  // No key means no provider, whatever the environment says the model is.
+  assert.equal(embeddingPlan(undefined).degraded, true);
+
+  const saved = process.env.AI_EMBED_MODEL;
+  process.env.AI_EMBED_MODEL = "text-embedding-3-small";
+  try {
+    const provider = embeddingPlan("k");
+    assert.equal(provider.model, "text-embedding-3-small");
+    assert.equal(provider.degraded, false);
+  } finally {
+    if (saved === undefined) delete process.env.AI_EMBED_MODEL;
+    else process.env.AI_EMBED_MODEL = saved;
+  }
 });
 
 test("rankChunks puts the closest chunk first and skips zero-score chunks", () => {

@@ -126,13 +126,16 @@ export function decodeEmbedding(encoded: string | null | undefined): Float32Arra
  * `degraded` is surfaced in the Brain UI: a local-hash index is not semantic
  * search and the user deserves to know which one they have.
  */
-export function embeddingPlan(env: NodeJS.ProcessEnv = process.env): {
+export function embeddingPlan(apiKey?: string | null): {
   model: string;
   dim: number;
   degraded: boolean;
 } {
-  const model = env.AI_EMBED_MODEL || env.OPENAI_EMBED_MODEL;
-  if (model && (env.AI_API_KEY || env.OPENAI_API_KEY)) {
+  // The model name may come from the environment; the key may not. A provider
+  // embedding is chosen only because a caller passed a key it resolved from the
+  // account that is paying - see src/lib/brain/ai.ts.
+  const model = process.env.AI_EMBED_MODEL || process.env.OPENAI_EMBED_MODEL;
+  if (model && apiKey) {
     return { model, dim: 0, degraded: false };
   }
   return { model: LOCAL_EMBEDDING_MODEL, dim: LOCAL_EMBEDDING_DIM, degraded: true };

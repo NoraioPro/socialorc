@@ -28,7 +28,7 @@ export interface AiConfig {
 export class AiNotConfiguredError extends Error {
   constructor() {
     super(
-      "No AI provider is configured. Set AI_API_KEY (or OPENAI_API_KEY) in the server environment.",
+      "No AI key is configured for this account. Add your own key under Settings → AI.",
     );
     this.name = "AiNotConfiguredError";
   }
@@ -47,28 +47,34 @@ export class AiRequestError extends Error {
 const DEFAULT_CHAT_MODEL = "gpt-4o-mini";
 
 /**
- * Resolve configuration from the environment, preferring the platform-neutral
- * `AI_*` names and falling back to the pre-existing `OPENAI_*` ones so nothing
- * that already works has to be re-keyed.
+ * Build the provider config from a key the *caller* resolved.
+ *
+ * The key is a parameter, never an environment read. The deployment's own key
+ * must not be spent on anyone's behalf - see src/lib/ai-config.ts, which resolves
+ * the account's own key (the person's, else their workspace's, else nothing) - so
+ * this function cannot fall back to one even by accident.
+ *
+ * Model and base-URL defaults may still come from the environment: they name a
+ * provider, they do not authorise a charge.
  */
-export function resolveAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig | null {
-  const apiKey = env.AI_API_KEY || env.OPENAI_API_KEY;
+export function resolveAiConfig(apiKey: string | null | undefined): AiConfig | null {
   if (!apiKey) return null;
 
-  const baseUrl = env.AI_BASE_URL || env.OPENAI_BASE_URL || undefined;
-  const chatModel = env.AI_CHAT_MODEL || env.OPENAI_MODEL || DEFAULT_CHAT_MODEL;
-  const embedModel = env.AI_EMBED_MODEL || env.OPENAI_EMBED_MODEL || undefined;
-
-  return { apiKey, baseUrl, chatModel, embedModel };
+  return {
+    apiKey,
+    baseUrl: process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || undefined,
+    chatModel: process.env.AI_CHAT_MODEL || process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
+    embedModel: process.env.AI_EMBED_MODEL || process.env.OPENAI_EMBED_MODEL || undefined,
+  };
 }
 
-export function isAiConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return resolveAiConfig(env) !== null;
+export function isAiConfigured(apiKey: string | null | undefined): boolean {
+  return Boolean(apiKey);
 }
 
 /** The model name to store on a message row, for auditability. */
-export function activeModelName(env: NodeJS.ProcessEnv = process.env): string {
-  return resolveAiConfig(env)?.chatModel ?? "none";
+export function activeModelName(config: AiConfig | null): string {
+  return config?.chatModel ?? "none";
 }
 
 interface OpenAiLike {
@@ -110,9 +116,9 @@ async function openClient(config: AiConfig): Promise<OpenAiLike> {
 /** Stream a chat completion chunk by chunk. Callers render as they arrive. */
 export async function* streamChat(
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number; env?: NodeJS.ProcessEnv } = {},
+  options: { temperature?: number; maxTokens?: number; apiKey?: string | null } = {},
 ): AsyncGenerator<string> {
-  const config = resolveAiConfig(options.env ?? process.env);
+  const config = resolveAiConfig(options.apiKey);
   if (!config) throw new AiNotConfiguredError();
 
   const openai = await openClient(config);
@@ -140,9 +146,9 @@ export async function* streamChat(
 /** Non-streaming completion, for titles, summaries and internal tool calls. */
 export async function completeText(
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number; env?: NodeJS.ProcessEnv } = {},
+  options: { temperature?: number; maxTokens?: number; apiKey?: string | null } = {},
 ): Promise<string> {
-  const config = resolveAiConfig(options.env ?? process.env);
+  const config = resolveAiConfig(options.apiKey);
   if (!config) throw new AiNotConfiguredError();
 
   const openai = await openClient(config);
@@ -190,10 +196,10 @@ export async function completeJson<T>(
  */
 export async function embedWithPlan(
   texts: string[],
-  env: NodeJS.ProcessEnv = process.env,
+  apiKey?: string | null,
 ): Promise<{ vectors: Float32Array[]; model: string; degraded: boolean }> {
-  const plan = embeddingPlan(env);
-  const config = resolveAiConfig(env);
+  const plan = embeddingPlan(apiKey);
+  const config = resolveAiConfig(apiKey);
 
   if (plan.degraded || !config?.embedModel) {
     return { vectors: texts.map((text) => localEmbed(text)), model: LOCAL_EMBEDDING_MODEL, degraded: true };
@@ -237,9 +243,9 @@ export function titleFromText(text: string, maxWords = 6, maxChars = 60): string
 export async function suggestTitle(
   firstUserMessage: string,
   firstAssistantMessage = "",
-  env: NodeJS.ProcessEnv = process.env,
+  apiKey?: string | null,
 ): Promise<string> {
-  if (!isAiConfigured(env)) return titleFromText(firstUserMessage);
+  if (!isAiConfigured(apiKey)) return titleFromText(firstUserMessage);
 
   try {
     const raw = await completeText(
@@ -251,7 +257,7 @@ export async function suggestTitle(
         },
         { role: "user", content: `${firstUserMessage}\n\n${firstAssistantMessage}`.slice(0, 1500) },
       ],
-      { maxTokens: 24, env },
+      { maxTokens: 24, apiKey },
     );
     const title = raw.replace(/["\n]/g, " ").replace(/\s+/g, " ").trim();
     return title ? title.slice(0, 60) : titleFromText(firstUserMessage);
@@ -265,9 +271,9 @@ export async function suggestTitle(
 export async function summarizeConversation(
   transcript: string,
   previousSummary: string | null,
-  env: NodeJS.ProcessEnv = process.env,
+  apiKey?: string | null,
 ): Promise<string> {
-  if (!isAiConfigured(env)) {
+  if (!isAiConfigured(apiKey)) {
     throw new AiNotConfiguredError();
   }
   return completeText(
@@ -282,6 +288,6 @@ export async function summarizeConversation(
         content: `${previousSummary ? `Existing summary:\n${previousSummary}\n\n` : ""}New messages:\n${transcript}`,
       },
     ],
-    { maxTokens: 400, env },
+    { maxTokens: 400, apiKey },
   );
 }

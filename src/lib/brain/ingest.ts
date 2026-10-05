@@ -232,7 +232,7 @@ export interface IngestInput {
   createdBy?: string;
   /** Max chunks per source, so one 400-page PDF cannot flood retrieval. */
   maxChunks?: number;
-  env?: NodeJS.ProcessEnv;
+  apiKey?: string | null;
 }
 
 export interface IngestResult {
@@ -280,7 +280,7 @@ export async function ingestText(
       throw new EmptySourceError();
     }
 
-    const { vectors, model, degraded } = await embed(limited.map((chunk) => chunk.content), input.env);
+    const { vectors, model, degraded } = await embed(limited.map((chunk) => chunk.content), input.apiKey);
 
     await port.storeChunks(
       limited.map((chunk, index) => ({

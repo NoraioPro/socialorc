@@ -3,7 +3,7 @@
  *
  * This module orchestrates content adaptation without duplicating AI Studio
  * logic. It reuses the same AI primitives (generate/improve) and is mock-safe
- * when OPENAI_API_KEY is unset.
+ * when no AI key is configured.
  */
 
 import { Platform } from "@prisma/client";
