@@ -1,5 +1,6 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
+import { metaAppId, metaAppSecret } from "./meta-app";
 import {
   OAuthTokens,
   AccountInfo,
@@ -46,7 +47,7 @@ export class InstagramAdapter extends BasePlatformAdapter {
 
   getOAuthUrl(state: string): string {
     const params = new URLSearchParams({
-      client_id: process.env.INSTAGRAM_APP_ID || "",
+      client_id: metaAppId(),
       redirect_uri: this.getRedirectUri(),
       state,
       scope:
@@ -64,8 +65,8 @@ export class InstagramAdapter extends BasePlatformAdapter {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        client_id: process.env.INSTAGRAM_APP_ID || "",
-        client_secret: process.env.INSTAGRAM_APP_SECRET || "",
+        client_id: metaAppId(),
+        client_secret: metaAppSecret(),
         redirect_uri: this.getRedirectUri(),
         code,
       }),
@@ -87,8 +88,8 @@ export class InstagramAdapter extends BasePlatformAdapter {
       `${GRAPH_API_URL}/oauth/access_token?` +
         new URLSearchParams({
           grant_type: "fb_exchange_token",
-          client_id: process.env.INSTAGRAM_APP_ID || "",
-          client_secret: process.env.INSTAGRAM_APP_SECRET || "",
+          client_id: metaAppId(),
+          client_secret: metaAppSecret(),
           fb_exchange_token: data.access_token,
         })
     );
@@ -120,8 +121,8 @@ export class InstagramAdapter extends BasePlatformAdapter {
       `${GRAPH_API_URL}/oauth/access_token?` +
         new URLSearchParams({
           grant_type: "fb_exchange_token",
-          client_id: process.env.INSTAGRAM_APP_ID || "",
-          client_secret: process.env.INSTAGRAM_APP_SECRET || "",
+          client_id: metaAppId(),
+          client_secret: metaAppSecret(),
           fb_exchange_token: refreshToken,
         })
     );

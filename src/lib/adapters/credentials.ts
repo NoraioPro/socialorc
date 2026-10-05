@@ -11,6 +11,8 @@
  * The real platform API is the source of truth.
  */
 
+import { metaAppId, metaAppSecret } from "./meta-app";
+
 export type CredentialValidationResult = {
   valid: boolean;
   missing: string[];
@@ -185,8 +187,8 @@ export function validateInstagramCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const appId = process.env.INSTAGRAM_APP_ID;
-  const appSecret = process.env.INSTAGRAM_APP_SECRET;
+  const appId = metaAppId();
+  const appSecret = metaAppSecret();
 
   if (!appId) {
     missing.push("INSTAGRAM_APP_ID");
@@ -220,8 +222,8 @@ export function validateFacebookCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const appId = process.env.FACEBOOK_APP_ID;
-  const appSecret = process.env.FACEBOOK_APP_SECRET;
+  const appId = metaAppId();
+  const appSecret = metaAppSecret();
 
   if (!appId) {
     missing.push("FACEBOOK_APP_ID");
