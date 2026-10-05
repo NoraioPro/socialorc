@@ -64,6 +64,7 @@ model User {
   feedReactions   FeedReaction[]
   feedComments    FeedComment[]
   brandBrain      BrandBrain?
+  aiCredential    AiCredential?
 
   // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
   // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
@@ -443,6 +444,7 @@ model Workspace {
   conversations   Conversation[]
   agents          AiAgent[]
   socialAccounts  SocialAccount[]
+  aiCredential    AiCredential?
 }
 
 /** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
@@ -458,6 +460,33 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+/**
+ * The AI key a customer brought themselves.
+ *
+ * Exactly one owner per row: a person's own key (`userId`) or the team's shared
+ * key (`workspaceId`). The deployment's own key is never stored here and never
+ * used as a fallback — see src/lib/ai-config.ts, where that rule is enforced.
+ * The key is encrypted with TOKEN_ENCRYPTION_KEY before it is written and is
+ * never returned by any API route; only its last four characters are shown.
+ */
+model AiCredential {
+  id           String   @id @default(cuid())
+  userId       String?
+  workspaceId  String?
+  provider     String   @default("openai")
+  encryptedKey String
+  baseUrl      String?
+  model        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@unique([workspaceId])
 }
 
 /**
