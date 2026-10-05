@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { PostStatus, Platform, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { POST_SAFE_INCLUDE, unownedMediaAssetIds } from "@/lib/social/account-select";
@@ -125,6 +126,7 @@ export async function POST(req: NextRequest) {
 
     const post = await prisma.post.create({
       data: {
+        workspaceId: await workspaceIdForWrite(guard.userId),
         userId: guard.userId,
         title,
         content,

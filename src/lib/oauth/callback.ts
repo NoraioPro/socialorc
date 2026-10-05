@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
 import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
@@ -111,6 +112,7 @@ export function createOAuthCallback(platform: Platform) {
       }
 
       const shared = {
+        workspaceId: await workspaceIdForWrite(user.userId),
         userId: user.userId,
         brainId: brain.id,
         platformUserId: info.platformUserId,

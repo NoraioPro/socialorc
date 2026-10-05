@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { JobStatus, PostStatus } from "@prisma/client";
 import { z } from "zod";
 import {
@@ -90,6 +91,7 @@ export async function POST(
       prisma.scheduledJob.upsert({
         where: { postId: id },
         create: {
+          workspaceId: post.workspaceId ?? await workspaceIdForWrite(guard.userId),
           postId: id,
           scheduledAt: scheduledFor,
           status: JobStatus.PENDING,

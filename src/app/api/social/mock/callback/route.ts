@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { resolveBrainForUser } from "@/lib/brains";
@@ -71,6 +72,7 @@ export async function GET(req: NextRequest) {
         },
       },
       create: {
+        workspaceId: await workspaceIdForWrite(session.user.id),
         userId: session.user.id,
         brainId: brain.id,
         platform,

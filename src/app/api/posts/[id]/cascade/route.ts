@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { Platform, PostStatus } from "@prisma/client";
 import { z } from "zod";
 import {
@@ -161,6 +162,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         result.adaptations.map(async (adaptation) => {
           const newPost = await prisma.post.create({
             data: {
+              workspaceId: await workspaceIdForWrite(session.user.id),
               userId: session.user.id,
               content: adaptation.content,
               platform: adaptation.platform,

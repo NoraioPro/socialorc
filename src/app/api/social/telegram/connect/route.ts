@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
@@ -131,6 +132,7 @@ export async function GET(req: NextRequest) {
         },
       },
       create: {
+        workspaceId: await workspaceIdForWrite(user.userId),
         userId: user.userId,
         brainId: brain.id,
         platform: Platform.TELEGRAM,
