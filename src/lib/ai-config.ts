@@ -23,6 +23,13 @@ import { decrypt } from "@/lib/encryption";
 
 export type AiSource = "user" | "workspace";
 
+/**
+ * Which kind of key. Text and image are separate rows on purpose: an account may
+ * bring one and not the other, and a chat key must never be spent against an
+ * image endpoint by accident.
+ */
+export type AiKind = "text" | "image";
+
 export interface AiConfig {
   apiKey: string;
   baseUrl?: string;
@@ -99,17 +106,20 @@ function toConfig(row: CredentialRow, source: AiSource): AiConfig {
  * Never throws for the "no key" case — callers that can work without AI should
  * branch on `null`; callers that cannot should use `requireAiConfig`.
  */
-export async function resolveAiConfig(scope: AiScope): Promise<AiConfig | null> {
+export async function resolveAiConfig(
+  scope: AiScope,
+  kind: AiKind = "text",
+): Promise<AiConfig | null> {
   if (scope.userId) {
     const row = await prisma.aiCredential.findUnique({
-      where: { userId: scope.userId },
+      where: { userId_kind: { userId: scope.userId, kind } },
     });
     if (row) return toConfig(row, "user");
   }
 
   if (scope.workspaceId) {
     const row = await prisma.aiCredential.findUnique({
-      where: { workspaceId: scope.workspaceId },
+      where: { workspaceId_kind: { workspaceId: scope.workspaceId, kind } },
     });
     if (row) return toConfig(row, "workspace");
   }
@@ -133,14 +143,17 @@ export async function requireAiConfig(scope: AiScope): Promise<AiConfig> {
  * two-source answer instead of each one deciding for itself - and a route added
  * later inherits the behaviour by calling this rather than by remembering to.
  */
-export async function resolveAiConfigForUser(userId: string): Promise<AiConfig | null> {
+export async function resolveAiConfigForUser(
+  userId: string,
+  kind: AiKind = "text",
+): Promise<AiConfig | null> {
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
     select: { workspaceId: true },
     orderBy: { createdAt: "asc" },
   });
 
-  return resolveAiConfig({ userId, workspaceId: membership?.workspaceId });
+  return resolveAiConfig({ userId, workspaceId: membership?.workspaceId }, kind);
 }
 
 /**

@@ -64,7 +64,7 @@ model User {
   feedReactions   FeedReaction[]
   feedComments    FeedComment[]
   brandBrain      BrandBrain?
-  aiCredential    AiCredential?
+  aiCredentials   AiCredential[]
 
   // OrcBrain relations. Knowledge belongs to the workspace, not to whoever
   // typed it, so BrainSource keeps `createdBy` as a plain id (audit trail)
@@ -444,7 +444,7 @@ model Workspace {
   conversations   Conversation[]
   agents          AiAgent[]
   socialAccounts  SocialAccount[]
-  aiCredential    AiCredential?
+  aiCredentials   AiCredential[]
 }
 
 /** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
@@ -475,6 +475,10 @@ model AiCredential {
   id           String   @id @default(cuid())
   userId       String?
   workspaceId  String?
+  /// What the key is for: "text" (chat/completions) or "image" (image models).
+  /// One row per owner per kind, so an account can bring both keys — and so a
+  /// text key is never silently used against an image endpoint.
+  kind         String   @default("text")
   provider     String   @default("openai")
   encryptedKey String
   baseUrl      String?
@@ -485,8 +489,8 @@ model AiCredential {
   user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([userId])
-  @@unique([workspaceId])
+  @@unique([userId, kind])
+  @@unique([workspaceId, kind])
 }
 
 /**

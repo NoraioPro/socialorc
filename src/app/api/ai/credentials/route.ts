@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { encrypt, decrypt } from "@/lib/encryption";
-import { DEFAULT_BASE_URL, keyHint, resolveAiConfig } from "@/lib/ai-config";
+import { DEFAULT_BASE_URL, keyHint, resolveAiConfig, type AiKind } from "@/lib/ai-config";
 
 /**
  * The one place a person's own AI key is written.
@@ -25,6 +25,7 @@ import { DEFAULT_BASE_URL, keyHint, resolveAiConfig } from "@/lib/ai-config";
  */
 
 const scopeSchema = z.enum(["user", "workspace"]);
+const kindSchema = z.enum(["text", "image"]);
 
 /** Optional string that treats "" as absent, so a form can clear a field. */
 const optionalText = (max: number) =>
@@ -37,6 +38,7 @@ const optionalText = (max: number) =>
 
 const credentialSchema = z.object({
   scope: scopeSchema.default("user"),
+  kind: kindSchema.default("text"),
   provider: z.string().trim().min(1).max(40).default("openai"),
   // Too short to be real, and we would rather say so here than store junk and
   // let the provider reject it later with a confusing message.
@@ -121,35 +123,41 @@ async function resolveTarget(
 }
 
 /** The stored row for a target, or null. Bypasses the resolver: this is raw storage. */
-async function findRow(target: Target) {
+async function findRow(target: Target, kind: AiKind) {
   if (target.userId) {
-    return prisma.aiCredential.findUnique({ where: { userId: target.userId } });
+    return prisma.aiCredential.findUnique({
+      where: { userId_kind: { userId: target.userId, kind } },
+    });
   }
   if (target.workspaceId) {
-    return prisma.aiCredential.findUnique({ where: { workspaceId: target.workspaceId } });
+    return prisma.aiCredential.findUnique({
+      where: { workspaceId_kind: { workspaceId: target.workspaceId, kind } },
+    });
   }
   return null;
 }
 
 export async function GET(req: NextRequest) {
   const scope = scopeSchema.catch("user").parse(req.nextUrl.searchParams.get("scope") ?? "user");
+  const kind = kindSchema.catch("text").parse(req.nextUrl.searchParams.get("kind") ?? "text");
   const workspaceId = req.nextUrl.searchParams.get("workspaceId");
 
   const { target, response } = await resolveTarget(scope, workspaceId);
   if (response) return response;
 
-  const row = await findRow(target!);
+  const row = await findRow(target!, kind);
 
   // Which key would actually be used for this request: the person's, the team's,
   // or none. Surfaced so the UI can say so plainly instead of leaving people to
   // guess why AI is behaving the way it is.
   const effective =
     scope === "workspace"
-      ? await resolveAiConfig({ workspaceId: target!.workspaceId })
-      : await resolveAiConfig({ ...target });
+      ? await resolveAiConfig({ workspaceId: target!.workspaceId }, kind)
+      : await resolveAiConfig({ ...target }, kind);
 
   return NextResponse.json({
     scope,
+    kind,
     workspaceId: target!.workspaceId ?? null,
     configured: Boolean(row),
     provider: row?.provider ?? "openai",
@@ -171,7 +179,7 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  const { scope, provider, apiKey, baseUrl, model, workspaceId } = parsed.data;
+  const { scope, kind, provider, apiKey, baseUrl, model, workspaceId } = parsed.data;
 
   const { target, response } = await resolveTarget(scope, workspaceId ?? null);
   if (response) return response;
@@ -179,6 +187,9 @@ export async function PUT(req: NextRequest) {
   // Encrypted before it is stored; the plaintext never reaches the database or
   // the response.
   const encryptedKey = encrypt(apiKey);
+  // `kind` is deliberately not in here: it is part of the row's identity (see the
+  // composite unique index), so it belongs on `create` and must never be
+  // rewritten by an update.
   const data = {
     provider,
     encryptedKey,
@@ -188,18 +199,19 @@ export async function PUT(req: NextRequest) {
 
   const row = target!.userId
     ? await prisma.aiCredential.upsert({
-        where: { userId: target!.userId },
-        create: { userId: target!.userId, ...data },
+        where: { userId_kind: { userId: target!.userId, kind } },
+        create: { userId: target!.userId, kind, ...data },
         update: data,
       })
     : await prisma.aiCredential.upsert({
-        where: { workspaceId: target!.workspaceId! },
-        create: { workspaceId: target!.workspaceId!, ...data },
+        where: { workspaceId_kind: { workspaceId: target!.workspaceId!, kind } },
+        create: { workspaceId: target!.workspaceId!, kind, ...data },
         update: data,
       });
 
   return NextResponse.json({
     scope,
+    kind,
     configured: true,
     provider: row.provider,
     baseUrl: row.baseUrl,
@@ -211,19 +223,22 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const scope = scopeSchema.catch("user").parse(req.nextUrl.searchParams.get("scope") ?? "user");
+  const kind = kindSchema.catch("text").parse(req.nextUrl.searchParams.get("kind") ?? "text");
   const workspaceId = req.nextUrl.searchParams.get("workspaceId");
 
   const { target, response } = await resolveTarget(scope, workspaceId);
   if (response) return response;
 
-  const row = await findRow(target!);
+  const row = await findRow(target!, kind);
   if (!row) {
-    return NextResponse.json({ scope, configured: false, removed: false });
+    return NextResponse.json({ scope, kind, configured: false, removed: false });
   }
 
   await (target!.userId
-    ? prisma.aiCredential.delete({ where: { userId: target!.userId } })
-    : prisma.aiCredential.delete({ where: { workspaceId: target!.workspaceId! } }));
+    ? prisma.aiCredential.delete({ where: { userId_kind: { userId: target!.userId, kind } } })
+    : prisma.aiCredential.delete({
+        where: { workspaceId_kind: { workspaceId: target!.workspaceId!, kind } },
+      }));
 
-  return NextResponse.json({ scope, configured: false, removed: true });
+  return NextResponse.json({ scope, kind, configured: false, removed: true });
 }
