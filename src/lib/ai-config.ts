@@ -125,6 +125,25 @@ export async function requireAiConfig(scope: AiScope): Promise<AiConfig> {
 }
 
 /**
+ * Convenience for route handlers: resolve for a signed-in person, with their
+ * workspace as the second source.
+ *
+ * The workspace key only applies where a workspace is known, and most routes only
+ * carry a session. Doing the lookup here means every call site gets the same
+ * two-source answer instead of each one deciding for itself - and a route added
+ * later inherits the behaviour by calling this rather than by remembering to.
+ */
+export async function resolveAiConfigForUser(userId: string): Promise<AiConfig | null> {
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId },
+    select: { workspaceId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return resolveAiConfig({ userId, workspaceId: membership?.workspaceId });
+}
+
+/**
  * The only safe shape to show a key back to its owner: enough to recognise it,
  * never enough to use it. Used by the credentials API and the settings page.
  */

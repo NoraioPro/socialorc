@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession, requirePermission } from "@/lib/auth";
+import { resolveAiConfigForUser } from "@/lib/ai-config";
 import prisma from "@/lib/prisma";
 import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { Platform, PostStatus } from "@prisma/client";
@@ -151,7 +152,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         platform: post.platform,
         hashtags,
       },
-      targetPlatforms
+      targetPlatforms,
+      false,
+      // Whose key pays for this adaptation. Never the platform's - see
+      // src/lib/ai-config.ts.
+      await resolveAiConfigForUser(session.user.id)
     );
 
     // Optionally create draft posts for each adaptation

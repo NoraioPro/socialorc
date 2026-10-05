@@ -9,6 +9,7 @@
 import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS, PlatformConfig } from "@/types/platform";
 import { AINotConfiguredError } from "@/lib/ai";
+import { DEFAULT_BASE_URL, DEFAULT_MODEL, type AiConfig } from "@/lib/ai-config";
 
 export interface CascadeSource {
   content: string;
@@ -46,11 +47,12 @@ const ADAPTATION_PROMPTS: Record<Platform, string> = {
 };
 
 /**
- * Check if we have a configured OpenAI API key. When absent, cascade falls
- * back to mock adaptations so the feature remains testable without secrets.
+ * Is AI usable? Decided by the key the caller resolved (src/lib/ai-config.ts),
+ * never by the environment. It defaults to "no" so a missed call site turns AI
+ * off rather than quietly spending a platform key.
  */
-function hasAICapability(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
+function hasAICapability(config: AiConfig | null = null): boolean {
+  return config !== null;
 }
 
 /**
@@ -160,15 +162,15 @@ function mockAdaptContent(
  */
 async function aiAdaptContent(
   source: CascadeSource,
-  targetPlatform: Platform
+  targetPlatform: Platform,
+  aiConfig: AiConfig
 ): Promise<CascadeAdaptation> {
   const config = PLATFORM_CONFIGS[targetPlatform];
 
-  // Dynamic import to avoid initialization errors when OPENAI_API_KEY is unset
   const OpenAI = (await import("openai")).default;
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    apiKey: aiConfig.apiKey,
+    baseURL: aiConfig.baseUrl ?? DEFAULT_BASE_URL,
   });
 
   const systemPrompt = `You are a social media content adaptation expert. 
@@ -193,7 +195,7 @@ Respond in JSON format:
 Ensure the adaptation respects ${targetPlatform}'s character limit of ${config.maxTextLength}.`;
 
   const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    model: aiConfig.model ?? DEFAULT_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: "Please adapt this content." },
@@ -234,15 +236,16 @@ Ensure the adaptation respects ${targetPlatform}'s character limit of ${config.m
 export async function cascadeContent(
   source: CascadeSource,
   targetPlatforms: Platform[],
-  forceMock = false
+  forceMock = false,
+  aiConfig: AiConfig | null = null
 ): Promise<CascadeResult> {
   // Production never cascades with synthetic text: an invented adaptation is
   // indistinguishable from a real one once it reaches the editor.
-  if (!forceMock && !hasAICapability() && process.env.NODE_ENV === "production") {
+  if (!forceMock && !hasAICapability(aiConfig) && process.env.NODE_ENV === "production") {
     throw new AINotConfiguredError();
   }
 
-  const useMock = forceMock || !hasAICapability();
+  const useMock = forceMock || !hasAICapability(aiConfig);
   const adaptations: CascadeAdaptation[] = [];
 
   // Filter out the source platform from targets
@@ -252,10 +255,14 @@ export async function cascadeContent(
     try {
       const adaptation = useMock
         ? mockAdaptContent(source, targetPlatform)
-        : await aiAdaptContent(source, targetPlatform);
+        : await aiAdaptContent(source, targetPlatform, aiConfig as AiConfig);
       adaptations.push(adaptation);
     } catch (error) {
-      // On AI failure, fall back to mock for this platform
+      // In production a failed adaptation is reported, never replaced with an
+      // invention: mock text is indistinguishable from real output once it is in
+      // the editor, and a customer would be scheduling fiction. Local
+      // development keeps the mock so the flow stays testable.
+      if (process.env.NODE_ENV === "production") throw error;
       console.error(`AI adaptation failed for ${targetPlatform}, using mock:`, error);
       adaptations.push(mockAdaptContent(source, targetPlatform));
     }

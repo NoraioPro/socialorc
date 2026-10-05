@@ -6,6 +6,7 @@ import {
   MOCK_BRAND_CONTEXT,
   buildBrandContextPrompt,
 } from "@/types/brand-brain";
+import { DEFAULT_BASE_URL, DEFAULT_MODEL, type AiConfig } from "@/lib/ai-config";
 
 /** Per-user brand profile stored in `BrandBrain` (settings), distinct from workspace OrcBrain. */
 export interface BrandBrainContext {
@@ -25,13 +26,17 @@ export interface BrandBrainContext {
   hashtagStrategy?: string | null;
 }
 
-let _openai: OpenAI | null = null;
-
 /**
- * Check if OpenAI is available (API key configured).
+ * Is AI usable for this request?
+ *
+ * The answer belongs to the *customer's* configuration, never to the
+ * deployment's environment. `config` is what src/lib/ai-config.ts resolved: the
+ * person's own key, else their workspace's, else nothing. It defaults to `null`
+ * on purpose, so a call site that forgets to pass one fails closed - AI off -
+ * instead of falling back to a platform key that must never be spent.
  */
-export function isOpenAIAvailable(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
+export function isOpenAIAvailable(config: AiConfig | null = null): boolean {
+  return config !== null;
 }
 
 /**
@@ -45,7 +50,7 @@ export class AINotConfiguredError extends Error {
   readonly code = "AI_NOT_CONFIGURED";
   constructor() {
     super(
-      "AI is not configured. Set OPENAI_API_KEY (or AI_API_KEY) to enable AI generation.",
+      "No AI key is configured for this account. Add your own key under Settings → AI.",
     );
     this.name = "AINotConfiguredError";
   }
@@ -56,17 +61,19 @@ export function isMockAIAllowed(): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
-function getOpenAI(): OpenAI {
-  if (!_openai) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error("OpenAI API key not configured. Set OPENAI_API_KEY environment variable.");
-    }
-    _openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    });
-  }
-  return _openai;
+/**
+ * A client for the key this request brought.
+ *
+ * Built per call rather than cached in a module singleton: the key now differs
+ * per customer, and one cached client would hand the first caller's key to
+ * everyone after them. The constructor does no I/O, so there is nothing to gain
+ * by caching.
+ */
+function getOpenAI(config: AiConfig): OpenAI {
+  return new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl ?? DEFAULT_BASE_URL,
+  });
 }
 
 export interface GeneratedVariant {
@@ -92,6 +99,12 @@ export interface AIStudioOptions {
   brandContext?: BrandContext;
   /** Force mock generation even if OpenAI is available (for testing) */
   forceMock?: boolean;
+  /**
+   * The key this request resolved (src/lib/ai-config.ts). Optional so that a
+   * call site which forgets it degrades to "AI off" rather than spending a
+   * platform key.
+   */
+  aiConfig?: AiConfig | null;
 }
 
 const PLATFORM_PROMPTS: Record<Platform, string> = {
@@ -229,7 +242,7 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
   usedMock: boolean;
   brandContextUsed: boolean;
 }> {
-  const { idea, platforms, tone, additionalContext, brandContext, forceMock } = options;
+  const { idea, platforms, tone, additionalContext, brandContext, forceMock, aiConfig } = options;
 
   if (forceMock) {
     return {
@@ -239,7 +252,7 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
     };
   }
 
-  if (!isOpenAIAvailable()) {
+  if (!aiConfig) {
     // Never hand a synthetic variant to production: it reads as real content.
     if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
@@ -253,6 +266,7 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
   const brandPrompt = buildBrandContextPrompt(ctx);
   
   const variants = await generatePlatformVariantsWithBrand(
+    aiConfig,
     idea,
     platforms,
     tone,
@@ -271,6 +285,7 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
  * Internal: Generate variants with Brand Brain context via OpenAI.
  */
 async function generatePlatformVariantsWithBrand(
+  aiConfig: AiConfig,
   originalIdea: string,
   platforms: Platform[],
   tone?: string,
@@ -302,8 +317,8 @@ Respond in JSON format with an array of objects, each containing:
 
 Ensure content is properly tailored for each platform's audience and constraints while maintaining brand voice.`;
 
-  const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+  const response = await getOpenAI(aiConfig).chat.completions.create({
+    model: aiConfig.model ?? DEFAULT_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: `Original idea:\n\n${originalIdea}` },
@@ -346,9 +361,11 @@ export async function generatePlatformVariants(
   originalIdea: string,
   platforms: Platform[],
   tone?: string,
-  additionalContext?: string
+  additionalContext?: string,
+  aiConfig: AiConfig | null = null
 ): Promise<GeneratedVariant[]> {
   const result = await aiStudioGenerate({
+    aiConfig,
     idea: originalIdea,
     platforms,
     tone,
@@ -396,7 +413,8 @@ export async function improveContent(
   content: string,
   platform: Platform,
   instruction: string,
-  forceMock?: boolean
+  forceMock?: boolean,
+  aiConfig: AiConfig | null = null
 ): Promise<{ content: string; isMock: boolean }> {
   if (forceMock) {
     return {
@@ -405,7 +423,7 @@ export async function improveContent(
     };
   }
 
-  if (!isOpenAIAvailable()) {
+  if (!aiConfig) {
     // Same rule as generation: production gets an error, not invented content.
     if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
@@ -416,8 +434,8 @@ export async function improveContent(
   
   const config = PLATFORM_CONFIGS[platform];
   
-  const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+  const response = await getOpenAI(aiConfig).chat.completions.create({
+    model: aiConfig.model ?? DEFAULT_MODEL,
     messages: [
       {
         role: "system",

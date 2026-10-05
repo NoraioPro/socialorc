@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
+import { resolveAiConfigForUser } from "@/lib/ai-config";
 import { 
   aiStudioGenerate, 
   improveContent, 
@@ -63,9 +64,12 @@ export async function POST(req: NextRequest) {
     // permission as writing a draft - not merely a session. A read-only CLIENT
     // account must never be able to trigger a paid provider call.
     const authz = await requirePermission("posts:create");
+    // Whose key pays for this request. Never the platform's - see
+    // src/lib/ai-config.ts, where that rule is enforced.
     if (!authz.ok) {
       return NextResponse.json({ error: authz.error }, { status: authz.status });
     }
+    const aiConfig = await resolveAiConfigForUser(authz.userId);
 
     const body = await req.json();
     const action = body.action || "generate";
@@ -83,6 +87,7 @@ export async function POST(req: NextRequest) {
 
       try {
         const result = await aiStudioGenerate({
+          aiConfig,
           idea,
           platforms,
           tone,
@@ -96,7 +101,7 @@ export async function POST(req: NextRequest) {
           variants: result.variants,
           usedMock: result.usedMock,
           brandContextUsed: result.brandContextUsed,
-          openAIAvailable: isOpenAIAvailable(),
+          openAIAvailable: isOpenAIAvailable(aiConfig),
         });
       } catch (error) {
         if (error instanceof AINotConfiguredError) {
@@ -125,13 +130,13 @@ export async function POST(req: NextRequest) {
       const { content, platform, instruction, forceMock } = validation.data;
 
       try {
-        const result = await improveContent(content, platform, instruction, forceMock);
+        const result = await improveContent(content, platform, instruction, forceMock, aiConfig);
 
         return NextResponse.json({
           success: true,
           content: result.content,
           usedMock: result.isMock,
-          openAIAvailable: isOpenAIAvailable(),
+          openAIAvailable: isOpenAIAvailable(aiConfig),
         });
       } catch (error) {
         if (error instanceof AINotConfiguredError) {

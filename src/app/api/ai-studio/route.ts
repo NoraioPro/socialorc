@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession, requirePermission } from "@/lib/auth";
+import { resolveAiConfigForUser } from "@/lib/ai-config";
 import {
   aiStudioGenerate,
   improveContent,
@@ -128,10 +129,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
     const action = body.action;
 
     if (action === "status") {
+      const aiConfig = await resolveAiConfigForUser(authz.userId);
       return NextResponse.json({
         success: true,
         action: "status",
-        openAIAvailable: isOpenAIAvailable(),
+        openAIAvailable: isOpenAIAvailable(aiConfig),
         mockBrandContext: MOCK_BRAND_CONTEXT,
       });
     }
@@ -150,8 +152,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       }
 
       const { idea, platforms, tone, additionalContext, brandContext, forceMock } = validation.data;
+      const aiConfig = await resolveAiConfigForUser(authz.userId);
 
       const result = await aiStudioGenerate({
+        aiConfig,
         idea,
         platforms,
         tone,
@@ -166,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
         variants: result.variants,
         usedMock: result.usedMock,
         brandContextUsed: result.brandContextUsed,
-        openAIAvailable: isOpenAIAvailable(),
+        openAIAvailable: isOpenAIAvailable(aiConfig),
       });
     }
 
@@ -184,14 +188,15 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       }
 
       const { content, platform, instruction, forceMock } = validation.data;
-      const result = await improveContent(content, platform, instruction, forceMock);
+      const aiConfig = await resolveAiConfigForUser(authz.userId);
+      const result = await improveContent(content, platform, instruction, forceMock, aiConfig);
 
       return NextResponse.json({
         success: true,
         action: "improve",
         content: result.content,
         usedMock: result.isMock,
-        openAIAvailable: isOpenAIAvailable(),
+        openAIAvailable: isOpenAIAvailable(aiConfig),
       });
     }
 
@@ -232,10 +237,12 @@ export async function GET(_req: NextRequest): Promise<NextResponse<AIStudioStatu
       );
     }
 
+    const aiConfig = await resolveAiConfigForUser(session.user.id);
+
     return NextResponse.json({
       success: true,
       action: "status",
-      openAIAvailable: isOpenAIAvailable(),
+      openAIAvailable: isOpenAIAvailable(aiConfig),
       /** False in production without a key: generation will refuse, not fake it. */
       mockAIAllowed: isMockAIAllowed(),
       mockBrandContext: MOCK_BRAND_CONTEXT,

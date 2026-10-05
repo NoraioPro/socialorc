@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getAdapterStatus, isMockAdapterAllowed } from "@/lib/adapters";
 import { platformReadiness, summarizeHealth } from "@/lib/health";
-import { isMockAIAllowed, isOpenAIAvailable } from "@/lib/ai";
+import { isMockAIAllowed } from "@/lib/ai";
 import { isTokenEncryptionKeyConfigured } from "@/lib/encryption";
 import { mediaStorage } from "@/lib/media-storage";
 
@@ -64,7 +64,11 @@ export async function GET() {
         /** Would AI return synthetic text here? False in production. */
         mockAIAllowed: isMockAIAllowed(),
         /** Is a real AI provider key present? */
-        aiConfigured: isOpenAIAvailable(),
+        // AI runs only on a key the customer supplied (src/lib/ai-config.ts).
+        // The deployment has no AI key of its own, so this reports a property of
+        // the platform, not of any particular account: it is false even when the
+        // calling user has configured a key.
+        aiConfigured: false,
         /** Where uploads can live: blob | dev-base64 | unconfigured. */
         mediaStorage: mediaStorage(),
         /**
