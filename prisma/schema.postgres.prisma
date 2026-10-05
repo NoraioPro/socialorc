@@ -444,7 +444,8 @@ model Workspace {
   conversations   Conversation[]
   agents          AiAgent[]
   socialAccounts  SocialAccount[]
-  aiCredentials   AiCredential[]
+  aiCredentials            AiCredential[]
+  platformCredentials      WorkspacePlatformCredential[]
 }
 
 /** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
@@ -491,6 +492,28 @@ model AiCredential {
 
   @@unique([userId, kind])
   @@unique([workspaceId, kind])
+}
+
+/**
+ * A workspace's own OAuth app for one platform.
+ *
+ * The deployment ships a shared app (src/lib/adapters/credentials.ts) so a new
+ * workspace can connect to a platform without registering one of its own.
+ * Overrides the shared app; the secret is encrypted and never returned by an API.
+ */
+model WorkspacePlatformCredential {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  platform           Platform
+  appId              String
+  encryptedAppSecret String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, platform])
+  @@index([workspaceId])
 }
 
 /**
