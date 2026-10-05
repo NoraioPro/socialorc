@@ -99,6 +99,19 @@ export function Sidebar() {
       <div className="sidebar-motto">Good content conquers.<small>Let AI do the heavy lifting.</small></div>
       <div className="border-t p-3">
         <Link
+          href="/settings/ai"
+          aria-label="AI"
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            pathname.startsWith("/settings/ai")
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span className="nav-label">AI</span>
+        </Link>
+        <Link
           href="/settings/accounts"
           aria-label="Settings"
           className={cn(
