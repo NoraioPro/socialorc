@@ -1,33 +1,42 @@
 import prisma from "@/lib/prisma";
-import { workspaceIdForStamping, workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
 
 /**
- * A brain is a project: the container social accounts are connected into.
- * A user can run several brains (one per brand/client, say), each with its
- * own independent set of platform connections.
+ * A brain is the container social accounts are connected into. A team can run
+ * several (one per brand or client), each with an independent set of platform
+ * connections.
  *
- * Every user needs at least one brain to connect anything to, so the first
- * one is created lazily rather than requiring an explicit setup step.
+ * Phase 1: a brain belongs to the **workspace**, not to the person. Two members
+ * of one team now share the same connected accounts; before this, each held a
+ * private brain the other could not see, so a colleague's connected Instagram
+ * was invisible and could not be posted through.
  *
- * Phase 0 (`docs/SAAS-PLAN.md` §3): a brain also belongs to a workspace — the
- * tenant — and this is the one path every user passes through, so stamping it
- * here is what gives the tenant key coverage without touching every route.
- * Existing brains created before Phase 0 carry a null workspace; they are filled
- * on the next access as well as by the backfill script (Phase 0.4), so the
- * rollout does not depend on running the backfill first.
+ * Every workspace needs at least one brain to connect anything to, so the first
+ * one is created lazily rather than behind an explicit setup step.
+ *
+ * The `userId` parameter is the **acting user**, not the owner: it resolves the
+ * workspace and records who created the row. Signatures are deliberately
+ * unchanged so no caller had to move in the same step.
  */
 export async function getOrCreateDefaultBrain(userId: string) {
+  const workspaceId = await workspaceIdForStamping(userId);
+
+  // A user with no workspace keeps the old user-scoped lookup rather than
+  // failing: this runs on every read of the accounts page, and throwing here
+  // would lock someone out of their own brains. Phase 0.4 backfilled a workspace
+  // for every existing user, so this branch is a safety net, not the normal path.
   const existing = await prisma.brain.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
+    where: workspaceId ? { workspaceId } : { userId },
+    // Prefer the flagged default: once a team shares a brain, "the default"
+    // should mean the one someone chose, not merely the oldest row.
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
 
   if (existing) {
-    if (existing.workspaceId !== null) return existing;
+    if (existing.workspaceId !== null || workspaceId === null) return existing;
 
-    const workspaceId = await workspaceIdForStamping(userId);
-    if (workspaceId === null) return existing;
-
+    // Brains created before Phase 0 carry a null workspace. Stamp on access so
+    // the rollout does not depend on the backfill having run.
     try {
       await prisma.brain.update({
         where: { id: existing.id },
@@ -35,8 +44,6 @@ export async function getOrCreateDefaultBrain(userId: string) {
       });
       return { ...existing, workspaceId };
     } catch (error) {
-      // Stamping is best effort: a brain that stays unstamped is fixed by the
-      // backfill, and nothing reads the tenant yet.
       console.error("[tenancy] could not stamp brain with its workspace", {
         brainId: existing.id,
         error,
@@ -50,21 +57,28 @@ export async function getOrCreateDefaultBrain(userId: string) {
       userId,
       name: "Default",
       isDefault: true,
-      workspaceId: await workspaceIdForWrite(userId),
+      workspaceId: workspaceId ?? undefined,
     },
   });
 }
 
 /**
- * Resolve which brain an action applies to. A `brainId` the caller does not
- * own is never honoured — silently falling back to the user's own default
- * brain keeps a stray/forged id from ever reading or writing someone else's
- * connections, without needing to surface a separate error path for it.
+ * Resolve which brain an action applies to. A `brainId` from another workspace
+ * is never honoured — silently falling back to the workspace's own default keeps
+ * a stray or forged id from reading or writing someone else's connections,
+ * without a separate error path for it.
  */
 export async function resolveBrainForUser(userId: string, brainId?: string | null) {
+  const workspaceId = await workspaceIdForStamping(userId);
+
   if (brainId) {
-    const brain = await prisma.brain.findFirst({ where: { id: brainId, userId } });
+    // Membership is the check, not creation: a teammate may legitimately open a
+    // brain a colleague created.
+    const brain = await prisma.brain.findFirst({
+      where: workspaceId ? { id: brainId, workspaceId } : { id: brainId, userId },
+    });
     if (brain) return brain;
   }
+
   return getOrCreateDefaultBrain(userId);
 }
