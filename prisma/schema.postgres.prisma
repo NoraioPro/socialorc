@@ -37,6 +37,26 @@ model Session {
   @@index([userId])
 }
 
+/// A pending workspace invitation.
+///
+/// The token is stored **hashed**: the raw value is returned once, when the
+/// invitation is created, and never again — a leaked database should not hand
+/// somebody a working signup link. Roles are validated against
+/// src/lib/roles.ts before anything is written.
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String
+  role       String    @default("EDITOR")
+  tokenHash  String    @unique
+  invitedBy  String
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  acceptedBy String?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?

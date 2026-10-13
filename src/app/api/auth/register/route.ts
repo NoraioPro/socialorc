@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
+import { hashInvitationToken, invitationDecision } from "@/lib/invitations";
 import { signupDecision } from "@/lib/signup-policy";
 import { createWorkspaceForNewUser } from "@/lib/tenancy/workspace";
 
@@ -60,10 +61,32 @@ export async function POST(req: NextRequest) {
     // check and a "first account" check disagree.
     const userCount = await prisma.user.count();
 
+    // An invitation is the other way in, and the only way to obtain a role the
+    // signup policy cannot produce (MANAGER, CLIENT). The lookup is by hash of the
+    // presented token, so a dump of the database holds nothing replayable, and the
+    // address must match the invitation: one invitation admits one person.
+    const inviteToken =
+      typeof body?.inviteToken === "string" ? body.inviteToken.trim() : "";
+    let acceptedInvitation: { id: string; role: string } | null = null;
+    if (inviteToken) {
+      const found = await prisma.invitation.findUnique({
+        where: { tokenHash: hashInvitationToken(inviteToken) },
+        select: { id: true, email: true, role: true, expiresAt: true, acceptedAt: true },
+      });
+      const verdict = invitationDecision(found, email);
+      if (!verdict.ok) {
+        // The reason goes to the log, not to the client.
+        console.warn(`[register] refused invitation for ${email}: ${verdict.reason}`);
+        return NextResponse.json({ error: "That invitation is not valid." }, { status: 403 });
+      }
+      acceptedInvitation = { id: found!.id, role: found!.role };
+    }
+
     // Invite-only by default - see src/lib/signup-policy.ts. The first account
-    // is always allowed, so a fresh deployment can still claim its owner.
+    // is always allowed, so a fresh deployment can still claim its owner. A valid
+    // invitation is the third way in.
     const decision = signupDecision(email, userCount);
-    if (!decision.allowed) {
+    if (!decision.allowed && !acceptedInvitation) {
       // The reason goes to the log, not the client: telling the client would
       // reveal which addresses are invited.
       console.warn(`[register] refused signup for ${email}: ${decision.reason}`);
@@ -75,8 +98,13 @@ export async function POST(req: NextRequest) {
 
     // The first account owns the workspace. Everyone after must NOT become an
     // admin just by filling in this form: ADMIN carries `users:manage` and
-    // `posts:delete`. auth.ts applies the same rule to OAuth sign-ups.
-    const role = userCount === 0 ? DEFAULT_ROLE : selfSignupRole();
+    // `posts:delete`. auth.ts applies the same rule to OAuth sign-ups. An
+    // invitation overrides both rules — that is its whole purpose.
+    const role = acceptedInvitation
+      ? acceptedInvitation.role
+      : userCount === 0
+        ? DEFAULT_ROLE
+        : selfSignupRole();
 
     const user = await prisma.user.create({
       data: {
@@ -87,6 +115,15 @@ export async function POST(req: NextRequest) {
         timezone: "Europe/Oslo",
       },
     });
+
+    // Stamp the invitation as used, guarded on it still being unused: two signups
+    // racing on one token must not both succeed.
+    if (acceptedInvitation) {
+      await prisma.invitation.updateMany({
+        where: { id: acceptedInvitation.id, acceptedAt: null },
+        data: { acceptedAt: new Date(), acceptedBy: user.id },
+      });
+    }
 
     // Phase 0 (docs/SAAS-PLAN.md): a new account starts its own workspace and
     // owns it, so the tenant keys on everything it later creates have something

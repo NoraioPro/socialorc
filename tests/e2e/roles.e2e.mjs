@@ -421,6 +421,111 @@ let editorPostId = null;
 // The scripted dev login page used to be asserted here. Its endpoint is gone from
 // the app, and the check above asserts it stays gone.
 
+// ------------------------------------------- invited roles (MANAGER, CLIENT)
+// The gap this closes: no role other than ADMIN and EDITOR was reachable. Signup
+// could not produce them and nothing could assign them, so they existed only in
+// the role matrix. An invitation is now the way in.
+{
+  const adminJar = new Jar();
+  await loginWithPassword(adminJar, mixedCaseEmail.toLowerCase(), password);
+  const adminId = (await session(adminJar)).user?.id ?? "";
+
+  const invitedEmail = `role.manager-${stamp}@socialorc.local`;
+  const invite = await req(adminJar, `${BASE_URL}/api/workspace/invitations`, {
+    method: "POST",
+    json: { email: invitedEmail, role: "MANAGER" },
+  });
+  check(
+    "an admin can invite somebody as MANAGER",
+    invite.status === 201 && invite.body?.invitation?.role === "MANAGER" && !!invite.body?.token,
+    `status ${invite.status}, role ${invite.body?.invitation?.role ?? "none"}`
+  );
+
+  const token = invite.body?.token ?? "";
+
+  const managerJar = new Jar();
+  const reg = await req(managerJar, `${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    json: { name: "Invited Manager", email: invitedEmail, password, inviteToken: token },
+  });
+  check(
+    "an invitation admits the invitee with the invited role",
+    reg.status === 200 && reg.body?.role === "MANAGER",
+    `status ${reg.status}, role ${reg.body?.role ?? "none"}`
+  );
+
+  const reuse = await req(new Jar(), `${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    json: {
+      name: "Spent",
+      email: `role.spent-${stamp}@socialorc.local`,
+      password,
+      inviteToken: token,
+    },
+  });
+  check("a spent invitation cannot be used twice", reuse.status === 403, `status ${reuse.status}`);
+
+  await loginWithPassword(managerJar, invitedEmail, password);
+  const managerPerms = (await session(managerJar)).user?.permissions ?? [];
+  check(
+    "the MANAGER session holds management rights but not users:manage",
+    managerPerms.includes("posts:approve") &&
+      managerPerms.includes("accounts:connect") &&
+      !managerPerms.includes("users:manage"),
+    managerPerms.join(",")
+  );
+
+  const manageUsers = await req(managerJar, `${BASE_URL}/api/workspace/users`);
+  check(
+    "a MANAGER cannot list the members (403)",
+    manageUsers.status === 403,
+    `status ${manageUsers.status}`
+  );
+
+  const list = await req(adminJar, `${BASE_URL}/api/workspace/users`);
+  const manager = (list.body?.users ?? []).find((u) => u.email === invitedEmail);
+  check(
+    "an admin can list the members",
+    list.status === 200 && !!manager,
+    `status ${list.status}, ${list.body?.users?.length ?? 0} users`
+  );
+
+  const changed = await req(adminJar, `${BASE_URL}/api/workspace/users/${manager?.id}`, {
+    method: "PATCH",
+    json: { role: "EDITOR" },
+  });
+  check(
+    "an admin can change a member's role",
+    changed.status === 200 && changed.body?.user?.role === "EDITOR",
+    `status ${changed.status}, role ${changed.body?.user?.role ?? "none"}`
+  );
+
+  const selfDemote = await req(adminJar, `${BASE_URL}/api/workspace/users/${adminId}`, {
+    method: "PATCH",
+    json: { role: "EDITOR" },
+  });
+  check(
+    "an admin cannot change their own role",
+    selfDemote.status === 400,
+    `status ${selfDemote.status} — ${selfDemote.body?.error ?? ""}`
+  );
+
+  const otherEmail = `role.other-${stamp}@socialorc.local`;
+  const wrongPerson = await req(adminJar, `${BASE_URL}/api/workspace/invitations`, {
+    method: "POST",
+    json: { email: `role.wrong-${stamp}@socialorc.local`, role: "EDITOR" },
+  });
+  const wrongUse = await req(new Jar(), `${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    json: { name: "Wrong Person", email: otherEmail, password, inviteToken: wrongPerson.body?.token ?? "" },
+  });
+  check(
+    "an invitation admits only the address it names",
+    wrongUse.status === 403,
+    `status ${wrongUse.status}`
+  );
+}
+
 const failed = RESULTS.filter((r) => !r.ok);
 console.log(`\n${RESULTS.length - failed.length}/${RESULTS.length} checks passed`);
 if (failed.length) {
