@@ -186,9 +186,15 @@ Two defects were found while fixing the harness, both worth knowing:
    EDITOR — and verified: **28/28 checks, exit 0**, including new assertions that an EDITOR is
    refused on `brains:manage`, `media:delete` and `accounts:connect`, that no role-minting
    endpoint is reachable (404), and that the ADMIN chain still connects → drafts → approves →
-   schedules. The rewrite also surfaced a real gap: **MANAGER and CLIENT users cannot be created
-   at all** — there is no invite or role-assignment endpoint — so those two roles reachable only
-   by editing the database, and their enforcement is untested end to end.
+   schedules. The rewrite surfaced a real gap — **MANAGER and CLIENT could not be created at all**
+   (no invite or role-assignment endpoint existed, so two of the four roles were unreachable and
+   their permission checks were untestable). **Fixed in `3a4639c`:** `POST /api/workspace/invitations`
+   (ADMIN only) invites an address with a role, the token is stored hashed and admitted once for a
+   week, `PATCH /api/workspace/users/[id]` changes a role without allowing self-demotion or losing
+   the last admin, and `register` accepts `inviteToken`. Roles are now covered end to end —
+   roles.e2e is **37/37**. Migration generated for both providers and verified applied to production
+   (`migrate diff` returns nothing). What is still missing is the UI: the API exists, the settings
+   page has no member list or invite form yet.
 
 **Closed since the 2026-10-11 report:** the approval gate's second door (P0-FIX-1), posts stranded in
 `PUBLISHING` (P0-FIX-2), and M0.10's reconnect banner. `main` also carries the multi-tenancy Phase 0,
