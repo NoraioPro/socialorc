@@ -5,37 +5,35 @@ import { Platform, PostStatus } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BestTimeChips } from "@/components/posts/best-time-chips";
+import { parseScheduleInput, scheduleInputMessage } from "@/lib/posts/schedule-time";
 import { Clock } from "lucide-react";
 
 interface ScheduleControlProps {
   postId: string;
   platform: Platform;
   status: PostStatus;
+  /**
+   * Approval is the proof, not the status: a status can outlive its stamp (any
+   * edit clears `approvedAt`), and the schedule route refuses a post without it.
+   */
+  approvedAt?: Date | string | null;
   onScheduled?: (postId: string) => void;
-}
-
-function isFutureDatetimeLocal(value: string, now = new Date()): boolean {
-  if (!value) return false;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return false;
-  return parsed.getTime() > now.getTime();
 }
 
 export function ScheduleControl({
   postId,
   platform,
   status,
+  approvedAt,
   onScheduled,
 }: ScheduleControlProps) {
   const [scheduledFor, setScheduledFor] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSchedule = status === PostStatus.APPROVED;
-  const futureOk = useMemo(
-    () => isFutureDatetimeLocal(scheduledFor),
-    [scheduledFor]
-  );
+  const canSchedule = status === PostStatus.APPROVED && Boolean(approvedAt);
+  const parsed = useMemo(() => parseScheduleInput(scheduledFor), [scheduledFor]);
+  const futureOk = parsed.ok;
 
   if (!canSchedule) {
     return null;
@@ -43,8 +41,14 @@ export function ScheduleControl({
 
   async function handleSchedule() {
     setError(null);
-    if (!futureOk) {
-      setError("Pick a future date and time");
+
+    // Resolve the instant here, where the user's timezone is known, and send
+    // that: the raw input value is a wall clock with no offset, so the server
+    // would resolve it in its own zone (UTC on Vercel) and the post would go out
+    // hours away from what the user picked.
+    const resolved = parseScheduleInput(scheduledFor);
+    if (!resolved.ok) {
+      setError(scheduleInputMessage(resolved.reason));
       return;
     }
 
@@ -53,7 +57,7 @@ export function ScheduleControl({
       const res = await fetch(`/api/posts/${postId}/schedule`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduledFor }),
+        body: JSON.stringify({ scheduledFor: resolved.iso }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

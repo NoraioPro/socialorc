@@ -25,7 +25,9 @@ import Link from "next/link";
 import { platformIcons } from "@/components/icons/platform-icons";
 import { RetryFailedButton } from "@/components/posts/retry-failed-button";
 import { PublishNowButton } from "@/components/posts/publish-now-button";
+import { ScheduleControl } from "@/components/posts/schedule-control";
 import { publishBlockReason } from "@/lib/posts/publish-gate";
+import { useRouter } from "next/navigation";
 
 type PostWithRelations = Post & {
   socialAccount: SocialAccount | null;
@@ -52,6 +54,7 @@ const statusColors: Record<PostStatus, { bg: string; text: string }> = {
 export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps) {
   const PlatformIcon = platformIcons[post.platform];
   const statusStyle = statusColors[post.status];
+  const router = useRouter();
 
   return (
     <Card className="overflow-hidden">
@@ -157,7 +160,20 @@ export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps)
         post.status === "SCHEDULED" ||
         post.status === "FAILED") && (
         <CardFooter className="border-t pt-3">
-          <div className="flex w-full gap-2">
+          <div className="flex w-full flex-col gap-3">
+            {/* Scheduling belongs on the card an approved post is actually looked
+                at: without this mount the control existed and nothing imported
+                it, so approve → schedule — the pipeline the worker runs on — was
+                unreachable from the UI. It renders nothing unless the post is
+                APPROVED and still carries its approval stamp. */}
+            <ScheduleControl
+              postId={post.id}
+              platform={post.platform}
+              status={post.status}
+              approvedAt={post.approvedAt}
+              onScheduled={() => router.refresh()}
+            />
+            <div className="flex w-full gap-2">
             {post.status === "PENDING_APPROVAL" && onApprove && (
               <Button
                 size="sm"
@@ -200,6 +216,7 @@ export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps)
             }) === null && (
               <PublishNowButton postId={post.id} />
             )}
+            </div>
           </div>
         </CardFooter>
       )}
