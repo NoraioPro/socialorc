@@ -6,6 +6,12 @@ import { resolvePublishAdapter } from "@/lib/adapters";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import { classifyAdapterError, requiresReconnect, type AdapterErrorCode } from "@/lib/adapters/errors";
+import {
+  publishBlockCode,
+  publishBlockMessage,
+  publishBlockReason,
+  publishBlockStatus,
+} from "@/lib/posts/publish-gate";
 
 /**
  * Publish one post immediately, in the request.
@@ -39,15 +45,24 @@ export async function POST(
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
 
-  if (post.platformPostId) {
+  // The approval gate comes first: "publish now" is still a publish, so an
+  // unapproved post must be refused here exactly as scheduling refuses it. This
+  // route previously checked only `platformPostId`, so a DRAFT could be pushed
+  // live with one click from the post card.
+  const block = publishBlockReason({
+    status: post.status,
+    approvedAt: post.approvedAt,
+    platformPostId: post.platformPostId,
+  });
+  if (block) {
     return NextResponse.json(
-      { error: "This post has already been published", platformPostUrl: post.platformPostUrl },
-      { status: 409 }
+      {
+        error: publishBlockMessage(block),
+        code: publishBlockCode(block),
+        ...(block === "already_published" ? { platformPostUrl: post.platformPostUrl } : {}),
+      },
+      { status: publishBlockStatus(block) }
     );
-  }
-
-  if (post.status === PostStatus.PUBLISHING) {
-    return NextResponse.json({ error: "This post is already being published" }, { status: 409 });
   }
 
   // An unlinked post has nothing to publish to. Fall back to the user's active
@@ -148,10 +163,19 @@ export async function POST(
     }
   }
 
-  await prisma.post.update({
-    where: { id: post.id },
+  // Claim the post atomically. A read-then-write let a double-click, or an edit
+  // landing between the checks above and this line, send content that was no
+  // longer approved; the loser of the race sends nothing at all.
+  const claim = await prisma.post.updateMany({
+    where: { id: post.id, status: { in: [PostStatus.APPROVED, PostStatus.SCHEDULED] } },
     data: { status: PostStatus.PUBLISHING },
   });
+  if (claim.count === 0) {
+    return NextResponse.json(
+      { error: "This post is no longer approved for publishing", code: "PUBLISH_CONFLICT" },
+      { status: 409 }
+    );
+  }
 
   const media = await prisma.postMedia.findMany({
     where: { postId: post.id },

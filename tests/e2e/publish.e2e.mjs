@@ -142,6 +142,16 @@ export async function runPublishE2E({ baseUrl, cronSecret, platform = "LINKEDIN"
     `status ${guard.status} — ${guard.body?.error ?? guard.text.slice(0, 80)}`,
   );
 
+  // 5b. THE GATE, second door. "Publish now" is a publish, so it must refuse the
+  // same DRAFT. This route shipped without any approval check, which meant one
+  // click on the post card pushed unapproved content live.
+  const publishDraft = await req(jar, `${baseUrl}/api/posts/${postId}/publish`, { method: "POST" });
+  check(
+    "GATE: publishing a DRAFT immediately is rejected with 400",
+    publishDraft.status === 400 && /approved/i.test(publishDraft.body?.error ?? ""),
+    `status ${publishDraft.status} — ${publishDraft.body?.error ?? publishDraft.text.slice(0, 80)}`,
+  );
+
   // 6. approve
   const approve = await req(jar, `${baseUrl}/api/posts/${postId}/approve`, {
     method: "POST",

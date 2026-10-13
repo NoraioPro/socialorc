@@ -25,6 +25,7 @@ import Link from "next/link";
 import { platformIcons } from "@/components/icons/platform-icons";
 import { RetryFailedButton } from "@/components/posts/retry-failed-button";
 import { PublishNowButton } from "@/components/posts/publish-now-button";
+import { publishBlockReason } from "@/lib/posts/publish-gate";
 
 type PostWithRelations = Post & {
   socialAccount: SocialAccount | null;
@@ -190,7 +191,13 @@ export function PostCard({ post, onApprove, onReject, onDelete }: PostCardProps)
             {post.status === "FAILED" && post.approvedAt && (
               <RetryFailedButton postId={post.id} />
             )}
-            {!post.platformPostId && (
+            {/* Same predicate the route enforces, so the button is never offered
+                on a post the server would refuse (drafts, unapproved, already out). */}
+            {publishBlockReason({
+              status: post.status,
+              approvedAt: post.approvedAt,
+              platformPostId: post.platformPostId,
+            }) === null && (
               <PublishNowButton postId={post.id} />
             )}
           </div>
