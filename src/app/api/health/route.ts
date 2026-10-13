@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { getAdapterStatus, isMockAdapterAllowed } from "@/lib/adapters";
 import { platformReadiness, summarizeHealth } from "@/lib/health";
 import { isMockAIAllowed } from "@/lib/ai";
@@ -13,7 +14,7 @@ import { mediaStorage } from "@/lib/media-storage";
  * there and migrated, and which connectors can actually publish. Reports
  * booleans and variable NAMES only — never a credential value.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const startedAt = Date.now();
 
   let databaseReachable = false;
@@ -44,6 +45,29 @@ export async function GET() {
     pendingJobs,
     platforms: readiness,
   });
+
+  // Anyone could read the whole picture here: how many migrations are applied,
+  // how many jobs are queued, and which environment variable NAMES each
+  // connector is missing. That is a map of the deployment handed to strangers,
+  // and none of it is an uptime signal. The public answer is the two facts a
+  // monitor (and the deploy recipe) needs — is it healthy, and which commit is
+  // live. Everything else requires the cron bearer token.
+  const authorized = isAuthorizedCronRequest(
+    req.headers.get("authorization"),
+    process.env.CRON_SECRET
+  );
+
+  if (!authorized) {
+    return NextResponse.json(
+      {
+        status: report.status,
+        commit: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT ?? null,
+        environment: process.env.NODE_ENV ?? "unknown",
+        timestamp: new Date().toISOString(),
+      },
+      { status: report.status === "error" ? 503 : 200 }
+    );
+  }
 
   return NextResponse.json(
     {
