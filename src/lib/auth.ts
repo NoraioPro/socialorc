@@ -6,7 +6,8 @@ import FacebookProvider from "next-auth/providers/facebook";
 import { facebookCredentials, googleCredentials } from "@/lib/auth-providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
-import prisma from "./prisma";
+import prisma from "@/lib/prisma";
+import { consumeRateLimit, peekRateLimit } from "@/lib/rate-limit-store";
 import { createWorkspaceForNewUser, workspaceIdForStamping } from "./tenancy/workspace";
 import {
   DEFAULT_ROLE,
@@ -142,12 +143,25 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        // Throttle by the address being attacked rather than by IP: a spray across
+        // many accounts is the case here, and the address is the part the attacker
+        // picks. The refusal below is the same "nothing" as a wrong password — it
+        // says nothing about which of the two it was.
+        const budget = await peekRateLimit("login", `email:${email}`);
+        if (!budget.allowed) {
+          console.warn(`[auth] refused sign-in for ${email}: too many attempts`);
+          return null;
+        }
+
         const isPasswordValid = await bcrypt.compare(
           credentials.password,
           user.password
         );
 
         if (!isPasswordValid) {
+          // Spend the budget only on failure, so an attacker cannot lock the real
+          // owner out by exhausting it.
+          await consumeRateLimit("login", `email:${email}`);
           return null;
         }
 

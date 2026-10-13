@@ -1,6 +1,7 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { getAuthSession, requirePermission } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit-guard";
 import {
   ALLOWED_UPLOAD_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
@@ -23,7 +24,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // A client upload token lets the holder write objects into the workspace's
+  // A client upload token lets the holder write objects straight to the bucket,
+  // so minting them is worth a budget.
+  const limited = await enforceRateLimit("upload", `user:${session.user.id}`);
+  if (limited) return limited;
   // blob store, so it is an upload permission, not just a session.
   const permission = await requirePermission("media:upload");
   if (!permission.ok) {

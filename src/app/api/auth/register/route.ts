@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
 import { hashInvitationToken, invitationDecision } from "@/lib/invitations";
+import { enforceRateLimit } from "@/lib/rate-limit-guard";
+import { rateLimitSubjectFromHeaders } from "@/lib/rate-limit";
 import { signupDecision } from "@/lib/signup-policy";
 import { createWorkspaceForNewUser } from "@/lib/tenancy/workspace";
 
@@ -53,6 +55,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Before the expensive part: bcrypt at cost 12 is exactly what an unthrottled
+    // spammer wants to make us do in a loop.
+    const limited = await enforceRateLimit("register", rateLimitSubjectFromHeaders(req.headers));
+    if (limited) return limited;
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
