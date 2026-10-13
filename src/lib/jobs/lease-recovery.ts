@@ -2,86 +2,65 @@
  * Lease recovery for the publishing worker.
  *
  * The worker flips a ScheduledJob to `PROCESSING` and the post to `PUBLISHING`
- * before calling the platform. If the process stops mid-publish — a deploy
- * landing, a serverless timeout, an OOM — nothing would ever select that job
- * again, because the claim query only looks at `PENDING`, and the post would sit
- * in `PUBLISHING` forever: the worker refuses to publish anything that is not
- * `SCHEDULED`, PATCH refuses to edit it and DELETE refuses to remove it.
+ * before calling the platform. If the process stops mid-publish — a function
+ * timeout, a deploy, an OOM — that job stays `PROCESSING` and nothing ever moves
+ * it again, so the post is stuck `PUBLISHING`: uneditable, undeletable, and
+ * unpublishable (the worker only publishes `SCHEDULED` posts) forever.
  *
- * Recovery therefore does two things per stale job:
- *   - returns the job to `PENDING` (retry budget left) or `FAILED` (budget spent);
- *   - returns the *post* to `SCHEDULED` in the first case, and closes it as
- *     `FAILED` in the second, so no post is left claiming to be mid-publish.
+ * This module finds those jobs and closes them out. What it deliberately does
+ * NOT do is put them back in the queue:
  *
- * What this can and cannot promise:
- *   - it never re-sends anything itself;
- *   - the attempt counter was already incremented when the job was claimed, so
- *     the worker's existing retry budget still bounds the number of attempts;
- *   - the worker completes (without re-sending) any job whose post already
- *     carries a `platformPostId`, which covers a crash *after* the platform
- *     accepted the post and the id was written;
- *   - it cannot cover a crash in the window between the platform accepting the
- *     post and the id being stored — that attempt is indistinguishable from one
- *     that never reached the platform, so it is retried and may duplicate. That
- *     window is the same one the queue's own retry has, and closing it needs a
- *     platform-side idempotency key (open defect).
+ * A stale `PROCESSING` job means the run that held it is gone, and the one fact
+ * the database cannot tell us is whether the platform accepted the post before
+ * it died. A process killed between "HTTP 200 from the platform" and "write the
+ * platform post id" leaves a row that looks exactly like one killed before ever
+ * sending. Re-queueing it re-arms a duplicate post — the same content published
+ * twice, in public. So the post is closed as FAILED with the outcome recorded as
+ * unknown, and a human decides: check the platform, then either delete it or
+ * press Retry, which re-queues it deliberately (the retry path needs FAILED plus
+ * `approvedAt`, and the approval was never revoked).
  *
- * Kept free of Prisma so the recovery predicates can be unit-tested with a fake
- * client instead of a live database.
+ * The client is injectable and Prisma-free so the whole thing is testable
+ * without a database.
  */
 
-/**
- * How long a job may stay in `PROCESSING` before it is considered abandoned.
- * One attempt is bounded by the platform's own request timeout and the cron
- * ticks every five minutes, so ten minutes is comfortably longer than any
- * healthy publish while still recovering a crashed one on the next tick.
- */
 export const PROCESSING_LEASE_MS = 10 * 60_000;
 
-/** The instant before which a `PROCESSING` job is stale. */
+/** Posts and jobs are only touched once their lease has definitely expired. */
 export function leaseCutoff(now: Date, leaseMs: number = PROCESSING_LEASE_MS): Date {
   return new Date(now.getTime() - leaseMs);
 }
 
-export interface LeaseRecoveryResult {
-  /** Stale jobs returned to the queue for another attempt. */
-  reclaimed: number;
-  /** Stale jobs whose retry budget was already spent, dead-lettered instead. */
-  abandoned: number;
-  /** Posts returned from `PUBLISHING` to `SCHEDULED` so the reclaimed attempt can run. */
-  resumed: number;
-  /** Posts closed as `FAILED` because their job had no attempt left. */
-  stranded: number;
-}
+/**
+ * The note the operator needs and the database cannot supply: nothing here knows
+ * whether the post is already live.
+ */
+export const LOST_RUN_MESSAGE =
+  "The worker stopped mid-publish, so whether the platform accepted this post is unknown. Check the platform before publishing again — this post may already be public.";
 
-/** Error message recorded when a job can never be retried again. */
-export const ABANDONED_MESSAGE =
+/** Job-side reason for a run that died while it still had attempts left. */
+export const DEAD_RUN_JOB_MESSAGE =
+  "Worker stopped mid-publish (outcome unknown); not retried automatically to avoid a duplicate post";
+
+/** Job-side reason for a run that died with its retry budget already spent. */
+export const ABANDONED_JOB_MESSAGE =
   "Abandoned: the worker stopped mid-publish and the retry budget was already spent";
 
-/**
- * Message for a post whose job died with no attempt left. It says what a human
- * has to do — check the platform — because the app cannot know whether the post
- * reached it.
- */
-export const STRANDED_MESSAGE =
-  "The worker stopped mid-publish and this post cannot be retried automatically. Check the platform before publishing it again — it may already be public.";
-
-/** A stale job, as much of it as recovery needs. */
-export interface StaleJob {
-  id: string;
-  postId: string;
-  attempts: number;
+export interface LeaseRecoveryResult {
+  /** Stale PROCESSING jobs whose run died with retries left: failed, not retried. */
+  deadRuns: number;
+  /** Stale PROCESSING jobs whose retry budget was already spent. */
+  abandoned: number;
+  /** Posts pulled out of PUBLISHING, every one of them closed as FAILED. */
+  released: number;
 }
 
-/**
- * The slice of the Prisma client this module needs, so tests can pass a fake.
- */
 export interface LeaseRecoveryClient {
   scheduledJob: {
     findMany(args: {
       where: Record<string, unknown>;
       select: { id: true; postId: true; attempts: true };
-    }): Promise<StaleJob[]>;
+    }): Promise<{ id: string; postId: string; attempts: number }[]>;
     updateMany(args: {
       where: Record<string, unknown>;
       data: Record<string, unknown>;
@@ -98,62 +77,66 @@ export interface LeaseRecoveryClient {
 export async function recoverStaleProcessingJobs(
   client: LeaseRecoveryClient,
   now: Date,
-  maxAttempts: number,
+  maxAttempts: number
 ): Promise<LeaseRecoveryResult> {
-  const cutoff = leaseCutoff(now);
-
   const stale = await client.scheduledJob.findMany({
-    where: { status: "PROCESSING", startedAt: { lt: cutoff } },
+    where: {
+      status: "PROCESSING",
+      startedAt: { lt: leaseCutoff(now) },
+    },
     select: { id: true, postId: true, attempts: true },
   });
 
-  const retryable = stale.filter((job) => job.attempts < maxAttempts);
+  if (stale.length === 0) {
+    return { deadRuns: 0, abandoned: 0, released: 0 };
+  }
+
+  const deadRuns = stale.filter((job) => job.attempts < maxAttempts);
   const exhausted = stale.filter((job) => job.attempts >= maxAttempts);
 
-  // The `status: PROCESSING` guard stays in the update: a job re-claimed by
-  // another cron run between the read above and this write must not be touched.
-  const reclaimed = retryable.length
+  // Both branches fail the job. Neither returns it to PENDING: the run that held
+  // it is gone, and the attempt it was making has an unknown outcome.
+  const deadRunsClosed = deadRuns.length
     ? (
         await client.scheduledJob.updateMany({
-          where: { id: { in: retryable.map((job) => job.id) }, status: "PROCESSING" },
-          data: { status: "PENDING" },
+          where: { id: { in: deadRuns.map((job) => job.id) }, status: "PROCESSING" },
+          data: {
+            status: "FAILED",
+            completedAt: now,
+            errorMessage: DEAD_RUN_JOB_MESSAGE,
+          },
         })
       ).count
     : 0;
 
-  const abandoned = exhausted.length
+  const abandonedClosed = exhausted.length
     ? (
         await client.scheduledJob.updateMany({
           where: { id: { in: exhausted.map((job) => job.id) }, status: "PROCESSING" },
           data: {
             status: "FAILED",
             completedAt: now,
-            errorMessage: ABANDONED_MESSAGE,
+            errorMessage: ABANDONED_JOB_MESSAGE,
           },
         })
       ).count
     : 0;
 
-  // The post has to move with the job. Only a PUBLISHING post is touched, so a
-  // job orphaned after its post was already published, failed or edited away
-  // never resurrects it.
-  const resumed = retryable.length
-    ? (
-        await client.post.updateMany({
-          where: { id: { in: retryable.map((job) => job.postId) }, status: "PUBLISHING" },
-          data: { status: "SCHEDULED" },
-        })
-      ).count
-    : 0;
+  // The post leaves PUBLISHING for a state a human can act on. FAILED keeps the
+  // content and the approval stamp (so Retry works) while making it obvious that
+  // nobody knows whether it went out.
+  const released = (
+    await client.post.updateMany({
+      where: {
+        id: { in: stale.map((job) => job.postId) },
+        status: "PUBLISHING",
+      },
+      data: {
+        status: "FAILED",
+        errorMessage: LOST_RUN_MESSAGE,
+      },
+    })
+  ).count;
 
-  const stranded = exhausted.length
-    ? (
-        await client.post.updateMany({
-          where: { id: { in: exhausted.map((job) => job.postId) }, status: "PUBLISHING" },
-          data: { status: "FAILED", errorMessage: STRANDED_MESSAGE },
-        })
-      ).count
-    : 0;
-
-  return { reclaimed, abandoned, resumed, stranded };
+  return { deadRuns: deadRunsClosed, abandoned: abandonedClosed, released };
 }

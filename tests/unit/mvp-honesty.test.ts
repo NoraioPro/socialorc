@@ -7,7 +7,7 @@ import { linkedInAdapter } from "../../src/lib/adapters/linkedin";
 import { mediaStorage } from "../../src/lib/media-storage";
 import {
   PROCESSING_LEASE_MS,
-  STRANDED_MESSAGE,
+  LOST_RUN_MESSAGE,
   leaseCutoff,
   recoverStaleProcessingJobs,
   type LeaseRecoveryClient,
@@ -294,7 +294,7 @@ const jobWrites = (client: ReturnType<typeof fakeRecoveryClient>) =>
 const postWrites = (client: ReturnType<typeof fakeRecoveryClient>) =>
   client.calls.filter((c) => c.model === "post");
 
-test("a stale job inside its retry budget is reclaimed, and its post released from PUBLISHING", async () => {
+test("a stale job is closed as FAILED, never re-queued, and its post leaves PUBLISHING", async () => {
   const now = new Date("2026-09-13T12:00:00.000Z");
   const client = fakeRecoveryClient([{ id: "job_1", postId: "post_1", attempts: 1 }]);
 
@@ -304,10 +304,9 @@ test("a stale job inside its retry budget is reclaimed, and its post released fr
     3,
   );
 
-  assert.equal(result.reclaimed, 1);
+  assert.equal(result.deadRuns, 1);
   assert.equal(result.abandoned, 0);
-  assert.equal(result.resumed, 1);
-  assert.equal(result.stranded, 0);
+  assert.equal(result.released, 1);
 
   // Only jobs older than the lease are considered.
   const read = client.calls.find((c) => c.kind === "findMany");
@@ -318,13 +317,18 @@ test("a stale job inside its retry budget is reclaimed, and its post released fr
 
   const [jobWrite] = jobWrites(client);
   assert.deepEqual(jobWrite.where, { id: { in: ["job_1"] }, status: "PROCESSING" });
-  assert.deepEqual(jobWrite.data, { status: "PENDING" });
+  // Not PENDING: the run that held this job is gone and its attempt's outcome is
+  // unknown, so re-queueing it would risk publishing the same post twice.
+  assert.equal(jobWrite.data?.status, "FAILED");
+  assert.match(String(jobWrite.data?.errorMessage), /outcome unknown/i);
 
-  // The fix for the limbo: a post in PUBLISHING can never be picked up again
-  // (the worker only publishes SCHEDULED), so it comes back with the job.
+  // The limbo fix: a post in PUBLISHING can never be picked up again (the worker
+  // only publishes SCHEDULED), so it leaves PUBLISHING — but as FAILED, because
+  // nothing here can tell whether the platform already accepted it.
   const [postWrite] = postWrites(client);
   assert.deepEqual(postWrite.where, { id: { in: ["post_1"] }, status: "PUBLISHING" });
-  assert.deepEqual(postWrite.data, { status: "SCHEDULED" });
+  assert.equal(postWrite.data?.status, "FAILED");
+  assert.equal(postWrite.data?.errorMessage, LOST_RUN_MESSAGE);
 });
 
 test("a stale job with no attempts left is dead-lettered, and its post stops claiming to be publishing", async () => {
@@ -338,9 +342,8 @@ test("a stale job with no attempts left is dead-lettered, and its post stops cla
   );
 
   assert.equal(result.abandoned, 1);
-  assert.equal(result.reclaimed, 0);
-  assert.equal(result.stranded, 1);
-  assert.equal(result.resumed, 0);
+  assert.equal(result.deadRuns, 0);
+  assert.equal(result.released, 1);
 
   const [jobWrite] = jobWrites(client);
   assert.deepEqual(jobWrite.where, { id: { in: ["job_2"] }, status: "PROCESSING" });
@@ -348,9 +351,9 @@ test("a stale job with no attempts left is dead-lettered, and its post stops cla
   assert.match(String(jobWrite.data?.errorMessage), /Abandoned/);
 
   const [postWrite] = postWrites(client);
-  assert.deepEqual(postWrite.data, { status: "FAILED", errorMessage: STRANDED_MESSAGE });
-  // The message has to say what the app cannot know.
-  assert.match(STRANDED_MESSAGE, /check the platform/i);
+  assert.deepEqual(postWrite.data, { status: "FAILED", errorMessage: LOST_RUN_MESSAGE });
+  // It says the one thing the database cannot: nobody knows if it went out.
+  assert.match(LOST_RUN_MESSAGE, /check the platform/i);
 });
 
 test("a tree with no stale job is read once and never written to", async () => {
@@ -361,7 +364,7 @@ test("a tree with no stale job is read once and never written to", async () => {
     3,
   );
 
-  assert.deepEqual(result, { reclaimed: 0, abandoned: 0, resumed: 0, stranded: 0 });
+  assert.deepEqual(result, { deadRuns: 0, abandoned: 0, released: 0 });
   assert.equal(client.calls.length, 1);
   assert.equal(client.calls[0].kind, "findMany");
 });

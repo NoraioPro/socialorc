@@ -68,14 +68,12 @@ export async function GET(req: NextRequest) {
     failed: number;
     /** Failures that were never retried because the error is permanent. */
     permanent: number;
-    /** Stale PROCESSING jobs returned to the queue by lease recovery. */
-    reclaimed: number;
+    /** Stale PROCESSING jobs whose run died with retries left (failed, not retried). */
+    deadRuns: number;
     /** Stale PROCESSING jobs whose retry budget was already spent. */
     abandoned: number;
-    /** Posts handed back from PUBLISHING to SCHEDULED so the reclaimed attempt can run. */
-    resumed: number;
-    /** Posts whose dead job left them in PUBLISHING, closed as FAILED instead. */
-    stranded: number;
+    /** Posts pulled out of PUBLISHING and closed as FAILED with an unknown outcome. */
+    released: number;
     /** Due jobs left unclaimed because this invocation ran out of time budget. */
     deferred: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
@@ -86,10 +84,9 @@ export async function GET(req: NextRequest) {
     deduped: 0,
     failed: 0,
     permanent: 0,
-    reclaimed: 0,
+    deadRuns: 0,
     abandoned: 0,
-    resumed: 0,
-    stranded: 0,
+    released: 0,
     deferred: 0,
     errors: [],
   };
@@ -101,14 +98,13 @@ export async function GET(req: NextRequest) {
     // PUBLISHING forever. See src/lib/jobs/lease-recovery.ts for why this
     // cannot double-publish.
     const recovery = await recoverStaleProcessingJobs(prisma, now, MAX_ATTEMPTS);
-    results.reclaimed = recovery.reclaimed;
+    results.deadRuns = recovery.deadRuns;
     results.abandoned = recovery.abandoned;
-    results.resumed = recovery.resumed;
-    results.stranded = recovery.stranded;
+    results.released = recovery.released;
 
-    if (recovery.reclaimed > 0 || recovery.abandoned > 0) {
+    if (recovery.deadRuns > 0 || recovery.abandoned > 0) {
       console.log(
-        `[cron] lease recovery: reclaimed=${recovery.reclaimed} abandoned=${recovery.abandoned} resumed=${recovery.resumed} stranded=${recovery.stranded}`
+        `[cron] lease recovery: deadRuns=${recovery.deadRuns} abandoned=${recovery.abandoned} released=${recovery.released}`
       );
     }
 
