@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import {
@@ -32,6 +32,12 @@ export async function POST(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Finalising writes a MediaAsset row into the workspace library.
+    const permission = await requirePermission("media:upload");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const validation = finalizeSchema.safeParse(await req.json());

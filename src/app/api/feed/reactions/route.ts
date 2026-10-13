@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const schema = z.object({ postId: z.string().min(1), type: z.enum(["LIKE", "CELEBRATE", "INSIGHTFUL", "SUPPORT"]) });
@@ -8,6 +8,12 @@ const schema = z.object({ postId: z.string().min(1), type: z.enum(["LIKE", "CELE
 export async function POST(request: Request) {
   const session = await getAuthSession();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Reacting writes a row against somebody else's post.
+  const permission = await requirePermission("feed:post");
+  if (!permission.ok) {
+    return NextResponse.json({ error: permission.error }, { status: permission.status });
+  }
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid reaction." }, { status: 400 });
 

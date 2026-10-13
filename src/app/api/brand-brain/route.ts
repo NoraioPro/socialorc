@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import * as z from "zod";
 import { Prisma } from "@prisma/client";
@@ -60,6 +60,12 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Reading the brand brain is fine for any member; writing it is not.
+    const permission = await requirePermission("brains:read");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
+    }
+
     const brandBrain = await prisma.brandBrain.findUnique({
       where: { userId: session.user.id },
     });
@@ -81,6 +87,12 @@ export async function POST(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // The brand brain is the workspace's voice; writing it is an admin action.
+    const permission = await requirePermission("brains:manage");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const body = await req.json();
@@ -129,6 +141,11 @@ export async function PUT(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const permission = await requirePermission("brains:manage");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const body = await req.json();

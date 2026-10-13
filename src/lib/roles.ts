@@ -47,6 +47,17 @@ export const PERMISSIONS = [
   "posts:schedule",
   "posts:delete",
   "accounts:connect",
+  /**
+   * Uploading and deleting media, managing brains, and posting into the native
+   * feed. These write paths were session-only: any signed-in role, including
+   * CLIENT, could call them. They are in the matrix now because "signed in" is
+   * authentication, not authorisation.
+   */
+  "media:upload",
+  "media:delete",
+  "brains:read",
+  "brains:manage",
+  "feed:post",
   "users:manage",
   "engagement:view",
   "engagement:reply",
@@ -65,6 +76,11 @@ const MATRIX: Record<Permission, readonly Role[]> = {
   "posts:schedule": ["ADMIN", "MANAGER"],
   "posts:delete": ["ADMIN"],
   "accounts:connect": ["ADMIN", "MANAGER"],
+  "media:upload": ["ADMIN", "MANAGER", "EDITOR"],
+  "media:delete": ["ADMIN", "MANAGER"],
+  "brains:read": ROLES,
+  "brains:manage": ["ADMIN", "MANAGER"],
+  "feed:post": ["ADMIN", "MANAGER", "EDITOR"],
   "users:manage": ["ADMIN"],
   "engagement:view": ROLES,
   "engagement:reply": ["ADMIN", "MANAGER", "EDITOR"],

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const createSchema = z.object({ postId: z.string().min(1), content: z.string().trim().min(1).max(1000) });
@@ -8,6 +8,12 @@ const createSchema = z.object({ postId: z.string().min(1), content: z.string().t
 export async function POST(request: Request) {
   const session = await getAuthSession();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Commenting in the workspace feed is a write others will see.
+  const permission = await requirePermission("feed:post");
+  if (!permission.ok) {
+    return NextResponse.json({ error: permission.error }, { status: permission.status });
+  }
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Write a comment up to 1,000 characters." }, { status: 400 });
   const post = await prisma.post.findFirst({ where: { id: parsed.data.postId, userId: session.user.id }, select: { id: true } });

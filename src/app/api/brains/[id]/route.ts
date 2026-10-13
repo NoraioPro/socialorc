@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
 
@@ -10,6 +10,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   const session = await getAuthSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Editing a brain changes what every future generation is grounded in.
+  const permission = await requirePermission("brains:manage");
+  if (!permission.ok) {
+    return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
 
   const { id } = await context.params;
@@ -43,6 +49,11 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   const session = await getAuthSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const permission = await requirePermission("brains:manage");
+  if (!permission.ok) {
+    return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
 
   const { id } = await context.params;

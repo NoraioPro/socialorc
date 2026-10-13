@@ -1,6 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import {
   ALLOWED_UPLOAD_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
@@ -21,6 +21,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const session = await getAuthSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // A client upload token lets the holder write objects into the workspace's
+  // blob store, so it is an upload permission, not just a session.
+  const permission = await requirePermission("media:upload");
+  if (!permission.ok) {
+    return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
 
   const body = (await request.json()) as HandleUploadBody;

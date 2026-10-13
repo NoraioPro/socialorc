@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { put } from "@vercel/blob";
@@ -41,6 +41,13 @@ export async function POST(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Uploads land in the workspace's real storage; the storage bill and the
+    // library are shared, so this needs more than a session.
+    const permission = await requirePermission("media:upload");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const formData = await req.formData();
@@ -138,6 +145,12 @@ export async function DELETE(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Deleting media is destructive and irreversible for anyone else using it.
+    const permission = await requirePermission("media:delete");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const { searchParams } = new URL(req.url);

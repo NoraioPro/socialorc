@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Platform } from "@prisma/client";
 import { createUnifiedInbox, ConnectedAccount } from "@/lib/inbox";
@@ -11,6 +11,12 @@ export async function GET(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Reading the inbox is a view permission; replying is a separate one below.
+    const permission = await requirePermission("engagement:view");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const socialAccounts = await prisma.socialAccount.findMany({
@@ -83,6 +89,14 @@ export async function PATCH(req: NextRequest) {
     const session = await getAuthSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Replying publishes a comment as this workspace, on a real platform. The
+    // permission for it has existed since the engagement build; the inbox — the
+    // one place a reply is actually sent from — never checked it.
+    const permission = await requirePermission("engagement:reply");
+    if (!permission.ok) {
+      return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const body = await req.json();
