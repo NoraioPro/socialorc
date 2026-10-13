@@ -25,6 +25,14 @@ import {
  * A post carrying a platformPostId is never sent twice — the same idempotency
  * rule the worker holds, so a double-click cannot double-post.
  */
+/**
+ * Vercel function ceiling for an immediate publish. A literal, because Next
+ * reads segment config statically. 60s is what every Vercel plan allows; a Pro
+ * plan can raise it. Unlike the worker this route has a human waiting, so a
+ * timeout is reported as a failure rather than retried later.
+ */
+export const maxDuration = 60;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

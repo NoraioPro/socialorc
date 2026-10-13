@@ -37,12 +37,29 @@ function backoffMs(attempts: number): number {
   return Math.min(raw, BACKOFF_CAP_MS);
 }
 
+/**
+ * Vercel function ceiling for this route, and the point the worker stops taking
+ * on new work. A literal, because Next reads segment config statically.
+ *
+ * This is 60s because that is what every Vercel plan allows; raising it to 300
+ * is a one-line change and needs a Pro plan (Vercel refuses a larger value on
+ * Hobby, which would break the deploy). Whatever it is, it must stay well below
+ * `PROCESSING_LEASE_MS`: a function killed mid-send leaves the platform's answer
+ * unknown, and the reclaim only happens after the lease expires.
+ */
+export const maxDuration = 60;
+
+/** Stop claiming jobs this long before the function is cut off: a send started
+ *  with no time left is exactly the state that produces an unknown outcome. */
+const WORKER_TIME_BUDGET_MS = (maxDuration - 15) * 1000;
+
 export async function GET(req: NextRequest) {
   if (!isAuthorizedCronRequest(req.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const now = new Date();
+  const startedAt = Date.now();
   const results: {
     processed: number;
     published: number;
@@ -59,6 +76,8 @@ export async function GET(req: NextRequest) {
     resumed: number;
     /** Posts whose dead job left them in PUBLISHING, closed as FAILED instead. */
     stranded: number;
+    /** Due jobs left unclaimed because this invocation ran out of time budget. */
+    deferred: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   } = {
     processed: 0,
@@ -71,6 +90,7 @@ export async function GET(req: NextRequest) {
     abandoned: 0,
     resumed: 0,
     stranded: 0,
+    deferred: 0,
     errors: [],
   };
 
@@ -103,6 +123,15 @@ export async function GET(req: NextRequest) {
     });
 
     for (const job of dueJobs) {
+      // Time budget, checked before claiming: a job claimed with too little time
+      // left is a send that gets cut off mid-flight, and this route cannot know
+      // whether the platform accepted it. Unclaimed jobs stay PENDING and the
+      // next tick picks them up, so deferring loses nothing.
+      if (Date.now() - startedAt > WORKER_TIME_BUDGET_MS) {
+        results.deferred += 1;
+        continue;
+      }
+
       try {
         // Atomic claim. The unconditional update this replaces let two
         // overlapping cron invocations (Vercel can overlap a 5-minute schedule)
@@ -286,6 +315,10 @@ export async function GET(req: NextRequest) {
             await handleFailure({
               postId: post.id,
               jobId: job.id,
+              // The account is what has to be reconnected, and `handleFailure`
+              // only flags it when it is given this id: without it a dead token
+              // was dead-lettered silently and the banner never appeared.
+              accountId: post.socialAccount.id,
               attempt,
               error: "Stored access token is expired and this connector cannot refresh it",
               code: "AUTH_EXPIRED",
