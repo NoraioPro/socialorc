@@ -66,6 +66,20 @@ function serverEnv() {
     TOKEN_ENCRYPTION_KEY: `e2e-only-encryption-key-${Date.now()}`,
     CRON_SECRET,
     MOCK_SOCIAL_ADAPTERS: "true",
+    // Registration became invite-only after this harness was written
+    // (src/lib/signup-policy.ts), so `register` answered 403 and every check
+    // after it failed on 401 — the run was "broken" for a policy reason, not a
+    // code one. The throwaway database has no users to invite, so the harness
+    // opens signup for its own run; production keeps the default.
+    ALLOW_PUBLIC_SIGNUP: "true",
+    // Least privilege is the product's rule for real signups: everyone after the
+    // first account gets EDITOR (src/lib/roles.ts). That is correct for
+    // production and wrong for this harness, where every suite needs a user who
+    // can connect accounts, approve and schedule — otherwise the engagement
+    // suite fails on 403 and looks like a broken app. Enforcement of those
+    // permissions is covered by tests/unit/route-permissions.test.ts and by the
+    // 403s this harness deliberately provokes.
+    SIGNUP_ROLE: "ADMIN",
     TELEGRAM_BOT_TOKEN: "",
     TELEGRAM_CHAT_ID: "",
   };
@@ -100,20 +114,27 @@ function prepareDatabase(env) {
   }
 
   console.log(`Preparing throwaway database at ${DB_FILE}`);
-  const push = spawnSync("npx prisma db push", {
+  // Same reasoning as the Postgres branch above: build the throwaway database by
+  // applying the committed migrations, not by syncing the schema to it. `db push`
+  // hides drift, and it was hiding some: the sqlite history was missing the
+  // profile columns and the feed tables, so anything this harness proved about
+  // them was proved against a database the migrations cannot produce. That is
+  // what `20261013120000_sync_missing_objects` fixes, and it is what makes this
+  // switch safe — do not go back to `db push` here.
+  const deploy = spawnSync("npx prisma migrate deploy", {
     cwd: ROOT,
     env,
     shell: true,
     encoding: "utf8",
   });
-  if (push.status !== 0) {
-    console.error(push.stdout ?? "");
-    console.error(push.stderr ?? "");
-    throw new Error(`prisma db push failed with exit code ${push.status}`);
+  if (deploy.status !== 0) {
+    console.error(deploy.stdout ?? "");
+    console.error(deploy.stderr ?? "");
+    throw new Error(`prisma migrate deploy failed with exit code ${deploy.status}`);
   }
   const dbPath = path.isAbsolute(DB_FILE) ? DB_FILE : path.join(ROOT, DB_FILE);
   if (!fs.existsSync(dbPath)) throw new Error(`expected test database at ${dbPath}, it was not created`);
-  console.log(`Database schema pushed (${fs.statSync(dbPath).size} bytes)`);
+  console.log(`Migrations applied (${fs.statSync(dbPath).size} bytes)`);
 }
 
 async function waitForServer(server, getLog) {
