@@ -237,9 +237,29 @@ test("development without a key still returns mock AI, flagged as mock", async (
   );
 });
 
-test("an explicit forceMock request is still honoured in production", async () => {
+test("an explicit forceMock request is refused in production", async () => {
   await withEnv("OPENAI_API_KEY", undefined, () =>
     withNodeEnv("production", async () => {
+      // This used to be honoured here. It must not be: synthetic output comes back
+      // shaped exactly like real copy, and the UI keeps it as a draft, so a caller
+      // must not be able to talk a production API into returning it.
+      await assert.rejects(
+        () =>
+          aiStudioGenerate({
+            idea: "launch post",
+            platforms: [Platform.LINKEDIN],
+            tone: "professional",
+            forceMock: true,
+          }),
+        (error: unknown) => error instanceof AINotConfiguredError
+      );
+    }),
+  );
+});
+
+test("an explicit forceMock request is honoured where mock output is allowed", async () => {
+  await withEnv("OPENAI_API_KEY", undefined, () =>
+    withNodeEnv("development", async () => {
       const result = await aiStudioGenerate({
         idea: "launch post",
         platforms: [Platform.LINKEDIN],
@@ -248,6 +268,7 @@ test("an explicit forceMock request is still honoured in production", async () =
       });
       // Explicitly asked for, and reported as mock — never passed off as real.
       assert.equal(result.usedMock, true);
+      assert.ok(result.variants.length > 0);
     }),
   );
 });

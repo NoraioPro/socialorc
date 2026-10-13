@@ -12,6 +12,8 @@ import {
 import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext, MOCK_BRAND_CONTEXT } from "@/types/brand-brain";
+import { loadBrandContext } from "@/lib/brand-context";
+import { enforceRateLimit } from "@/lib/rate-limit-guard";
 
 const brandContextSchema = z.object({
   profile: z.object({
@@ -154,13 +156,26 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       const { idea, platforms, tone, additionalContext, brandContext, forceMock } = validation.data;
       const aiConfig = await resolveAiConfigForUser(authz.userId);
 
+      // Every generation spends the customer's own key.
+      const limited = await enforceRateLimit("ai", `user:${authz.userId}`);
+      // The route declares a response type; the 429 body is its own shape, which is
+      // what the client needs to tell "slow down" from "generation failed".
+      if (limited) return limited as NextResponse<AIStudioResponse>;
+
+      // Same as the posts generate route: prefer what the client sent, fall back
+      // to the Brand Brain this user actually filled in.
+      const brandForPrompt =
+        (brandContext as BrandContext | undefined) ??
+        (await loadBrandContext(authz.userId)) ??
+        undefined;
+
       const result = await aiStudioGenerate({
         aiConfig,
         idea,
         platforms,
         tone,
         additionalContext,
-        brandContext: brandContext as BrandContext | undefined,
+        brandContext: brandForPrompt,
         forceMock,
       });
 

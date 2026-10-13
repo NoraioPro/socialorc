@@ -11,6 +11,8 @@ import {
 import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext } from "@/types/brand-brain";
+import { loadBrandContext } from "@/lib/brand-context";
+import { enforceRateLimit } from "@/lib/rate-limit-guard";
 
 const brandContextSchema = z.object({
   profile: z.object({
@@ -85,6 +87,18 @@ export async function POST(req: NextRequest) {
 
       const { idea, platforms, tone, additionalContext, brandContext, forceMock } = validation.data;
 
+      // Every generation spends the customer's own key.
+      const limited = await enforceRateLimit("ai", `user:${authz.userId}`);
+      if (limited) return limited;
+
+      // The client rarely sends a brand; take the stored Brand Brain instead of
+      // letting the model generate against nothing (it used to fall back to a
+      // demo brand, which meant the same output whoever you were).
+      const brandForPrompt =
+        (brandContext as BrandContext | undefined) ??
+        (await loadBrandContext(authz.userId)) ??
+        undefined;
+
       try {
         const result = await aiStudioGenerate({
           aiConfig,
@@ -92,7 +106,7 @@ export async function POST(req: NextRequest) {
           platforms,
           tone,
           additionalContext,
-          brandContext: brandContext as BrandContext | undefined,
+          brandContext: brandForPrompt,
           forceMock,
         });
 

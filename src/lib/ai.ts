@@ -212,7 +212,10 @@ function generateMockHashtags(idea: string, platform: Platform): string[] {
  */
 export function generateMockVariants(options: AIStudioOptions): GeneratedVariant[] {
   const { idea, platforms, brandContext } = options;
-  const ctx = brandContext || MOCK_BRAND_CONTEXT;
+  // The demo brand belongs *here*: this is the mock generator and its output is
+  // labelled as mock wherever it surfaces. The real model path must never fall
+  // back to it — see the `?? {}` in aiStudioGenerate.
+  const ctx = brandContext ?? MOCK_BRAND_CONTEXT;
   const brandName = ctx.profile?.name || "Your Brand";
   
   return platforms.map((platform) => {
@@ -245,6 +248,11 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
   const { idea, platforms, tone, additionalContext, brandContext, forceMock, aiConfig } = options;
 
   if (forceMock) {
+    // Honoured only where synthetic output is allowed at all. In production a
+    // caller must not be able to talk the API into returning mock content: it
+    // comes back shaped exactly like the real thing, and the UI keeps it as a
+    // draft that reads as brand copy.
+    if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
       variants: generateMockVariants(options),
       usedMock: true,
@@ -262,7 +270,12 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
     };
   }
   
-  const ctx = brandContext || MOCK_BRAND_CONTEXT;
+  // Never hand the demo brand to a real model call. It used to be the fallback
+  // here, which meant a customer with no Brand Brain got content written for
+  // "SocialOrc Demo Brand" — a fictional SaaS — and returned as their own. With
+  // no stored brand the prompt simply carries no brand section:
+  // buildBrandContextPrompt({}) returns an empty string.
+  const ctx = brandContext ?? {};
   const brandPrompt = buildBrandContextPrompt(ctx);
   
   const variants = await generatePlatformVariantsWithBrand(
@@ -417,6 +430,11 @@ export async function improveContent(
   aiConfig: AiConfig | null = null
 ): Promise<{ content: string; isMock: boolean }> {
   if (forceMock) {
+    // Honoured only where synthetic output is allowed at all. In production a
+    // caller must not be able to talk the API into returning mock content: it
+    // comes back shaped exactly like the real thing, and the UI keeps it as a
+    // draft that reads as brand copy.
+    if (!isMockAIAllowed()) throw new AINotConfiguredError();
     return {
       content: mockImproveContent(content, instruction),
       isMock: true,
