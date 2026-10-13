@@ -4,12 +4,13 @@ import { Suspense, useCallback, useEffect, useState, type ReactNode, type FormEv
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Platform } from "@prisma/client";
-import { ArrowUpRight, Bell, Check, CreditCard, Globe2, Link2, Loader2, LockKeyhole, Palette, Pencil, RefreshCw, Save, Settings2, ShieldCheck, SlidersHorizontal, Trash2, UserRound, UsersRound, Unlink, X } from "lucide-react";
+import { ArrowUpRight, Bell, Check, CreditCard, Globe2, Link2, Loader2, LockKeyhole, Palette, Pencil, RefreshCw, Save, Settings2, ShieldCheck, SlidersHorizontal, Trash2, TriangleAlert, UserRound, UsersRound, Unlink, X } from "lucide-react";
 import { Header } from "@/components/dashboard/header";
 import { OrcMark } from "@/components/icons/orc-mark";
 import { platformIcons } from "@/components/icons/platform-icons";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { isRole, parseRole, permissionsFor, ROLE_META, type Permission } from "@/lib/roles";
+import { accountNeedsReconnect, reconnectNotices, reconnectReason, reconnectSummary } from "@/lib/social/reconnect";
 
 const PERMISSION_LABELS: Record<Permission, string> = {
   "dashboard:view": "View the dashboard",
@@ -27,9 +28,16 @@ const PERMISSION_LABELS: Record<Permission, string> = {
 };
 
 type Profile = { name: string | null; email: string | null; timezone: string; role: string };
+type PlatformAccount = {
+  id: string; displayName?: string; platformUsername?: string; isActive: boolean;
+  // Written by the publish worker / cron on a credential dead-letter, cleared by
+  // the reconnect flow — see src/lib/social/reconnect.ts.
+  needsReconnect?: boolean | null; lastError?: string | null;
+  tokenStatus?: { requiresReconnect?: boolean; status?: string } | null;
+};
 type PlatformStatus = {
   platform: Platform; configured: boolean; connected: boolean; missingCredentials: string[];
-  accounts: { id: string; displayName?: string; platformUsername?: string; isActive: boolean }[];
+  accounts: PlatformAccount[];
 };
 type Brain = { id: string; name: string; isDefault: boolean; connectedAccounts: number };
 const sections = [
@@ -263,6 +271,15 @@ function SettingsContent() {
   const role = isRole(profile?.role) ? profile.role : parseRole(profile?.role);
   const roleMeta = ROLE_META[role];
   const grantedPermissions = permissionsFor(role);
+  /**
+   * M0.10 — the publishing worker already flags any account it could not
+   * authenticate with (`needsReconnect` + `lastError`, both returned by
+   * /api/accounts). The page's job is to say so instead of rendering the
+   * account as healthy, and to offer the single action that clears the flag:
+   * signing in to that account again through the same connect flow.
+   */
+  const reconnects = reconnectNotices(platforms.flatMap(p => p.accounts.map(account => ({ ...account, platform: p.platform, label: account.displayName || account.platformUsername || "" }))));
+  const canReconnect = grantedPermissions.includes("accounts:connect");
   const dirty = profile && (name.trim() !== (profile.name || "") || timezone !== profile.timezone);
   const zones = Array.from(new Set([timezone, "Europe/Oslo", "Europe/London", "Europe/Paris", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney", "UTC"]));
   function toggleMotion() {
@@ -337,21 +354,44 @@ function SettingsContent() {
           <p className="settings-note">Each brain keeps its own set of connected platforms — switch to see or connect a different project&apos;s accounts.</p>
           <div className="settings-usage"><strong>{connected}<span> / {platforms.length}</span></strong><small>platforms connected</small></div>
           <div className="settings-usage-bar"><span style={{ width: `${platforms.length ? connected / platforms.length * 100 : 0}%` }} /></div>
+          {reconnects.length > 0 && <div className="settings-reconnect" role="alert">
+            <div className="settings-reconnect-head">
+              <TriangleAlert size={14} />
+              <div>
+                <strong>{reconnectSummary(reconnects.length)}</strong>
+                <small>Publishing keeps failing for them until you sign in again — nothing else has to change.</small>
+              </div>
+            </div>
+            <ul>{reconnects.map(item => <li key={`${item.platform}:${item.accountId}`}>
+              <span>
+                <strong>{PLATFORM_CONFIGS[item.platform as Platform]?.name || item.platform} · {item.label}</strong>
+                <small title={item.reason}>{item.reason}</small>
+              </span>
+              <button type="button" disabled={busy !== null || !canReconnect} title={canReconnect ? undefined : "Your role cannot connect accounts."} onClick={() => connect(item.platform as Platform)}>{busy === item.platform ? "Reconnecting…" : "Reconnect"}</button>
+            </li>)}</ul>
+            {!canReconnect && <small className="settings-reconnect-note">Your role ({roleMeta.label}) cannot reconnect accounts — ask a workspace owner.</small>}
+          </div>}
           <div className="settings-platform-grid">{platforms.map(p => {
             const Icon = platformIcons[p.platform], config = PLATFORM_CONFIGS[p.platform];
             const account = p.accounts.find(a => a.isActive);
-            return <div key={p.platform} className="settings-platform-card">
+            const reconnect = account ? accountNeedsReconnect({ ...account, platform: p.platform }) : false;
+            const accountLabel = account?.platformUsername ? `@${account.platformUsername}` : account?.displayName || "Connected";
+            return <div key={p.platform} className={reconnect ? "settings-platform-card is-flagged" : "settings-platform-card"}>
               <span className="settings-platform-icon" style={{ color: config.color }}><Icon className="h-6 w-6" /></span>
               <div className="settings-platform-card-body">
                 <strong>{config.name}</strong>
-                <small title={p.connected ? undefined : !p.configured ? `Set ${p.missingCredentials.join(", ")} in this deployment's environment variables.` : config.notes?.[0]}>
-                  {p.connected ? (account?.platformUsername ? `@${account.platformUsername}` : account?.displayName || "Connected")
+                <small title={p.connected ? (reconnect && account ? reconnectReason({ ...account, platform: p.platform }) : undefined) : !p.configured ? `Set ${p.missingCredentials.join(", ")} in this deployment's environment variables.` : config.notes?.[0]}>
+                  {p.connected
+                    ? reconnect ? `Needs reconnect · ${accountLabel}`
+                      : accountLabel
                     : !p.configured ? `Needs ${p.missingCredentials.join(", ")}`
                     : config.notes?.[0]}
                 </small>
               </div>
               {p.connected
-                ? <button type="button" onClick={() => setManagingPlatform(p.platform)}>Manage</button>
+                ? reconnect
+                  ? <button type="button" disabled={busy !== null || !canReconnect} title={canReconnect ? "Sign in to this account again" : "Your role cannot connect accounts."} onClick={() => connect(p.platform)}>{busy === p.platform ? "Reconnecting…" : "Reconnect"}</button>
+                  : <button type="button" onClick={() => setManagingPlatform(p.platform)}>Manage</button>
                 : <button type="button" disabled={!p.configured || busy !== null} onClick={() => connect(p.platform)}>{busy === p.platform ? "Connecting…" : "Connect"}</button>}
             </div>;
           })}</div>
@@ -385,12 +425,17 @@ function SettingsContent() {
         if (!p) return null;
         const Icon = platformIcons[p.platform], config = PLATFORM_CONFIGS[p.platform];
         const account = p.accounts.find(a => a.isActive);
+        const reconnect = account ? accountNeedsReconnect({ ...account, platform: p.platform }) : false;
         return <div className="settings-modal-backdrop" onClick={() => setManagingPlatform(null)}>
           <div className="settings-modal" onClick={e => e.stopPropagation()}>
             <div className="settings-modal-header">
               <span><Icon className="h-5 w-5" style={{ color: config.color }} />{config.name}</span>
               <button type="button" aria-label="Close" onClick={() => setManagingPlatform(null)}><X size={16} /></button>
             </div>
+            {account && reconnect && <p className="settings-modal-warning" role="alert">
+              <TriangleAlert size={12} />
+              <span>Needs reconnect — {reconnectReason({ ...account, platform: p.platform })}</span>
+            </p>}
             <p className="settings-modal-label">Account</p>
             {account && <div className="settings-modal-account"><Icon className="h-5 w-5" style={{ color: config.color }} />{account.displayName || account.platformUsername || "Linked account"}</div>}
             <button type="button" className="settings-modal-action" disabled={busy !== null} onClick={() => connect(p.platform)}>

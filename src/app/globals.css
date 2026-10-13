@@ -339,6 +339,33 @@ a:focus-visible, button:focus-visible { outline: 2px solid #709157; outline-offs
 .settings-platform-card button:hover{background:#5cf299;}
 .settings-platform-card button:disabled{opacity:.4;cursor:not-allowed;background:#324049;color:#8fa0ab;}
 
+/* M0.10 — accounts the publishing worker could not authenticate with. Amber, not red:
+   nothing is lost, the fix is one click, and the flag clears itself on reconnect. */
+.settings-reconnect{margin:12px 0;padding:11px 12px;border:1px solid #6b4a1f;border-radius:6px;background:#241a0cdd;}
+.settings-reconnect-head{display:flex;align-items:flex-start;gap:8px;}
+.settings-reconnect-head>svg{color:#e0b153;flex-shrink:0;margin-top:2px;}
+.settings-reconnect-head strong{display:block;font-size:10px;color:#f3dcae;}
+.settings-reconnect-head small{display:block;font-size:9px;line-height:1.5;color:#c9b189;margin-top:3px;}
+.settings-reconnect ul{list-style:none;display:grid;gap:6px;margin:9px 0 0;padding:0;}
+.settings-reconnect li{display:flex;align-items:center;gap:8px;padding:8px 9px;background:#1b140a;border:1px solid #4a3720;border-radius:5px;}
+.settings-reconnect li>span{flex:1;min-width:0;}
+.settings-reconnect li strong{display:block;font-size:9px;color:#f0e2c4;overflow-wrap:anywhere;}
+.settings-reconnect li small{display:block;font-size:8px;line-height:1.5;color:#cbae86;margin-top:2px;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+.settings-reconnect li button{white-space:nowrap;padding:6px 12px;font-size:9px;font-weight:600;border-radius:4px;cursor:pointer;color:#2a1c05;background:#e0b153;border:none;}
+.settings-reconnect li button:hover{background:#eec169;}
+.settings-reconnect li button:disabled{opacity:.45;cursor:not-allowed;background:#4a4131;color:#c3b8a2;}
+.settings-reconnect-note{display:block;font-size:9px;color:#c9b189;margin-top:8px;}
+.settings-platform-card.is-flagged{border-color:#6b4a1f;background:#141309;}
+.settings-platform-card.is-flagged .settings-platform-icon{background:#2a2213;}
+.settings-platform-card.is-flagged .settings-platform-card-body small{color:#e0b153;}
+.settings-platform-card.is-flagged button{background:#e0b153;color:#2a1c05;}
+.settings-platform-card.is-flagged button:hover{background:#eec169;}
+.settings-platform-card.is-flagged button:disabled{opacity:.4;background:#324049;color:#8fa0ab;}
+.settings-modal-warning{display:flex;align-items:flex-start;gap:7px;font-size:10px;line-height:1.6;color:#e8c884;background:#241a0c;border:1px solid #4a3720;border-radius:5px;padding:9px;margin-bottom:12px;}
+.settings-modal-warning>svg{flex-shrink:0;color:#e0b153;margin-top:1px;}
+.settings-modal-warning>span{min-width:0;overflow-wrap:anywhere;}
+@media(max-width:480px){.settings-reconnect li{flex-wrap:wrap;}.settings-reconnect li>span{flex-basis:100%;}.settings-reconnect li button{width:100%;}}
+
 /* Manage modal: account + reconnect + disconnect + done, nothing else. */
 .settings-modal-backdrop{position:fixed;inset:0;background:#050a0ecc;display:grid;place-items:center;z-index:50;padding:16px;}
 .settings-modal{width:100%;max-width:340px;background:#0e1a22;border:1px solid #2a3e4b;border-radius:10px;padding:16px;}
