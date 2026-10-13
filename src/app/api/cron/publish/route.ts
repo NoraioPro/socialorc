@@ -54,6 +54,10 @@ export async function GET(req: NextRequest) {
     reclaimed: number;
     /** Stale PROCESSING jobs whose retry budget was already spent. */
     abandoned: number;
+    /** Posts handed back from PUBLISHING to SCHEDULED so the reclaimed attempt can run. */
+    resumed: number;
+    /** Posts whose dead job left them in PUBLISHING, closed as FAILED instead. */
+    stranded: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   } = {
     processed: 0,
@@ -64,6 +68,8 @@ export async function GET(req: NextRequest) {
     permanent: 0,
     reclaimed: 0,
     abandoned: 0,
+    resumed: 0,
+    stranded: 0,
     errors: [],
   };
 
@@ -76,10 +82,12 @@ export async function GET(req: NextRequest) {
     const recovery = await recoverStaleProcessingJobs(prisma, now, MAX_ATTEMPTS);
     results.reclaimed = recovery.reclaimed;
     results.abandoned = recovery.abandoned;
+    results.resumed = recovery.resumed;
+    results.stranded = recovery.stranded;
 
     if (recovery.reclaimed > 0 || recovery.abandoned > 0) {
       console.log(
-        `[cron] lease recovery: reclaimed=${recovery.reclaimed} abandoned=${recovery.abandoned}`
+        `[cron] lease recovery: reclaimed=${recovery.reclaimed} abandoned=${recovery.abandoned} resumed=${recovery.resumed} stranded=${recovery.stranded}`
       );
     }
 

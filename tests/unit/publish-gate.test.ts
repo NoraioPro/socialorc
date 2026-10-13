@@ -64,4 +64,14 @@ describe("approval gate on the immediate publish path", () => {
     const card = readFileSync("src/components/posts/post-card.tsx", "utf8");
     assert.match(card, /publishBlockReason\(/);
   });
+
+  it("closes the post when the adapter throws, instead of stranding it in PUBLISHING", () => {
+    // The post is already PUBLISHING by the time the platform is called, and
+    // there is no job for the immediate path, so an escaped exception used to
+    // leave it uneditable, undeletable and unpublishable forever.
+    const route = readFileSync("src/app/api/posts/[id]/publish/route.ts", "utf8");
+    assert.match(route, /catch \(error\)/);
+    assert.match(route, /PUBLISH_THREW/);
+    assert.match(route, /status: PostStatus\.FAILED/);
+  });
 });

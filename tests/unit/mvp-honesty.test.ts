@@ -7,6 +7,7 @@ import { linkedInAdapter } from "../../src/lib/adapters/linkedin";
 import { mediaStorage } from "../../src/lib/media-storage";
 import {
   PROCESSING_LEASE_MS,
+  STRANDED_MESSAGE,
   leaseCutoff,
   recoverStaleProcessingJobs,
   type LeaseRecoveryClient,
@@ -253,26 +254,49 @@ test("an explicit forceMock request is still honoured in production", async () =
 
 // --- Test 7: stale PROCESSING recovery --------------------------------------
 
-function fakeJobClient(count = 1) {
-  const calls: { where: Record<string, unknown>; data: Record<string, unknown> }[] = [];
+function fakeRecoveryClient(stale: { id: string; postId: string; attempts: number }[]) {
+  const calls: {
+    model: "job" | "post";
+    kind: "findMany" | "updateMany";
+    where: Record<string, unknown>;
+    data?: Record<string, unknown>;
+  }[] = [];
   const client = {
     calls,
     scheduledJob: {
+      async findMany(args: { where: Record<string, unknown> }) {
+        calls.push({ model: "job", kind: "findMany", where: args.where });
+        return stale;
+      },
       async updateMany(args: {
         where: Record<string, unknown>;
         data: Record<string, unknown>;
       }): Promise<{ count: number }> {
-        calls.push(args);
-        return { count };
+        calls.push({ model: "job", kind: "updateMany", where: args.where, data: args.data });
+        return { count: stale.length };
+      },
+    },
+    post: {
+      async updateMany(args: {
+        where: Record<string, unknown>;
+        data: Record<string, unknown>;
+      }): Promise<{ count: number }> {
+        calls.push({ model: "post", kind: "updateMany", where: args.where, data: args.data });
+        return { count: stale.length };
       },
     },
   };
   return client;
 }
 
-test("a stale PROCESSING job inside its retry budget is reclaimed", async () => {
+const jobWrites = (client: ReturnType<typeof fakeRecoveryClient>) =>
+  client.calls.filter((c) => c.model === "job" && c.kind === "updateMany");
+const postWrites = (client: ReturnType<typeof fakeRecoveryClient>) =>
+  client.calls.filter((c) => c.model === "post");
+
+test("a stale job inside its retry budget is reclaimed, and its post released from PUBLISHING", async () => {
   const now = new Date("2026-09-13T12:00:00.000Z");
-  const client = fakeJobClient(2);
+  const client = fakeRecoveryClient([{ id: "job_1", postId: "post_1", attempts: 1 }]);
 
   const result = await recoverStaleProcessingJobs(
     client as unknown as LeaseRecoveryClient,
@@ -280,21 +304,32 @@ test("a stale PROCESSING job inside its retry budget is reclaimed", async () => 
     3,
   );
 
-  assert.equal(result.reclaimed, 2);
-  const reclaim = client.calls[0];
-  assert.equal(reclaim.where.status, "PROCESSING");
-  assert.deepEqual(reclaim.where.attempts, { lt: 3 });
-  assert.deepEqual(reclaim.data, { status: "PENDING" });
+  assert.equal(result.reclaimed, 1);
+  assert.equal(result.abandoned, 0);
+  assert.equal(result.resumed, 1);
+  assert.equal(result.stranded, 0);
 
-  // Only jobs older than the lease are touched.
-  const window = reclaim.where.startedAt as { lt: Date };
+  // Only jobs older than the lease are considered.
+  const read = client.calls.find((c) => c.kind === "findMany");
+  assert.equal(read?.where.status, "PROCESSING");
+  const window = read?.where.startedAt as { lt: Date };
   assert.ok(window.lt instanceof Date);
   assert.equal(window.lt.getTime(), now.getTime() - PROCESSING_LEASE_MS);
+
+  const [jobWrite] = jobWrites(client);
+  assert.deepEqual(jobWrite.where, { id: { in: ["job_1"] }, status: "PROCESSING" });
+  assert.deepEqual(jobWrite.data, { status: "PENDING" });
+
+  // The fix for the limbo: a post in PUBLISHING can never be picked up again
+  // (the worker only publishes SCHEDULED), so it comes back with the job.
+  const [postWrite] = postWrites(client);
+  assert.deepEqual(postWrite.where, { id: { in: ["post_1"] }, status: "PUBLISHING" });
+  assert.deepEqual(postWrite.data, { status: "SCHEDULED" });
 });
 
-test("a stale PROCESSING job with no attempts left is dead-lettered, not retried", async () => {
+test("a stale job with no attempts left is dead-lettered, and its post stops claiming to be publishing", async () => {
   const now = new Date("2026-09-13T12:00:00.000Z");
-  const client = fakeJobClient(1);
+  const client = fakeRecoveryClient([{ id: "job_2", postId: "post_2", attempts: 3 }]);
 
   const result = await recoverStaleProcessingJobs(
     client as unknown as LeaseRecoveryClient,
@@ -303,11 +338,32 @@ test("a stale PROCESSING job with no attempts left is dead-lettered, not retried
   );
 
   assert.equal(result.abandoned, 1);
-  const abandon = client.calls[1];
-  assert.equal(abandon.where.status, "PROCESSING");
-  assert.deepEqual(abandon.where.attempts, { gte: 3 });
-  assert.equal(abandon.data.status, "FAILED");
-  assert.match(String(abandon.data.errorMessage), /Abandoned/);
+  assert.equal(result.reclaimed, 0);
+  assert.equal(result.stranded, 1);
+  assert.equal(result.resumed, 0);
+
+  const [jobWrite] = jobWrites(client);
+  assert.deepEqual(jobWrite.where, { id: { in: ["job_2"] }, status: "PROCESSING" });
+  assert.equal(jobWrite.data?.status, "FAILED");
+  assert.match(String(jobWrite.data?.errorMessage), /Abandoned/);
+
+  const [postWrite] = postWrites(client);
+  assert.deepEqual(postWrite.data, { status: "FAILED", errorMessage: STRANDED_MESSAGE });
+  // The message has to say what the app cannot know.
+  assert.match(STRANDED_MESSAGE, /check the platform/i);
+});
+
+test("a tree with no stale job is read once and never written to", async () => {
+  const client = fakeRecoveryClient([]);
+  const result = await recoverStaleProcessingJobs(
+    client as unknown as LeaseRecoveryClient,
+    new Date("2026-09-13T12:00:00.000Z"),
+    3,
+  );
+
+  assert.deepEqual(result, { reclaimed: 0, abandoned: 0, resumed: 0, stranded: 0 });
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].kind, "findMany");
 });
 
 test("the lease window is measurable and overridable", () => {

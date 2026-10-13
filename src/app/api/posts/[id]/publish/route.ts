@@ -195,7 +195,32 @@ export async function POST(
     })),
   };
 
-  let result = await adapter.createPost(accessToken, sendOptions);
+  let result: Awaited<ReturnType<typeof adapter.createPost>>;
+  try {
+    result = await adapter.createPost(accessToken, sendOptions);
+  } catch (error) {
+    // A thrown adapter call used to escape this route entirely, leaving the post
+    // in PUBLISHING with no job to reclaim it — uneditable, undeletable and
+    // unpublishable. Close it as FAILED with the reason instead: the retry path
+    // (FAILED plus approvedAt) can then re-queue it deliberately.
+    await prisma.post.update({
+      where: { id: post.id },
+      data: {
+        status: PostStatus.FAILED,
+        errorMessage: `Publishing failed before the platform confirmed: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      },
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Publishing failed",
+        code: "PUBLISH_THREW",
+      },
+      { status: 502 }
+    );
+  }
 
   /** Prefer the adapter's own code; fall back to classifying its message. */
   const failureCodeOf = (r: typeof result): AdapterErrorCode =>
