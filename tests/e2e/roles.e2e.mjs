@@ -5,11 +5,14 @@
  *   - a browser over plain http://localhost keeps its auth cookies (the
  *     dead-tunnel NEXTAUTH_URL bug used to make them __Secure-/__Host- only),
  *   - registration normalises emails and rejects weak input,
- *   - the dev role login mints a real session for each role,
- *   - role permissions are enforced server-side (403, not just hidden UI),
+ *   - the signup policy hands the first account ADMIN and the next one EDITOR,
+ *   - role permissions are enforced server-side (403, not just hidden UI) —
+ *     including that the removed dev-only role-minting endpoint stays removed,
  *   - the approval gate and the publish chain still work for an ADMIN.
  *
- * Usage:
+ * Usage (the server must allow signups for this run, and must NOT force a role,
+ * or there is no EDITOR to assert against):
+ *   ALLOW_PUBLIC_SIGNUP=true npx next dev -p 3200
  *   ROLES_BASE_URL=http://localhost:3200 node tests/e2e/roles.e2e.mjs
  * Exit code 0 = every check passed.
  */
@@ -92,21 +95,6 @@ async function loginWithPassword(jar, email, password) {
     csrfToken: token,
     email,
     password,
-    json: "true",
-    callbackUrl: BASE_URL,
-  });
-  return req(jar, `${BASE_URL}/api/auth/callback/credentials`, {
-    method: "POST",
-    body: form,
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-  });
-}
-
-async function loginAsRole(jar, role) {
-  const token = await csrf(jar);
-  const form = new URLSearchParams({
-    csrfToken: token,
-    devRole: role,
     json: "true",
     callbackUrl: BASE_URL,
   });
@@ -219,47 +207,65 @@ const mixedCaseEmail = `Role.Mixed-${stamp}@Socialorc.Local`;
   );
 }
 
-// -------------------------------------------------------------- dev role login
+// ------------------------------------------------------- real roles, no dev door
+// This block used to mint a session per role through `/api/dev/login-as`, a
+// dev-only endpoint that has since been removed from the app — correctly, since
+// a production build has no business shipping a role-minting backdoor. Roles now
+// come from the product's own signup policy: the first account is ADMIN and every
+// account after it is EDITOR (src/lib/signup-policy.ts + src/lib/roles.ts).
+//
+// MANAGER and CLIENT cannot be created over HTTP at all: there is no invite or
+// role-assignment endpoint yet. That is a gap in the product, not in the test, and
+// it is why this suite asserts the two roles the app can actually mint.
 const roleSessions = {};
-for (const role of ["ADMIN", "MANAGER", "EDITOR", "CLIENT"]) {
+
+const editorEmail = `role.editor-${stamp}@socialorc.local`;
+{
   const jar = new Jar();
-  await loginAsRole(jar, role);
-  const s = await session(jar);
-  roleSessions[role] = { jar, session: s };
+  const reg = await req(jar, `${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    json: { name: "Editor Role", email: editorEmail, password },
+  });
   check(
-    `dev role login mints a ${role} session`,
-    s.user?.role === role && !!s.user?.id,
-    `role ${s.user?.role ?? "none"}, email ${s.user?.email ?? "none"}`
+    "a second signup is created as EDITOR, not ADMIN",
+    reg.status === 200 && reg.body?.role === "EDITOR",
+    `status ${reg.status}, role ${reg.body?.role ?? "none"}`
+  );
+
+  await loginWithPassword(jar, editorEmail, password);
+  const s = await session(jar);
+  roleSessions.EDITOR = { jar, session: s };
+  check(
+    "editor session omits the permissions that belong to management",
+    Array.isArray(s.user?.permissions) &&
+      ["posts:approve", "posts:schedule", "users:manage", "accounts:connect", "brains:manage"].every(
+        (p) => !s.user.permissions.includes(p)
+      ),
+    (s.user?.permissions ?? []).join(",")
   );
 }
 
 {
-  const editor = roleSessions.EDITOR.session;
-  const client = roleSessions.CLIENT.session;
+  // The dev door must not exist in whatever we are pointed at.
+  const res = await req(new Jar(), `${BASE_URL}/api/dev/login-as?role=ADMIN`);
   check(
-    "editor session omits approve/schedule permissions",
-    Array.isArray(editor.user?.permissions) &&
-      !editor.user.permissions.includes("posts:approve") &&
-      !editor.user.permissions.includes("posts:schedule"),
-    (editor.user?.permissions ?? []).join(",")
-  );
-  check(
-    "client session is read-only",
-    Array.isArray(client.user?.permissions) &&
-      client.user.permissions.length === 1 &&
-      client.user.permissions[0] === "dashboard:view",
-    (client.user?.permissions ?? []).join(",")
+    "no role-minting dev endpoint is reachable",
+    res.status === 404,
+    `status ${res.status}`
   );
 }
 
 {
+  // The ADMIN session the publish chain below runs on, from a real login: with
+  // the dev shortcut gone there is no other way to get one, which is the point.
   const jar = new Jar();
-  await loginAsRole(jar, "OWNER");
+  await loginWithPassword(jar, mixedCaseEmail.toLowerCase(), password);
   const s = await session(jar);
+  roleSessions.ADMIN = { jar, session: s };
   check(
-    "an unknown dev role is refused (no session)",
-    !s.user?.id,
-    `session user ${s.user?.email ?? "none"}`
+    "admin session is available for the publish chain",
+    !!s.user?.id && s.user.role === "ADMIN",
+    s.user?.email ?? "none"
   );
 }
 
@@ -287,12 +293,32 @@ for (const role of ["ADMIN", "MANAGER", "EDITOR", "CLIENT"]) {
 }
 
 {
-  const clientJar = roleSessions.CLIENT.jar;
-  const res = await req(clientJar, `${BASE_URL}/api/posts`, {
+  const editorJar = roleSessions.EDITOR.jar;
+  const res = await req(editorJar, `${BASE_URL}/api/brains`, {
     method: "POST",
-    json: { content: "client should not be able to post", platform: "LINKEDIN" },
+    json: { name: "Editor should not be able to create this" },
   });
-  check("client cannot create a post (403)", res.status === 403, `status ${res.status}`);
+  check(
+    "editor cannot create a brain (403)",
+    res.status === 403,
+    `status ${res.status} — ${res.body?.error ?? res.text.slice(0, 60)}`
+  );
+
+  const media = await req(editorJar, `${BASE_URL}/api/media?id=does-not-exist`, {
+    method: "DELETE",
+  });
+  check(
+    "editor cannot delete media (403)",
+    media.status === 403,
+    `status ${media.status} — ${media.body?.error ?? media.text.slice(0, 60)}`
+  );
+
+  const connect = await req(editorJar, `${BASE_URL}/api/social/connect?platform=LINKEDIN`);
+  check(
+    "editor cannot start an account connection (403)",
+    connect.status === 403,
+    `status ${connect.status}`
+  );
 }
 
 // ------------------------------------------------------------- editor workflow
@@ -392,17 +418,8 @@ let editorPostId = null;
   }
 }
 
-// ------------------------------------------------------- scripted dev login page
-{
-  const res = await req(new Jar(), `${BASE_URL}/api/dev/login-as?role=ADMIN`);
-  check(
-    "GET /api/dev/login-as serves the scripted login page",
-    res.status === 200 && res.text.includes("devRole") && res.text.includes("ADMIN"),
-    `status ${res.status}`
-  );
-  const bad = await req(new Jar(), `${BASE_URL}/api/dev/login-as?role=OWNER`);
-  check("GET /api/dev/login-as rejects an unknown role with 400", bad.status === 400, `status ${bad.status}`);
-}
+// The scripted dev login page used to be asserted here. Its endpoint is gone from
+// the app, and the check above asserts it stays gone.
 
 const failed = RESULTS.filter((r) => !r.ok);
 console.log(`\n${RESULTS.length - failed.length}/${RESULTS.length} checks passed`);

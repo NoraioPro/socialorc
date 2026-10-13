@@ -176,13 +176,19 @@ Two defects were found while fixing the harness, both worth knowing:
    and `FeedReaction`/`FeedComment`. `db push` had been hiding it, so every local run proved things
    about a database the migrations cannot produce. Fixed by `20261013120000_sync_missing_objects`
    (verified: `migrate diff --from-config-datasource --to-schema` prints nothing afterwards).
-   The Postgres history is *not* affected — `0_init` carries those objects — but **full parity of
-   `prisma/migrations-postgres` against the schema is still unverified** and needs a Postgres
-   instance to check; run the same `migrate diff` against the throwaway preview database from §3.
-2. **`tests/e2e/roles.e2e.mjs` cannot pass**: it drives `/api/dev/login-as`, a dev-only endpoint that
-   no longer exists in the app (and should not exist in production). Role enforcement is covered by
-   `tests/unit/route-permissions.test.ts` and by the 403s the engagement suite provokes on purpose.
-   The suite itself needs either deletion or a rewrite; deleting it needs a decision.
+   The Postgres history is *not* affected — `0_init` carries those objects — and parity is now
+   **verified** rather than assumed: `prisma migrate diff --from-config-datasource
+   --to-schema prisma/schema.postgres.prisma` against the live production database prints
+   `-- This is an empty migration`, i.e. the database matches the committed history exactly.
+2. **`tests/e2e/roles.e2e.mjs` could not pass**: it drove `/api/dev/login-as`, a dev-only
+   role-minting endpoint that no longer exists in the app (and should not exist in production).
+   Rewritten to use the product's own signup policy — the first account is ADMIN, the second is
+   EDITOR — and verified: **28/28 checks, exit 0**, including new assertions that an EDITOR is
+   refused on `brains:manage`, `media:delete` and `accounts:connect`, that no role-minting
+   endpoint is reachable (404), and that the ADMIN chain still connects → drafts → approves →
+   schedules. The rewrite also surfaced a real gap: **MANAGER and CLIENT users cannot be created
+   at all** — there is no invite or role-assignment endpoint — so those two roles reachable only
+   by editing the database, and their enforcement is untested end to end.
 
 **Closed since the 2026-10-11 report:** the approval gate's second door (P0-FIX-1), posts stranded in
 `PUBLISHING` (P0-FIX-2), and M0.10's reconnect banner. `main` also carries the multi-tenancy Phase 0,
