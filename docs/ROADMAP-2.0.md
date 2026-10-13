@@ -150,6 +150,40 @@ identity, reputation integrity, Connector SDK, marketplace.
 
 ## 5. Next tasks (sprint-ready)
 
+**Landed 2026-10-13 (second session) — the plan in `docs/PRODUCTION-PLAN-2026-10-13.md`, PR0–PR8.**
+Six commits on `main`, each verified with `tsc --noEmit` (0 errors), `npm run test:unit` (649/649) and
+`npx next build` (exit 0), and deployed (`/api/health` reports the commit):
+
+| PR | Commit | What it changed |
+|---|---|---|
+| PR1 | `3d7e777` | Status transitions became guarded writes (`updateMany` with the expected state, 409 on conflict) across schedule/approve/retry/unschedule/edit and the worker's `PUBLISHING` claim — closing the read-then-write race that could publish unapproved content. Replaced the tautological `schedule-gate.test.ts`. |
+| PR2 | `c3014c6` | The worker: immediate publish now passes the account's destination (Telegram publish-now always failed with `MISSING_CHAT`), the expired-token path passes `accountId` so the reconnect flag and banner actually fire, and both publish routes declare `maxDuration` with a time budget that stops the worker claiming work it cannot finish. |
+| PR5 | `78747de` | The OAuth state cookie is signed (`hmac.<base64url(json)>`, `timingSafeEqual`) instead of plain JSON, and the Telegram connect refuses a chat id from the query unless a verified cookie belongs to this session. |
+| PR7 | `a4648f1` | `/api/health` no longer describes the deployment to anonymous callers (migration count, job count, missing variable names moved behind the cron bearer token). |
+| PR3 | `d1d300a` | Lease recovery no longer re-queues a job whose run died mid-send — it fails the job and the post with an unknown-outcome note, so a crash between the platform accepting a post and the id being stored cannot become a duplicate post. Reverses the auto-resume from earlier the same day. |
+| PR6 | `54cb05e` | Fourteen write paths that were session-only now check a permission, five permissions were added to the matrix, and a test walks the API tree so a new unprotected mutating route fails the build. |
+| PR0 | `22f792a` | The landing page's invented numbers are labelled sample data and the two worst fabrications are gone. |
+| PR4 | `1b5ccda` | `ScheduleControl` is mounted on the post card (approve → schedule was unreachable from the UI), and the control now sends an ISO instant instead of a wall clock, fixing a timezone bug that shifted every schedule by the user's offset. |
+| PR8 | `eb5c6b7` | The e2e harness builds its database from the migrations on both providers, and its two stale policy assumptions (invite-only signup, least-privilege role) are pinned for its throwaway run. |
+
+**The e2e harness passes end to end:** publish **22/22** and engagement **15/15**,
+`E2E RESULT: PASS`, exit 0, against a database created by `migrate deploy` — so the gate, the
+transitions, the schedule path and the worker are proven over HTTP, not just in units.
+
+Two defects were found while fixing the harness, both worth knowing:
+
+1. **The sqlite migration history had drifted from the schema** — it was missing the profile columns
+   and `FeedReaction`/`FeedComment`. `db push` had been hiding it, so every local run proved things
+   about a database the migrations cannot produce. Fixed by `20261013120000_sync_missing_objects`
+   (verified: `migrate diff --from-config-datasource --to-schema` prints nothing afterwards).
+   The Postgres history is *not* affected — `0_init` carries those objects — but **full parity of
+   `prisma/migrations-postgres` against the schema is still unverified** and needs a Postgres
+   instance to check; run the same `migrate diff` against the throwaway preview database from §3.
+2. **`tests/e2e/roles.e2e.mjs` cannot pass**: it drives `/api/dev/login-as`, a dev-only endpoint that
+   no longer exists in the app (and should not exist in production). Role enforcement is covered by
+   `tests/unit/route-permissions.test.ts` and by the 403s the engagement suite provokes on purpose.
+   The suite itself needs either deletion or a rewrite; deleting it needs a decision.
+
 **Closed since the 2026-10-11 report:** the approval gate's second door (P0-FIX-1), posts stranded in
 `PUBLISHING` (P0-FIX-2), and M0.10's reconnect banner. `main` also carries the multi-tenancy Phase 0,
 per-customer AI keys, and the 2026-10-04 security pass.
