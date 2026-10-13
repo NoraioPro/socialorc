@@ -45,6 +45,11 @@ type PlatformStatus = {
   accounts: PlatformAccount[];
 };
 type Brain = { id: string; name: string; isDefault: boolean; connectedAccounts: number };
+/** Team management (invitations + role changes). Mirrors /api/workspace/*. */
+const TEAM_ROLES = ["ADMIN", "MANAGER", "EDITOR", "CLIENT"] as const;
+type TeamRole = (typeof TEAM_ROLES)[number];
+type TeamMember = { id: string; name: string | null; email: string | null; role: string };
+type TeamInvite = { id: string; email: string; role: string; expiresAt: string };
 const sections = [
   { key: "workspace", target: "workspace", label: "Workspace", icon: Settings2 },
   { key: "team", target: "access", label: "Team", icon: UsersRound },
@@ -285,6 +290,99 @@ function SettingsContent() {
    */
   const reconnects = reconnectNotices(platforms.flatMap(p => p.accounts.map(account => ({ ...account, platform: p.platform, label: account.displayName || account.platformUsername || "" }))));
   const canReconnect = grantedPermissions.includes("accounts:connect");
+
+  /**
+   * Team. The API has existed since 2026-10-13 (invitations with a role, and role
+   * changes); until now this panel only said "not available yet", which was true
+   * of the UI and not of the product. Every action here is refused server-side for
+   * anybody without `users:manage`, so the disabled states are a courtesy, not the
+   * control.
+   */
+  const canManageTeam = grantedPermissions.includes("users:manage");
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<TeamInvite[]>([]);
+  const [teamBusy, setTeamBusy] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<TeamRole>("EDITOR");
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canManageTeam || active !== "team") return;
+    let cancelled = false;
+    (async () => {
+      setTeamBusy("load");
+      try {
+        const [usersRes, invitesRes] = await Promise.all([
+          fetch("/api/workspace/users"),
+          fetch("/api/workspace/invitations"),
+        ]);
+        const users = usersRes.ok ? await usersRes.json() : null;
+        const invites = invitesRes.ok ? await invitesRes.json() : null;
+        if (cancelled) return;
+        setMembers(Array.isArray(users?.users) ? users.users : []);
+        setPendingInvites(Array.isArray(invites?.invitations) ? invites.invitations : []);
+      } catch {
+        if (!cancelled) setMessage({ text: "Could not load the team list.", error: true });
+      } finally {
+        if (!cancelled) setTeamBusy(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active, canManageTeam]);
+
+  async function changeMemberRole(id: string, role: TeamRole) {
+    setTeamBusy(id);
+    try {
+      const res = await fetch(`/api/workspace/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not change that role.");
+      setMembers((current) => current.map((m) => (m.id === id ? { ...m, role } : m)));
+      setMessage({ text: "Role updated." });
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Could not change that role.",
+        error: true,
+      });
+    } finally {
+      setTeamBusy(null);
+    }
+  }
+
+  async function sendInvite(event: React.FormEvent) {
+    event.preventDefault();
+    setTeamBusy("invite");
+    setInviteLink(null);
+    try {
+      const res = await fetch("/api/workspace/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not create that invitation.");
+      // Shown once, on purpose: the token is stored hashed and cannot be read back.
+      setInviteLink(`${window.location.origin}${data.acceptancePath ?? ""}`);
+      setInviteEmail("");
+      const invitesRes = await fetch("/api/workspace/invitations");
+      if (invitesRes.ok) {
+        const invites = await invitesRes.json();
+        setPendingInvites(Array.isArray(invites?.invitations) ? invites.invitations : []);
+      }
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Could not create that invitation.",
+        error: true,
+      });
+    } finally {
+      setTeamBusy(null);
+    }
+  }
   const dirty = profile && (name.trim() !== (profile.name || "") || timezone !== profile.timezone);
   const zones = Array.from(new Set([timezone, "Europe/Oslo", "Europe/London", "Europe/Paris", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney", "UTC"]));
   function toggleMotion() {
@@ -401,14 +499,54 @@ function SettingsContent() {
             </div>;
           })}</div>
         </Panel>}
-        {active === "team" && <Panel id="access" title="Team & Access" subtitle="The account currently in this workspace." icon={<UsersRound size={18} />}>
-          <div className="settings-member"><span className="settings-avatar">{(profile?.name || "U").slice(0, 1).toUpperCase()}</span><div><strong>{profile?.name || "Your account"}</strong><small>{profile?.email}</small></div><span className="settings-role">{profile?.role}</span></div>
-          <p className="settings-note">Team invitations and shared workspace management are not available yet.</p><Link className="settings-panel-link" href="/dashboard">Open Command Center<ArrowUpRight size={13} /></Link>
+        {active === "team" && <Panel id="access" title="Team & Access" subtitle="Who is in this workspace, and what they may do." icon={<UsersRound size={18} />}>
+          {!canManageTeam ? (
+            <>
+              <div className="settings-member"><span className="settings-avatar">{(profile?.name || "U").slice(0, 1).toUpperCase()}</span><div><strong>{profile?.name || "Your account"}</strong><small>{profile?.email}</small></div><span className="settings-role">{roleMeta.label}</span></div>
+              <p className="settings-note">Only an admin can see and change the member list. Your role is {roleMeta.label}.</p>
+            </>
+          ) : (
+            <>
+              <div className="team-list">
+                {teamBusy === "load" && members.length === 0 && <p className="settings-note">Loading the team…</p>}
+                {members.map(member => (
+                  <div className="team-row" key={member.id}>
+                    <span className="settings-avatar">{(member.name || member.email || "U").slice(0, 1).toUpperCase()}</span>
+                    <div className="team-who"><strong>{member.name || member.email}</strong><small>{member.email}</small></div>
+                    <select
+                      value={member.role}
+                      aria-label={`Role for ${member.email}`}
+                      disabled={member.email === profile?.email || teamBusy !== null}
+                      title={member.email === profile?.email ? "You cannot change your own role." : "Set this member's role"}
+                      onChange={(event) => void changeMemberRole(member.id, event.target.value as TeamRole)}
+                    >
+                      {TEAM_ROLES.map(value => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <form className="team-invite" onSubmit={sendInvite}>
+                <input type="email" required value={inviteEmail} placeholder="teammate@company.com" aria-label="Invite email" onChange={(event) => setInviteEmail(event.target.value)} />
+                <select value={inviteRole} aria-label="Role for the invitation" onChange={(event) => setInviteRole(event.target.value as TeamRole)}>
+                  {TEAM_ROLES.map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+                <button type="submit" disabled={teamBusy !== null || inviteEmail.trim().length === 0}>{teamBusy === "invite" ? "Inviting…" : "Invite"}</button>
+              </form>
+              {inviteLink && <p className="settings-note team-invite-link">Invitation link, shown once — send it to them: <code>{inviteLink}</code></p>}
+              {pendingInvites.length > 0 && (
+                <div className="team-pending">
+                  <strong>Pending</strong>
+                  {pendingInvites.map(invite => <div className="team-row" key={invite.id}><div className="team-who"><strong>{invite.email}</strong><small>{invite.role} · expires {new Date(invite.expiresAt).toLocaleDateString()}</small></div></div>)}
+                </div>
+              )}
+              <p className="settings-note">Roles are enforced server-side. An invitation admits one address, once, for a week.</p>
+            </>
+          )}
         </Panel>}
         {active === "permissions" && <Panel id="permissions" title="Permissions" subtitle="What your role can do in this workspace." icon={<LockKeyhole size={18} />}>
           <div className="settings-member"><span className="settings-avatar">{(profile?.name || "U").slice(0, 1).toUpperCase()}</span><div><strong>{roleMeta.label}</strong><small>{roleMeta.blurb}</small></div></div>
           <ul className="settings-permission-list">{grantedPermissions.map(permission => <li key={permission}><Check size={13} />{PERMISSION_LABELS[permission]}</li>)}</ul>
-          <p className="settings-note">Per-member roles require team invitations, which are not available yet — every account on this workspace currently shares the {roleMeta.label} role.</p>
+          <p className="settings-note">Per-member roles are managed in the Team tab; every permission below is enforced server-side.</p>
           <div className="settings-rule"><Check size={14} /><div><strong>Review before publishing</strong><p>Posts awaiting an approve/schedule decision.</p></div><Link href="/dashboard/approvals">Review<ArrowUpRight size={12} /></Link></div>
           <div className="settings-mini-workflow"><span>Draft</span><span>Review</span><span>Approve</span><span>Publish</span></div>
         </Panel>}

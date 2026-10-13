@@ -524,6 +524,70 @@ let editorPostId = null;
     wrongUse.status === 403,
     `status ${wrongUse.status}`
   );
+  // CLIENT is the read-only end of the matrix, reachable the same way.
+  const clientEmail = `role.client-${stamp}@socialorc.local`;
+  const clientInvite = await req(adminJar, `${BASE_URL}/api/workspace/invitations`, {
+    method: "POST",
+    json: { email: clientEmail, role: "CLIENT" },
+  });
+  const clientJar = new Jar();
+  const clientReg = await req(clientJar, `${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    json: {
+      name: "Invited Client",
+      email: clientEmail,
+      password,
+      inviteToken: clientInvite.body?.token ?? "",
+    },
+  });
+  await loginWithPassword(clientJar, clientEmail, password);
+  const clientPerms = (await session(clientJar)).user?.permissions ?? [];
+  // CLIENT is the read-only end of the matrix. Assert the read permissions it does
+  // have and, more to the point, that it holds no write permission at all — a
+  // hard-coded count would break the moment a readable surface is added.
+  const CLIENT_READ_PERMISSIONS = ["dashboard:view", "brains:read", "engagement:view"];
+  const CLIENT_WRITE_PERMISSIONS = [
+    "posts:create",
+    "posts:submit",
+    "posts:approve",
+    "posts:schedule",
+    "posts:delete",
+    "accounts:connect",
+    "media:upload",
+    "media:delete",
+    "brains:manage",
+    "feed:post",
+    "engagement:reply",
+    "engagement:react",
+    "engagement:delete",
+    "users:manage",
+  ];
+  check(
+    "a CLIENT invitation produces a session that can only look",
+    clientReg.status === 200 &&
+      clientReg.body?.role === "CLIENT" &&
+      CLIENT_READ_PERMISSIONS.every((p) => clientPerms.includes(p)) &&
+      CLIENT_WRITE_PERMISSIONS.every((p) => !clientPerms.includes(p)),
+    `status ${clientReg.status}, role ${clientReg.body?.role ?? "none"}, perms ${clientPerms.join(",") || "none"}`
+  );
+
+  const clientPost = await req(clientJar, `${BASE_URL}/api/posts`, {
+    method: "POST",
+    json: { content: "A client must not be able to post", platform: "LINKEDIN" },
+  });
+  check("a CLIENT cannot create a post (403)", clientPost.status === 403, `status ${clientPost.status}`);
+
+  const clientSchedule = await req(clientJar, `${BASE_URL}/api/posts/does-not-exist/schedule`, {
+    method: "POST",
+    json: { scheduledFor: new Date(Date.now() + 3_600_000).toISOString() },
+  });
+  check("a CLIENT cannot schedule (403)", clientSchedule.status === 403, `status ${clientSchedule.status}`);
+
+  const clientApprove = await req(clientJar, `${BASE_URL}/api/posts/does-not-exist/approve`, {
+    method: "POST",
+    json: { action: "approve" },
+  });
+  check("a CLIENT cannot approve (403)", clientApprove.status === 403, `status ${clientApprove.status}`);
 }
 
 const failed = RESULTS.filter((r) => !r.ok);
