@@ -1,199 +1,210 @@
-# SocialOrc — state report for review, 2026-10-13
+# SocialOrc — handover report, 2026-10-13
 
-Written for review, not for the log. Every number below was measured on this machine or on the live
-deployment at the time of writing; nothing here is estimated. Where something is still broken or
-unverified it says so in the same paragraph as the good news.
+For whoever picks this up next. Everything below was measured on this machine or on the live
+deployment, not estimated. Where something is broken, unproven or undecided it says so in the same
+paragraph as the good news.
 
 ---
 
-## 1. Where the app is right now
+## 1. Where things stand
 
 | | |
 |---|---|
-| `main` and production | **`76a405f`**, Vercel deployment Ready, `/api/health` → `{"status":"ok"}` |
-| Local == remote | nothing unpushed, nothing uncommitted (one untracked scratch script, `scripts/audit-platforms.ts`, not from this work) |
-| API routes | **48** (was 44) |
+| `main` = production | **`03fa7ea`** (Vercel Ready; `/api/health` reports the same commit) |
+| Today's work | **25 commits**, all pushed, working tree clean |
+| API routes | 49 |
 | Pages | 21 |
-| Unit tests | **658 passing, 0 failing** across 58 files |
-| e2e (real HTTP, real database) | **publish 22/22 · engagement 15/15 · roles 37/37** — all exit 0 |
+| Unit tests | **667 passing, 0 failing** (59 files) |
+| e2e (real HTTP + real database) | publish **22/22** · engagement **15/15** · roles **41/41** |
 | Type check / build | `tsc --noEmit` 0 errors · `next build` exit 0 |
-| Migrations | sqlite **13**, postgres **6** — both **verified in sync** with the schema |
-| Commits today | 20 (`cc36f32` → `76a405f`) |
+| Migrations | sqlite **14**, postgres **7** — both **verified in sync** with their schema |
 
-Two databases matter here and both were proven, not assumed: the sqlite history now matches its
-schema, and `prisma migrate diff` against the **live production database** prints
-`-- This is an empty migration`, which is the only honest way to say "production's schema is what the
-migrations say it is".
+## 2. Getting it running
 
----
+```bash
+git clone git@github.com:NoraioPro/socialorc.git && cd socialorc
+npm install                       # postinstall runs prisma generate
+cp .env.example .env              # then fill DATABASE_URL + NEXTAUTH_SECRET + NEXTAUTH_URL
+                                  #  + TOKEN_ENCRYPTION_KEY + CRON_SECRET (see §4)
+npx prisma migrate deploy         # applies prisma/migrations (sqlite) or prisma/migrations-postgres
+npm run dev                       # http://localhost:3000
+```
 
-## 2. What changed today, and how each one was proven
+⚠️ **`npm run build` is not a dry run.** It is
+`prisma generate && node scripts/migrate-deploy.mjs && next build` — it applies migrations to
+whatever `DATABASE_URL` points at. With production credentials in `.env` that means migrating
+production. Point it at a local database unless that is what you mean.
 
-Everything below is on `main`, deployed, and covered by the tests named in the last column.
+Handy scripts: `npm run typecheck` · `npm run test:unit` (regenerates the sqlite client first, so it
+never needs a Postgres) · `npm run test:e2e` · `npm run test:e2e:roles` · `npm run test:durability` ·
+`npm run db:pg:schema`.
 
-### The publishing gate — the highest-risk area
+First account: registration is **invite-only** by default (`src/lib/signup-policy.ts`), but the
+**first** account is always allowed, so a fresh database can claim its owner. For local work set
+`ALLOW_PUBLIC_SIGNUP=true` to register more than one.
 
-The gate had **two** doors and both were open. `POST /publish` never checked approval, and the queue
-had no concept of "wait for human approval".
+Every provider is optional locally: with `MOCK_SOCIAL_ADAPTERS=true` the publish path runs against a
+mock adapter and never touches a real platform, which is how all the e2e suites work.
 
-| commit | what was wrong | what it does now | proof |
-|---|---|---|---|
-| `cc36f32` | immediate publish accepted a DRAFT | refuses anything not approved, with a reason the UI can show | publish e2e: DRAFT publish → 400 |
-| `42af4d2` | accounts flagged for reconnect were invisible | settings shows a reconnect banner with the reason | unit + rendered |
-| `4acaeb2` | a crash mid-publish left posts stuck in `PUBLISHING` forever, unreachable by any retry | lease recovery releases them | unit + e2e |
+## 3. What changed today, and why
+
+Grouped by area. Each of these is a separate commit with the reasoning in its message; `git log` is
+the detailed record, this is the map.
+
+### The publishing gate (highest-risk area, two open doors)
+
+- `POST /publish` never checked approval — immediate publish accepted a draft (`cc36f32`).
+- The queue had no concept of waiting for approval.
+- Accounts the worker had flagged for reconnect were invisible in the UI; settings now shows a
+  reconnect banner with the reason (`42af4d2`, M0.10).
+- A crash mid-publish left posts stuck in `PUBLISHING` forever, unreachable by any retry (`4acaeb2`).
 
 ### The race that could publish unapproved content (`3d7e777`)
 
-Every status change was **check-then-act**: read the post, decide it is APPROVED, then
+Every status change was check-then-act: read the post, decide it is APPROVED, then
 `update({ where: { id } })`. An edit landing in between returns the post to DRAFT and clears
-`approvedAt` — and the write put it back to `SCHEDULED` anyway. The worker only looks at the status,
+`approvedAt` — and the write put it back to `SCHEDULED` regardless. The worker only reads the status,
 so it published content nobody had approved.
 
 Now every transition is a guarded `updateMany` that restates the state it decided about, and
-`count === 0` becomes a **409 "this post changed, reload"** instead of a silent overwrite. Same for
-the worker's `PUBLISHING` claim. `approvedAt` is part of every approval-dependent guard, because the
-status alone is not proof.
-
-*Proof:* the publish suite asserts the exact interleaving (edit an approved post → schedule → 400),
-and the old `schedule-gate.test.ts`, which was a tautology that tested a copy of its own logic, now
-tests the real guards and fails if any route goes back to an unguarded `update`.
+`count === 0` becomes a **409 "this post changed, reload"**. `approvedAt` is part of every
+approval-dependent guard, because a status can outlive its stamp. The rules live in
+`src/lib/posts/transitions.ts`; add new ones there, not inline.
 
 ### The worker (`c3014c6`, `d1d300a`, `a4648f1`)
 
-- **Immediate publish to Telegram could never work**: the queue passed the account's destination
-  (chat id) and this route did not, so the adapter refused every send with `MISSING_CHAT`.
-- **The reconnect banner could not fire for the case it exists for**: the expired-token path called
-  its failure handler without the account id, and the flag is only set when the account is named.
-- **A function that died mid-send got its job re-queued**, which re-arms the exact duplicate the
-  first attempt might have caused. A crash after the platform accepts a post is indistinguishable
-  from a crash before it, so the job and post now fail with an explicit *outcome unknown — check the
-  platform* note, and the deliberate Retry button re-queues it.
-- Both publish routes declare a function time ceiling and the worker stops claiming work it cannot
-  finish. (60s, because the current Vercel plan allows no more; a Pro plan can raise it in one line.)
+- Immediate publish to Telegram could never work: the queue passed the account's destination (chat
+  id) and that route did not, so the adapter refused every send with `MISSING_CHAT`.
+- The reconnect flag could not be set on the expired-token path (the failure handler was called
+  without the account id), which is exactly the case the banner exists for.
+- A job whose run died mid-send was re-queued, re-arming the duplicate it might already have caused.
+  It now fails with an explicit *outcome unknown — check the platform* note; the deliberate Retry
+  button re-queues it.
+- Both publish routes declare a function ceiling and the worker stops claiming work it cannot finish.
+  `maxDuration = 60` is what every Vercel plan allows; raise it in one line on Pro.
 
-### Security (`78747de`, `a4648f1`, `54cb05e`)
+### Security (`78747de`, `a4648f1`, `54cb05e`, `bdc4f6f`)
 
-- **The OAuth state cookie was plain JSON.** Any client could mint one with somebody else's user id
-  and finish a connect it never started. It is now signed (`hmac.base64url`, verified with
-  `timingSafeEqual`) and an unsigned or edited value is simply not a cookie.
-- **Telegram's connect endpoint is a GET a victim can be made to open**, and it accepted a chat id
-  from the query — enough to point another tenant's account at the attacker's chat. A chat id from
-  the query now requires a verified state cookie belonging to *that* session.
-- **Fourteen write paths were session-only**: media upload/delete, brains, the brand brain, feed
-  comments and reactions, and inbox replies — the one place a reply is actually sent to a real
-  platform. They now check a permission, the five permissions that were missing entirely are in the
-  matrix with least-privilege assignments, and a test walks the API tree so a **new** unprotected
-  mutating route fails the build.
-- **`/api/health` described the deployment to anyone**: migration count, queued job count, and the
-  names of the environment variables each connector was missing. Anonymous callers now get four
-  fields (status, commit, environment, timestamp); the rest needs the cron token.
+- **The OAuth state cookie was plain JSON** — any client could mint one naming another user.
+  It is now signed (`hmac.base64url`, `timingSafeEqual`) and verified on every callback.
+  **Set `OAUTH_STATE_SECRET`** (falls back to `NEXTAUTH_SECRET`).
+- **Telegram's connect endpoint** is a GET a victim can be made to open, and it accepted a chat id
+  from the query. That now requires a verified state cookie belonging to the same session.
+- **Fourteen write paths were session-only** (media, brains, brand brain, feed, inbox replies — the
+  one place a reply reaches a real platform). They check a permission now, and
+  `tests/unit/route-permissions.test.ts` walks the API tree so a *new* unprotected mutating route
+  fails the build. Deliberate exceptions are listed there with reasons.
+- **`/api/health` no longer describes the deployment to strangers.** Anonymous callers get
+  `{status, commit, environment, timestamp}`; the rest needs the cron bearer token.
+- **Rate limiting** (`src/lib/rate-limit.ts` + store + guard): login 10/15min per address, register
+  10/h per IP, AI 60/h per user, upload 120/h per user. Sign-in checks the budget and spends it only
+  on a failed attempt, so an attacker cannot lock a real user out. Refusals are 429 + `Retry-After`.
 
-### Reaching the product (`1b5ccda`, `22f792a`)
+### Making the product reachable (`1b5ccda`, `22f792a`, `3a4639c`, `0d09149`)
 
-- **`ScheduleControl` existed and nothing imported it.** The approve → schedule pipeline — the one
-  the worker actually runs on — was unreachable from the UI; those three pages could only be filled
-  by calling the API by hand. It is now on the post card, rendering nothing unless the post is
-  approved and still carries its approval stamp.
-- **A timezone bug**: the control sent a raw `datetime-local` wall clock, so the server resolved it
-  in *its* zone (UTC on Vercel) — a 14:30 Cairo schedule went out at 17:30. The browser now resolves
-  the instant and sends the ISO string.
-- **The marketing page opened with invented numbers** — "LIVE COMMAND CENTER" over hard-coded
-  figures and a statistic about the reader's own LinkedIn audience — presented as measurements. The
-  panel is now labelled sample data and the fabricated claims are gone.
+- `ScheduleControl` existed and nothing imported it: approve → schedule, the pipeline the worker runs
+  on, was unreachable from the UI. It is now on the post card.
+- The control sent a raw `datetime-local` wall clock, so the server resolved it in *its* timezone
+  (UTC on Vercel) — a 14:30 Cairo schedule went out at 17:30. The browser now sends an ISO instant.
+- The marketing page opened with invented numbers presented as measurements. Labelled sample data.
+- **Only ADMIN and EDITOR could ever exist**: signup produced those two and nothing could assign
+  anything else, so MANAGER and CLIENT were in the permission matrix and in no database. There is now
+  an invitation API (`/api/workspace/invitations`, ADMIN only) whose token is stored **hashed**, shown
+  once, admits one address for a week, plus role changes that refuse self-changes and refuse to
+  demote the last admin. The settings **Team** tab drives it.
+- The Brand Brain was write-only: all fourteen fields saved, nothing read them, and generation fell
+  back to a hard-coded demo brand ("SocialOrc Demo Brand") that it presented as the customer's.
+  The routes now load the stored brain (`src/lib/brand-context.ts`) and an empty brain yields a
+  prompt with **no** brand section. `forceMock` is refused unless mock output is allowed at all.
+- `/api/workspaces` did not exist and the AI settings page called it, so that tab was dead. Added.
 
-### Team roles (`3a4639c`) — a gap the tests found
+### Tests (`eb5c6b7`, `8636e26`)
 
-Rewriting the role harness surfaced that **only ADMIN and EDITOR could ever exist**: signup produced
-the first account as ADMIN and everyone after as EDITOR, and nothing anywhere could assign anything
-else. MANAGER and CLIENT were in the permission matrix and in no database — two of four roles with
-checks nobody could exercise.
+- The e2e harness built its database with `db push`, which syncs the schema instead of applying the
+  migrations — and it was hiding real drift: the sqlite history was missing the profile columns and
+  the feed tables. Fixed, and the harness now uses `migrate deploy` on both providers.
+- Two of its assumptions had gone stale (invite-only signup, least-privilege roles) and made every
+  check fail on 403/401, which looked like a broken app.
+- `roles.e2e` drove a dev-only role-minting endpoint that no longer exists — and must not. Rewritten
+  against the real signup policy; it also asserts that endpoint stays **404**.
 
-Now: an ADMIN invites an address **with a role**; the token is shown once, stored hashed, matched in
-constant time, admits only the address it names, once, for a week, and overrides the otherwise
-invite-only signup policy. Roles can be changed, with two refusals that matter — nobody changes their
-own role, and the last ADMIN cannot be demoted. Migration generated for both providers and verified
-applied to production.
+## 4. Architecture notes a newcomer needs
 
-### The harness itself (`eb5c6b7`, `8636e26`)
+- **Two Prisma schemas, two migration directories.** `prisma7.config.ts` picks by URL scheme:
+  `file:` → `prisma/schema.prisma` + `prisma/migrations`; `postgresql://` →
+  `prisma/schema.postgres.prisma` + `prisma/migrations-postgres`. The postgres schema is
+  **generated** from the sqlite one (`npm run db:pg:schema`) — never edit it by hand.
+  **Every schema change needs a migration in both directories**, and you can generate them without a
+  Postgres server:
+  ```bash
+  npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script
+  npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.postgres.prisma --script
+  ```
+  (the first against a database built by the committed migrations; the second works against any live
+  postgres — it is read-only introspection).
+- **The generated client follows `DATABASE_URL`.** Switching between sqlite and postgres needs
+  `npx prisma generate` again, or the build dies in "Collecting page data" with a provider error.
+  This bites after running the e2e harness.
+- **Permissions**: `src/lib/roles.ts` holds the matrix, `requirePermission(...)` enforces it, and
+  `parseRole` normalises the stored string. Roles: ADMIN (everything incl. `users:manage`), MANAGER
+  (approve/schedule/connect/media), EDITOR (create/submit/upload/feed/engagement), CLIENT (read only).
+- **Adapter pattern**: `src/lib/adapters/*` per platform, `mock.ts` for tests, `errors.ts`
+  classifies failures and decides `requiresReconnect`. Publishing jobs carry attempts, backoff and a
+  lease; a stale `PROCESSING` lease is reaped by `src/lib/jobs/lease-recovery.ts`.
+- **Tenancy is not enforced.** `src/lib/workspace.ts` says so itself, and rows now carry tenant keys
+  that nothing reads. `PATCH`/`GET` scope by `userId`, not workspace.
+- **Deploys**: pushing `main` deploys production; the build runs `scripts/migrate-deploy.mjs`, so a
+  bad migration fails the deploy rather than the runtime. `/api/health`'s `commit` is the only honest
+  way to know what is live.
 
-- It built its throwaway database with `db push`, which syncs the schema instead of applying the
-  migrations — and it was **hiding real drift**: the sqlite history was missing the profile columns
-  and the feed tables, so things "proven" locally were proven against a database the migrations
-  cannot produce. Fixed, and the branch now uses `migrate deploy`.
-- Two stale assumptions (invite-only signup, least-privilege roles) made every check fail on 403/401
-  and looked like a broken app.
-- `roles.e2e` drove a dev-only role-minting endpoint that no longer exists — and must not. It is
-  rewritten against the real signup policy, and it asserts that endpoint stays **404**.
-- **The harness runs locally with no Postgres at all.** Earlier notes in this project claimed e2e was
-  blocked without it; that was wrong.
+## 5. Traps worth knowing (all hit today)
 
----
+1. **A bare `git push` pushes `main`.** Always `git push origin <branch>`.
+2. **`npm run build` applies migrations** to `DATABASE_URL` (see §2). It is not a dry run, and the
+   same command runs on every production deploy — which is why a broken migration fails a deploy
+   instead of the runtime.
+3. **Next 16 allows one `next dev` per directory.** The e2e harness boots its own server, so stop any
+   dev server first, and stop the harness before starting yours.
+4. **Production env vars are all scoped to Production** in the Vercel project, so no PR has ever had a
+   working preview build (`DATABASE_URL is not set` at `postinstall`). Any preview needs its own
+   database — the build applies migrations.
+5. **`db push` hides drift.** It is what let the sqlite history rot. Use `migrate deploy` for anything
+   you intend to trust.
+6. **The harness sets `ALLOW_PUBLIC_SIGNUP=true` and `SIGNUP_ROLE=ADMIN` for its own run only** — that
+   is why its users can drive flows that real signups cannot.
+7. `tests/e2e/roles.e2e.mjs` needs a server with signups open and **no** `SIGNUP_ROLE`, or every user
+   is ADMIN and there is no lower role to assert against:
+   ```bash
+   ALLOW_PUBLIC_SIGNUP=true npx next dev -p 3200     # separate database, migrations applied
+   ROLES_BASE_URL=http://localhost:3200 npm run test:e2e:roles
+   ```
 
-## 3. What is still not done
+## 6. What is still missing
 
-Ordered by what I would fix first. Nothing here is hidden behind "phase 2" language — these are the
-gaps as they stand.
+**Decisions, not code** (each changes the product, so they are the owner's call):
 
-**Code, mine to do, needs your go-ahead:**
+1. **Tenancy**: enforce workspace filtering (large: queries + a data migration) or delete the tenant
+   fields and the plan with them.
+2. **Inbox**: build the real per-platform adapters (large, per platform) or take it out of the nav.
+3. **The five intelligence panels** (competitor, trends, localization, network, global map): mount
+   them behind honest "sample data" labels, or delete them as dead code.
 
-1. **No rate limiting anywhere** (login, upload, AI generation). Needs one decision from you: a
-   table-backed limiter in the app, or the platform's edge limiter.
-2. **The brand brain is write-only.** All 14 fields are saved and nothing reads them; the generation
-   path falls back to a hard-coded demo brand (`ai.ts:265`), and a real model call receives *that*
-   brand when no context exists.
-3. **`forceMock` is honoured unconditionally**, so a production caller can save mock text.
-4. **`/api/workspaces` does not exist** and the settings AI page calls it, so that tab is dead.
-5. **No Team UI**: the invitation and role API is complete and tested, the settings page has no
-   member list or invite form.
-6. **Two roles remain unexercised end to end**: CLIENT has never been through any flow (MANAGER now
-   has).
+**Work pending, no decision needed:**
 
-**Product decisions only you can make** — the 14 in `docs/PRODUCTION-PLAN-2026-10-13.md` §5, of
-which these block the most:
+4. **Vercel Preview environment** — add the env vars (and a separate database) so PRs get previews and
+   the e2e suite can run in CI.
+5. **No real platform has ever been driven.** Every send in every test goes through the mock adapter,
+   so the first real publish on each connector is unproven. The fastest path to confidence: connect
+   one real account in a staging workspace and publish one post.
+6. The durability suite has not been run against a Postgres instance.
 
-- **Multi-tenancy**: `workspace.ts` says of itself that it "does not filter anything yet", and part 2
-  of that comment is now false — tenant keys are written, so rows carry a tenant while nothing reads
-  it. Enforce, or delete the field and the plan with it?
-- **Inbox**: the production adapters return nothing (7 × "Not implemented") while the page promises
-  "all your comments, mentions and messages in one place". Mount it for real, or take it out of the
-  nav?
-- **The unmounted intelligence panels** (competitor, trends, localization, network, global map): they
-  carry honest "mock" labels and are imported by nothing. Mount or delete.
-- **Preview deployments**: every environment variable in the Vercel project is scoped to Production
-  only, so no PR has ever had a working preview, and this is where the e2e suite should run in CI.
+## 7. The documents
 
-**Known-unknowns, stated plainly:** no real platform has ever been driven (every send in every test
-goes through the mock adapter), so the first real publish on each of the seven connectors is still
-unproven; and the durability suite has not been run against a Postgres instance.
-
----
-
-## 4. How to check any of this yourself
-
-```bash
-cd ~/Desktop/Projects/WEB/socialorc
-
-# types, units, production build
-npx tsc --noEmit && npm run test:unit && npx prisma generate && npx next build
-
-# the real thing over HTTP — boots its own server and database, no Postgres needed
-export DATABASE_URL="file:/tmp/e2e.db" && npx prisma generate
-node tests/e2e/run.mjs          # publish 22/22 + engagement 15/15
-bash /tmp/so-roles-run.sh       # roles 37/37, needs its own server (see the skill)
-
-# is production actually serving what main says?
-curl -s https://socialorc.vercel.app/api/health      # .commit must match git rev-parse HEAD
-
-# is production's schema what the migrations say?
-export DATABASE_URL="$(grep -m1 '^DATABASE_URL=' .env | cut -d= -f2-)"   # read-only introspection
-npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.postgres.prisma --script
-# expected: "-- This is an empty migration."
-```
-
-## 5. The documents this session produced
-
-- `docs/PRODUCTION-PLAN-2026-10-13.md` — Claude Opus's production plan (PR0–PR8 landed; §5 is the
-  decision list that is still yours)
-- `docs/FEATURE-REVIEW-2026-10-13.md` — feature-by-feature status of all 22 surfaces
-- `docs/AUDIT-2026-10-13.md` — the Claude Code audit of the codebase
-- `docs/ROADMAP-2.0.md` §5 — the landed work, the two defects found, and what is left
+| file | what it is |
+|---|---|
+| `docs/STATE-REPORT-2026-10-13.md` | this handover |
+| `docs/PRODUCTION-PLAN-2026-10-13.md` | Claude Opus's production plan; PR0–PR8 landed, §5 is the decision list |
+| `docs/FEATURE-REVIEW-2026-10-13.md` | feature-by-feature status of all 22 surfaces |
+| `docs/AUDIT-2026-10-13.md` | codebase audit |
+| `docs/ROADMAP-2.0.md` | roadmap; §5 records today's work and the two defects found |
+| `docs/AGENT-BRIEF.md`, `docs/SAAS-PLAN.md` | pre-existing brief and the tenancy plan |
