@@ -8,6 +8,7 @@ import {
   findOwnedSocialAccount,
   unownedMediaAssetIds,
 } from "@/lib/social/account-select";
+import { editGuardWhere } from "@/lib/posts/transitions";
 
 const updatePostSchema = z.object({
   title: z.string().optional(),
@@ -132,11 +133,20 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       updatePayload.platformContent = platformContent ?? undefined;
     }
 
-    await prisma.post.update({
-      where: { id },
+    // Guarded write. The pre-check above refuses PUBLISHING/PUBLISHED with a
+    // clear 400; this closes the window between that read and this write, where
+    // the worker can claim the post and start sending it.
+    const edited = await prisma.post.updateMany({
+      where: editGuardWhere(id, guard.userId),
       data: updatePayload,
-      include: POST_SAFE_INCLUDE,
     });
+
+    if (edited.count === 0) {
+      return NextResponse.json(
+        { error: "Cannot edit a post that is publishing or published" },
+        { status: 400 }
+      );
+    }
 
     if (mediaAssetIds !== undefined) {
       await prisma.postMedia.deleteMany({ where: { postId: id } });

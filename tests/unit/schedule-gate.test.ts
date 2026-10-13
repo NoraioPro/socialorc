@@ -1,125 +1,119 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PostStatus } from "@prisma/client";
+import { readFileSync } from "node:fs";
+import {
+  EDIT_BLOCKED_STATUSES,
+  POST_CONFLICT_MESSAGE,
+  POST_CONFLICT_STATUS,
+  approveGuardWhere,
+  editGuardWhere,
+  publishClaimWhere,
+  retryGuardWhere,
+  scheduleBlockMessage,
+  scheduleBlockReason,
+  scheduleGuardWhere,
+  submitGuardWhere,
+  unscheduleGuardWhere,
+} from "../../src/lib/posts/transitions";
 
-function canSchedule(status: PostStatus): boolean {
-  return status === PostStatus.APPROVED;
-}
+/**
+ * The scheduling gate, tested against the real module.
+ *
+ * The previous version of this file defined its own `canSchedule`/`canReschedule`
+ * and imported nothing from `src`, so it proved only that the test file agreed
+ * with itself. These assertions are on the guards the routes actually pass to
+ * Prisma — including the `approvedAt` requirement, which is what makes the
+ * write itself refuse a post whose approval was cleared by an edit.
+ */
 
-function canReschedule(status: PostStatus): boolean {
-  return status === PostStatus.SCHEDULED;
-}
+const approved = new Date("2026-10-01T10:00:00.000Z");
 
-test("only APPROVED posts can be scheduled (gate check)", () => {
-  const allStatuses = Object.values(PostStatus) as PostStatus[];
-
-  for (const status of allStatuses) {
-    const allowed = canSchedule(status);
-
-    if (status === PostStatus.APPROVED) {
-      assert.ok(allowed, "APPROVED posts MUST be schedulable");
-    } else {
-      assert.ok(!allowed, `${status} posts must NOT be schedulable directly`);
-    }
-  }
+test("only an approved post with its approval stamp may be scheduled", () => {
+  assert.equal(scheduleBlockReason({ status: "APPROVED", approvedAt: approved }), null);
 });
 
-test("schedule API rejects non-APPROVED posts (approval gate is sacred)", () => {
-  const rejectedStatuses: PostStatus[] = [
-    PostStatus.DRAFT,
-    PostStatus.PENDING_APPROVAL,
-    PostStatus.SCHEDULED,
-    PostStatus.PUBLISHING,
-    PostStatus.PUBLISHED,
-    PostStatus.FAILED,
+test("a DRAFT is refused, with the message the route returns", () => {
+  assert.equal(scheduleBlockReason({ status: "DRAFT", approvedAt: null }), "not_approved");
+  assert.match(scheduleBlockMessage("DRAFT"), /must be approved/i);
+  assert.match(scheduleBlockMessage("DRAFT"), /DRAFT/);
+});
+
+test("APPROVED with no approvedAt is refused — the status alone is not proof", () => {
+  assert.equal(scheduleBlockReason({ status: "APPROVED", approvedAt: null }), "not_approved");
+});
+
+test("the schedule write carries the state it checked", () => {
+  assert.deepEqual(scheduleGuardWhere("post_1", "user_1"), {
+    id: "post_1",
+    userId: "user_1",
+    status: "APPROVED",
+    approvedAt: { not: null },
+  });
+});
+
+test("the worker's publish claim carries the same approval requirement", () => {
+  assert.deepEqual(publishClaimWhere("post_1"), {
+    id: "post_1",
+    status: "SCHEDULED",
+    approvedAt: { not: null },
+  });
+});
+
+test("unschedule only applies to a scheduled post", () => {
+  assert.deepEqual(unscheduleGuardWhere("post_1", "user_1"), {
+    id: "post_1",
+    userId: "user_1",
+    status: "SCHEDULED",
+  });
+});
+
+test("approve and submit only apply while a decision is still pending", () => {
+  assert.deepEqual(approveGuardWhere("post_1", "user_1"), {
+    id: "post_1",
+    userId: "user_1",
+    status: { in: ["DRAFT", "PENDING_APPROVAL"] },
+  });
+  assert.deepEqual(submitGuardWhere("post_1", "user_1"), approveGuardWhere("post_1", "user_1"));
+});
+
+test("a retry needs a failed post that was approved", () => {
+  assert.deepEqual(retryGuardWhere("post_1", "user_1"), {
+    id: "post_1",
+    userId: "user_1",
+    status: "FAILED",
+    approvedAt: { not: null },
+  });
+});
+
+test("editing is refused for a post that is publishing or published", () => {
+  assert.deepEqual(editGuardWhere("post_1", "user_1"), {
+    id: "post_1",
+    userId: "user_1",
+    status: { notIn: ["PUBLISHING", "PUBLISHED"] },
+  });
+  assert.deepEqual([...EDIT_BLOCKED_STATUSES], ["PUBLISHING", "PUBLISHED"]);
+});
+
+test("a conflict is a 409 with a message that says what to do", () => {
+  assert.equal(POST_CONFLICT_STATUS, 409);
+  assert.match(POST_CONFLICT_MESSAGE, /reload/i);
+});
+
+test("every status-changing route uses a guard, not a bare update by id", () => {
+  // A guard nobody calls is not a fix. Each of these reads as text so the test
+  // needs no database, and each names the helper the route must use.
+  const expectations: [string, string][] = [
+    ["src/app/api/posts/[id]/schedule/route.ts", "scheduleGuardWhere"],
+    ["src/app/api/posts/[id]/schedule/route.ts", "unscheduleGuardWhere"],
+    ["src/app/api/posts/[id]/approve/route.ts", "approveGuardWhere"],
+    ["src/app/api/posts/[id]/approve/route.ts", "submitGuardWhere"],
+    ["src/app/api/posts/[id]/retry/route.ts", "retryGuardWhere"],
+    ["src/app/api/posts/[id]/route.ts", "editGuardWhere"],
+    ["src/app/api/cron/publish/route.ts", "publishClaimWhere"],
   ];
 
-  for (const status of rejectedStatuses) {
-    const isAllowed = canSchedule(status);
-    assert.ok(
-      !isAllowed,
-      `Schedule API must reject ${status} posts — approval gate is sacred`
-    );
+  for (const [file, helper] of expectations) {
+    const source = readFileSync(file, "utf8");
+    assert.match(source, new RegExp(`${helper}\\(`), `${file} must use ${helper}`);
   }
-});
-
-test("only SCHEDULED posts can be rescheduled", () => {
-  const allStatuses = Object.values(PostStatus) as PostStatus[];
-
-  for (const status of allStatuses) {
-    const allowed = canReschedule(status);
-
-    if (status === PostStatus.SCHEDULED) {
-      assert.ok(allowed, "SCHEDULED posts MUST be reschedulable");
-    } else {
-      assert.ok(!allowed, `${status} posts must NOT be reschedulable`);
-    }
-  }
-});
-
-test("schedule flow preserves approval requirement", () => {
-  const workflowPath = [
-    { from: "DRAFT" as const, action: "edit", to: "DRAFT" as const },
-    { from: "DRAFT" as const, action: "submit", to: "PENDING_APPROVAL" as const },
-    { from: "PENDING_APPROVAL" as const, action: "approve", to: "APPROVED" as const },
-    { from: "APPROVED" as const, action: "schedule", to: "SCHEDULED" as const },
-    { from: "SCHEDULED" as const, action: "reschedule", to: "SCHEDULED" as const },
-    { from: "SCHEDULED" as const, action: "publish", to: "PUBLISHING" as const },
-    { from: "PUBLISHING" as const, action: "complete", to: "PUBLISHED" as const },
-  ];
-
-  const scheduleStep = workflowPath.find((step) => step.action === "schedule");
-  assert.ok(scheduleStep, "Workflow must have a schedule step");
-  assert.equal(
-    scheduleStep.from,
-    "APPROVED",
-    "Schedule step must start from APPROVED"
-  );
-
-  const draftToScheduled = workflowPath.filter(
-    (step) => step.from === "DRAFT" && (step.to as string) === "SCHEDULED"
-  );
-  assert.equal(
-    draftToScheduled.length,
-    0,
-    "There must be no direct path from DRAFT to SCHEDULED"
-  );
-});
-
-test("scheduled time must be in the future", () => {
-  const now = new Date();
-  const pastTime = new Date(now.getTime() - 60000);
-  const futureTime = new Date(now.getTime() + 60000);
-
-  const isPastValid = pastTime > now;
-  const isFutureValid = futureTime > now;
-
-  assert.ok(!isPastValid, "Past times must be rejected");
-  assert.ok(isFutureValid, "Future times must be accepted");
-});
-
-test("reschedule preserves SCHEDULED status", () => {
-  const initialStatus = PostStatus.SCHEDULED;
-  const expectedStatusAfterReschedule = PostStatus.SCHEDULED;
-
-  assert.equal(
-    initialStatus,
-    expectedStatusAfterReschedule,
-    "Reschedule should not change post status"
-  );
-});
-
-test("unschedule returns post to APPROVED status", () => {
-  const scheduledStatus = PostStatus.SCHEDULED;
-  const expectedStatusAfterUnschedule = PostStatus.APPROVED;
-
-  assert.ok(
-    (scheduledStatus as string) !== (expectedStatusAfterUnschedule as string),
-    "Status should change on unschedule"
-  );
-  assert.equal(
-    expectedStatusAfterUnschedule,
-    PostStatus.APPROVED,
-    "Unscheduled post should return to APPROVED"
-  );
 });

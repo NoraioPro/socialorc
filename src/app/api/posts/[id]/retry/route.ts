@@ -11,6 +11,11 @@ import {
   retryBlockMessage,
 } from "@/lib/failed-retry";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
+import {
+  POST_CONFLICT_MESSAGE,
+  POST_CONFLICT_STATUS,
+  retryGuardWhere,
+} from "@/lib/posts/transitions";
 
 const retrySchema = z.object({
   scheduledFor: z.string().optional(),
@@ -72,23 +77,22 @@ export async function POST(
       scheduledFor = defaultRetrySchedule(now);
     }
 
-    const [updatedPost] = await prisma.$transaction([
-      prisma.post.update({
-        where: { id },
+    const requeued = await prisma.$transaction(async (tx) => {
+      // Guarded claim: only the FAILED, approved post that was checked above may
+      // be re-queued. `count === 0` means the row moved on (an edit, a delete, a
+      // competing retry) and this must not force it back into the queue.
+      const claim = await tx.post.updateMany({
+        where: retryGuardWhere(id, guard.userId),
         data: {
           status: PostStatus.SCHEDULED,
           scheduledFor,
           errorMessage: null,
         },
-        include: {
-          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
-          mediaAssets: {
-            include: { mediaAsset: true },
-            orderBy: { order: "asc" },
-          },
-        },
-      }),
-      prisma.scheduledJob.upsert({
+      });
+
+      if (claim.count === 0) return null;
+
+      await tx.scheduledJob.upsert({
         where: { postId: id },
         create: {
           workspaceId: post.workspaceId ?? await workspaceIdForWrite(guard.userId),
@@ -108,13 +112,31 @@ export async function POST(
           startedAt: null,
           completedAt: null,
         },
-      }),
-    ]);
+      });
+
+      return tx.post.findUnique({
+        where: { id },
+        include: {
+          socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
+          mediaAssets: {
+            include: { mediaAsset: true },
+            orderBy: { order: "asc" },
+          },
+        },
+      });
+    });
+
+    if (!requeued) {
+      return NextResponse.json(
+        { error: POST_CONFLICT_MESSAGE },
+        { status: POST_CONFLICT_STATUS }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       message: "Failed publish re-queued",
-      post: updatedPost,
+      post: requeued,
       scheduledFor: scheduledFor.toISOString(),
     });
   } catch (error) {

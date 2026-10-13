@@ -4,6 +4,12 @@ import type { Permission } from "@/lib/roles";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
+import {
+  POST_CONFLICT_MESSAGE,
+  POST_CONFLICT_STATUS,
+  approveGuardWhere,
+  submitGuardWhere,
+} from "@/lib/posts/transitions";
 
 export async function POST(
   req: NextRequest,
@@ -40,14 +46,25 @@ export async function POST(
     }
 
     if (action === "approve") {
-      const updatedPost = await prisma.post.update({
-        where: { id },
+      const claim = await prisma.post.updateMany({
+        where: approveGuardWhere(id, guard.userId),
         data: {
           status: PostStatus.APPROVED,
           approvedAt: new Date(),
           approvedBy: guard.userId,
           rejectionReason: null,
         },
+      });
+
+      if (claim.count === 0) {
+        return NextResponse.json(
+          { error: POST_CONFLICT_MESSAGE },
+          { status: POST_CONFLICT_STATUS }
+        );
+      }
+
+      const updatedPost = await prisma.post.findUnique({
+        where: { id },
         include: {
           socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
@@ -65,14 +82,25 @@ export async function POST(
     } else if (action === "reject") {
       const reason = body.reason || "No reason provided";
 
-      const updatedPost = await prisma.post.update({
-        where: { id },
+      const claim = await prisma.post.updateMany({
+        where: approveGuardWhere(id, guard.userId),
         data: {
           status: PostStatus.DRAFT,
           rejectionReason: reason,
           approvedAt: null,
           approvedBy: null,
         },
+      });
+
+      if (claim.count === 0) {
+        return NextResponse.json(
+          { error: POST_CONFLICT_MESSAGE },
+          { status: POST_CONFLICT_STATUS }
+        );
+      }
+
+      const updatedPost = await prisma.post.findUnique({
+        where: { id },
         include: {
           socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {
@@ -88,12 +116,23 @@ export async function POST(
         post: updatedPost,
       });
     } else if (action === "submit") {
-      const updatedPost = await prisma.post.update({
-        where: { id },
+      const claim = await prisma.post.updateMany({
+        where: submitGuardWhere(id, guard.userId),
         data: {
           status: PostStatus.PENDING_APPROVAL,
           rejectionReason: null,
         },
+      });
+
+      if (claim.count === 0) {
+        return NextResponse.json(
+          { error: POST_CONFLICT_MESSAGE },
+          { status: POST_CONFLICT_STATUS }
+        );
+      }
+
+      const updatedPost = await prisma.post.findUnique({
+        where: { id },
         include: {
           socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
           mediaAssets: {

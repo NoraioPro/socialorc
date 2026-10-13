@@ -14,6 +14,7 @@ import {
   requiresReconnect,
   type AdapterErrorCode,
 } from "@/lib/adapters/errors";
+import { publishClaimWhere } from "@/lib/posts/transitions";
 
 /**
  * Publishing worker (Vercel cron: every 5 minutes, see vercel.json).
@@ -222,10 +223,31 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        await prisma.post.update({
-          where: { id: post.id },
+        // Claim the post for this attempt. The status was checked a few lines
+        // above; guarding the write itself means an edit that landed in between
+        // — which returns the post to DRAFT and clears `approvedAt` — cannot be
+        // sent anyway.
+        const publishClaim = await prisma.post.updateMany({
+          where: publishClaimWhere(post.id),
           data: { status: PostStatus.PUBLISHING },
         });
+
+        if (publishClaim.count === 0) {
+          await prisma.scheduledJob.update({
+            where: { id: job.id },
+            data: {
+              status: JobStatus.FAILED,
+              completedAt: new Date(),
+              errorMessage: "Post changed before publish (no longer scheduled and approved)",
+            },
+          });
+          results.failed++;
+          results.errors.push({
+            postId: post.id,
+            error: "Post changed before publish",
+          });
+          continue;
+        }
 
         // Configuration is checked before anything else. An unconfigured platform
         // must fail this post — never be papered over by a mock adapter that

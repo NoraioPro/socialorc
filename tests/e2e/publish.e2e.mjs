@@ -159,6 +159,44 @@ export async function runPublishE2E({ baseUrl, cronSecret, platform = "LINKEDIN"
   });
   check("post approved", approve.status === 200 && approve.body?.post?.status === "APPROVED", `status ${approve.status}`);
 
+  // 6b. THE RACE, closed. Editing a post returns it to DRAFT and clears its
+  // approval stamp, and scheduling must then refuse it. Before the guarded write
+  // in schedule/route.ts this interleaving could leave the row SCHEDULED with no
+  // approval — and the worker only reads the status, so it would have published
+  // content nobody approved.
+  const editApproved = await req(jar, `${baseUrl}/api/posts/${postId}`, {
+    method: "PATCH",
+    json: { content: `${post.body?.content ?? "E2E"} — edited after approval` },
+  });
+  check(
+    "editing an approved post returns it to DRAFT and clears approval",
+    editApproved.status === 200 &&
+      editApproved.body?.status === "DRAFT" &&
+      !editApproved.body?.approvedAt,
+    `status ${editApproved.status}/${editApproved.body?.status} approvedAt=${editApproved.body?.approvedAt}`,
+  );
+
+  const scheduleAfterEdit = await req(jar, `${baseUrl}/api/posts/${postId}/schedule`, {
+    method: "POST",
+    json: { scheduledFor: new Date(Date.now() + 60_000).toISOString() },
+  });
+  check(
+    "GATE: a post whose approval was cleared by an edit cannot be scheduled",
+    scheduleAfterEdit.status === 400 && /must be approved/i.test(scheduleAfterEdit.body?.error ?? ""),
+    `status ${scheduleAfterEdit.status} — ${scheduleAfterEdit.body?.error ?? scheduleAfterEdit.text.slice(0, 80)}`,
+  );
+
+  // Re-approve: the rest of the run needs an approved post to schedule.
+  const reapprove = await req(jar, `${baseUrl}/api/posts/${postId}/approve`, {
+    method: "POST",
+    json: { action: "approve" },
+  });
+  check(
+    "post re-approved after the edit",
+    reapprove.status === 200 && reapprove.body?.post?.status === "APPROVED",
+    `status ${reapprove.status}`,
+  );
+
   // 7. schedule it 20s out
   const dueMs = Date.now() + 20_000;
   const sched = await req(jar, `${baseUrl}/api/posts/${postId}/schedule`, {
