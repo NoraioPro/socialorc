@@ -19,7 +19,7 @@ import {
 } from "../../src/lib/social/capabilities";
 import { classifyTikTokError, SocialError, httpStatusFor, toSocialError } from "../../src/lib/social/errors";
 import { appApprovalFor, tiktokCredentials, tiktokRedirectUri } from "../../src/lib/social/approval";
-import { verifierFromStateCookie } from "../../src/lib/oauth/state";
+import { encodeStateCookie, verifierFromStateCookie } from "../../src/lib/oauth/state";
 import { TikTokAdapter } from "../../src/lib/adapters/tiktok";
 import { TIKTOK_SCOPES } from "../../src/lib/social/tiktok/constants";
 
@@ -148,17 +148,34 @@ test("redirect URI prefers the explicit env var and falls back to APP_URL", () =
 /* ----------------------------------------------------- state cookie + PKCE */
 
 test("the state cookie is the only place the PKCE verifier lives", () => {
-  const cookie = JSON.stringify({
-    userId: "user_1",
-    platform: "TIKTOK",
-    timestamp: 1_700_000_000_000,
-    verifier: "stored-verifier",
-  });
-  assert.equal(verifierFromStateCookie(cookie), "stored-verifier");
-  assert.equal(verifierFromStateCookie(undefined), null);
-  assert.equal(verifierFromStateCookie("not json"), null);
+  // Signed cookie (see src/lib/oauth/state.ts): the verifier only comes out of a
+  // value whose signature verifies against this secret.
+  const secret = "test-secret-do-not-use-in-production";
+  const cookie = encodeStateCookie(
+    {
+      userId: "user_1",
+      platform: "TIKTOK",
+      timestamp: 1_700_000_000_000,
+      verifier: "stored-verifier",
+    },
+    secret
+  );
+  assert.equal(verifierFromStateCookie(cookie, secret), "stored-verifier");
+  assert.equal(verifierFromStateCookie(undefined, secret), null);
+  assert.equal(verifierFromStateCookie("not json", secret), null);
   assert.equal(
-    verifierFromStateCookie(JSON.stringify({ userId: "u", platform: "TIKTOK", timestamp: 1 })),
+    verifierFromStateCookie(
+      encodeStateCookie({ userId: "u", platform: "TIKTOK", timestamp: 1 }, secret),
+      secret
+    ),
+    null,
+  );
+  // An unsigned cookie is not a cookie: no verifier, and no signature to trust.
+  assert.equal(
+    verifierFromStateCookie(
+      JSON.stringify({ userId: "u", platform: "TIKTOK", timestamp: 1, verifier: "forged" }),
+      secret
+    ),
     null,
   );
 });

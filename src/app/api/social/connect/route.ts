@@ -4,6 +4,8 @@ import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { resolveBrainForUser } from "@/lib/brains";
 import crypto from "crypto";
+import { encodeStateCookie } from "@/lib/oauth/state";
+import { oauthStateSecret } from "@/lib/oauth/state-secret";
 
 export async function GET(req: NextRequest) {
   try {
@@ -76,7 +78,9 @@ export async function GET(req: NextRequest) {
 
     const response = NextResponse.json({ url, state });
 
-    response.cookies.set(`oauth_state_${state}`, JSON.stringify(stateData), {
+    // Signed, so a client cannot mint one: this cookie is the only thing that
+    // proves a later callback belongs to the flow this user started.
+    response.cookies.set(`oauth_state_${state}`, encodeStateCookie(stateData, oauthStateSecret()), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",

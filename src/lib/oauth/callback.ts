@@ -5,6 +5,7 @@ import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
 import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
+import { oauthStateSecret } from "@/lib/oauth/state-secret";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { resolveBrainForUser } from "@/lib/brains";
 import { sanitizeAccountMetadata } from "@/lib/social/account-metadata";
@@ -27,8 +28,10 @@ export function createOAuthCallback(platform: Platform) {
     // the settings page inside itself — see src/lib/oauth/state.ts.
     const earlyState = req.nextUrl.searchParams.get("state");
     const earlyPopup = Boolean(
-      peekStateCookie(earlyState ? req.cookies.get(`oauth_state_${splitState(earlyState).baseState}`)?.value : null)
-        .popup,
+      peekStateCookie(
+        earlyState ? req.cookies.get(`oauth_state_${splitState(earlyState).baseState}`)?.value : null,
+        oauthStateSecret()
+      ).popup,
     );
     const failure = (reason: string, popup = earlyPopup) =>
       NextResponse.redirect(
@@ -65,6 +68,7 @@ export function createOAuthCallback(platform: Platform) {
       const stateCheck = validateOAuthState(stateCookieValue, {
         userId: user.userId,
         platform,
+        secret: oauthStateSecret(),
       });
 
       if (!stateCheck.ok) {
@@ -84,7 +88,8 @@ export function createOAuthCallback(platform: Platform) {
       const adapter = getAdapter(platform);
       // Prefer the server-side verifier (PKCE for TikTok and any newer
       // connector); fall back to the one X packs into the state string.
-      const codeVerifier = verifierFromStateCookie(stateCookieValue) ?? verifier ?? undefined;
+      const codeVerifier =
+        verifierFromStateCookie(stateCookieValue, oauthStateSecret()) ?? verifier ?? undefined;
       const tokens = await adapter.exchangeCodeForTokens(code, codeVerifier);
       const info = await adapter.getAccountInfo(tokens.accessToken);
       const encrypted = encryptTokens(tokens);

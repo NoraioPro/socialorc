@@ -6,6 +6,8 @@ import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { resolveBrainForUser } from "@/lib/brains";
 import { isMockAdapterAllowed } from "@/lib/adapters";
+import { peekStateCookie } from "@/lib/oauth/state";
+import { oauthStateSecret } from "@/lib/oauth/state-secret";
 
 /**
  * Mock OAuth callback for development/testing.
@@ -39,18 +41,12 @@ export async function GET(req: NextRequest) {
     }
 
     const platform = platformParam as Platform;
+    // Signed cookie: peekStateCookie verifies it, so an unsigned or edited value
+    // yields nothing rather than being parsed on trust.
     const stateCookie = req.cookies.get(`oauth_state_${state}`);
-    let requestedBrainId: string | null = null;
-    let popup = false;
-    if (stateCookie) {
-      try {
-        const parsed = JSON.parse(stateCookie.value);
-        requestedBrainId = parsed?.brainId ?? null;
-        popup = Boolean(parsed?.popup);
-      } catch {
-        // Malformed cookie: fall back to the user's default brain below.
-      }
-    }
+    const stateData = peekStateCookie(stateCookie?.value, oauthStateSecret());
+    const requestedBrainId: string | null = stateData.brainId ?? null;
+    const popup = Boolean(stateData.popup);
     const popupSuffix = popup ? "&popup=1" : "";
     const brain = await resolveBrainForUser(session.user.id, requestedBrainId);
 

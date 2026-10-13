@@ -6,6 +6,8 @@ import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
 import { isValidTelegramChatIdShape } from "@/lib/adapters/credentials";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
+import { peekStateCookie } from "@/lib/oauth/state";
+import { oauthStateSecret } from "@/lib/oauth/state-secret";
 import { resolveBrainForUser } from "@/lib/brains";
 import { requirePermission } from "@/lib/auth";
 
@@ -24,21 +26,23 @@ export async function GET(req: NextRequest) {
   // exchange of its own to protect with `state`.
   const { searchParams } = new URL(req.url);
   const rawState = searchParams.get("state");
-  const stateCookie = rawState ? req.cookies.get(`oauth_state_${rawState}`) : undefined;
-  let requestedBrainId: string | null = null;
-  let popup = false;
-  if (stateCookie) {
-    try {
-      const parsed = JSON.parse(stateCookie.value);
-      requestedBrainId = parsed?.brainId ?? null;
-      popup = Boolean(parsed?.popup);
-    } catch {
-      // Malformed cookie: fall back to the user's default brain below.
-    }
-  }
-  const popupSuffix = popup ? "&popup=1" : "";
+  const stateCookieValue = rawState
+    ? req.cookies.get(`oauth_state_${rawState}`)?.value
+    : undefined;
+
+  // Declared out here because the catch block needs it, so a failed popup still
+  // knows to close itself.
+  let popupSuffix = "";
 
   try {
+    // Signed and verified: an unsigned or edited cookie is simply not a cookie.
+    // The generic /api/social/connect route parks the chosen brain (and whether
+    // this is a popup-window connect) in the same oauth_state_<state> cookie
+    // every connector reads, Telegram included, even though it has no OAuth
+    // exchange of its own to protect with `state`.
+    const stateData = peekStateCookie(stateCookieValue, oauthStateSecret());
+    const requestedBrainId = stateData.brainId ?? null;
+    popupSuffix = stateData.popup ? "&popup=1" : "";
     // Signed in *and* present in this database: a session from another checkout
     // (same host, different port, same NEXTAUTH_SECRET) must not reach the write.
     const user = await resolveSessionUser();
@@ -74,6 +78,25 @@ export async function GET(req: NextRequest) {
     // This is the fix for the cross-tenant bug where every post landed in the
     // owner's private chat because the destination came from the environment.
     const requestedChat = searchParams.get("chatId")?.trim() ?? "";
+
+    // A chat id from the query string is the part an attacker controls, and this
+    // endpoint is a GET a victim can be made to open. Without this check somebody
+    // else's account could be pointed at the attacker's chat and that tenant's
+    // posts would land there. The state cookie is minted and signed by
+    // /api/social/connect for the signed-in user, so requiring it — and requiring
+    // it to belong to *this* session — is what makes the request the user's own.
+    if (requestedChat !== "") {
+      const stateData = peekStateCookie(stateCookieValue, oauthStateSecret());
+      if (stateData.userId !== user.userId) {
+        console.error(
+          "Telegram connect refused: chat id supplied without this session's state cookie"
+        );
+        return NextResponse.redirect(
+          new URL(`/settings/accounts?error=telegram_connect_not_verified${popupSuffix}`, req.url)
+        );
+      }
+    }
+
     const chatId = requestedChat !== "" ? requestedChat : (process.env.TELEGRAM_CHAT_ID ?? "").trim();
 
     if (!chatId) {
