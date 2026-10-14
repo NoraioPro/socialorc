@@ -25,6 +25,9 @@ import {
   mockReactToPost,
 } from "./mock-engagement-store";
 
+/** Post content containing this makes the mock answer `pending` (see createPost). */
+export const MOCK_PENDING_MARKER = "[mock:pending]";
+
 /**
  * Mock adapter for development and testing.
  * Simulates all platform operations without making real API calls.
@@ -89,6 +92,18 @@ export class MockAdapter extends BasePlatformAdapter {
       return { success: false, error: invalidContent.message, code: invalidContent.code };
     }
 
+    // Test hook: content carrying MOCK_PENDING_MARKER behaves like TikTok —
+    // accepted, still processing — so the worker's follow-up path can be driven
+    // end to end without a real platform.
+    if (options.text.includes(MOCK_PENDING_MARKER)) {
+      return {
+        success: true,
+        pending: true,
+        platformPostId: `mock_pending_${this.platform}_${Date.now()}`,
+        rawResponse: { mock: true, pending: true },
+      };
+    }
+
     const mockPostId = `mock_post_${this.platform}_${Date.now()}`;
 
     console.log(`[MOCK ${this.platform}] Publishing post:`, {
@@ -105,6 +120,17 @@ export class MockAdapter extends BasePlatformAdapter {
         platform: this.platform,
         timestamp: new Date().toISOString(),
       },
+    };
+  }
+
+  /** Completes a mock pending publish on the first status check. */
+  async checkPublishStatus(_accessToken: string, pendingId: string): Promise<PostResult> {
+    const mockPostId = `mock_post_confirmed_${pendingId.replace(/^mock_pending_/, "")}`;
+    return {
+      success: true,
+      platformPostId: mockPostId,
+      platformPostUrl: `https://mock.${this.platform.toLowerCase()}.com/post/${mockPostId}`,
+      rawResponse: { mock: true, completedFrom: pendingId },
     };
   }
 

@@ -135,8 +135,8 @@ test("a video on a video-less platform is refused, and nothing is sent", async (
   }) as unknown as typeof fetch;
 
   try {
-    // Instagram (Reels) and X (chunked upload) implement video; they are not here.
-    for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.TELEGRAM]) {
+    // Instagram (Reels), X (chunked upload) and LinkedIn (Videos API) implement video; they are not here.
+    for (const platform of [Platform.FACEBOOK, Platform.TELEGRAM]) {
       const adapter = getAdapter(platform);
       const result = await adapter.createPost("token", {
         text: "caption",
@@ -411,7 +411,7 @@ test("a tree with no stale job is read once and never written to", async () => {
     3,
   );
 
-  assert.deepEqual(result, { deadRuns: 0, abandoned: 0, released: 0 });
+  assert.deepEqual(result, { deadRuns: 0, abandoned: 0, released: 0, resumed: 0 });
   assert.equal(client.calls.length, 1);
   assert.equal(client.calls[0].kind, "findMany");
 });

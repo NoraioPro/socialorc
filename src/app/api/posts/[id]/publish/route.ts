@@ -12,6 +12,7 @@ import {
   publishBlockReason,
   publishBlockStatus,
 } from "@/lib/posts/publish-gate";
+import { handOffPendingPublish } from "@/lib/jobs/pending-publish";
 
 /**
  * Publish one post immediately, in the request.
@@ -248,6 +249,25 @@ export async function POST(
     } catch {
       // Keep the original failure: the refresh error is not the useful one.
     }
+  }
+
+  // Accepted but still processing (TikTok): not published yet, and must not be
+  // sent again. The worker polls the platform for the verdict; the post stays
+  // PUBLISHING until then.
+  if (result.success && result.pending && result.platformPostId) {
+    await handOffPendingPublish(prisma, {
+      postId: post.id,
+      workspaceId: post.workspaceId ?? null,
+      publishId: result.platformPostId,
+    });
+    return NextResponse.json(
+      {
+        success: true,
+        pending: true,
+        message: `${post.platform} accepted the post and is still processing it. It will show as published once the platform confirms.`,
+      },
+      { status: 202 }
+    );
   }
 
   if (result.success) {

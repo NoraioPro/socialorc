@@ -74,4 +74,11 @@ describe("approval gate on the immediate publish path", () => {
     assert.match(route, /PUBLISH_THREW/);
     assert.match(route, /status: PostStatus\.FAILED/);
   });
+
+  it("addresses the send like the worker does, so Telegram publish-now has a chat", () => {
+    // Without the account's destination the Telegram adapter refuses every
+    // immediate send with MISSING_CHAT; the worker has always passed it.
+    const route = readFileSync("src/app/api/posts/[id]/publish/route.ts", "utf8");
+    assert.match(route, /additionalOptions: \{\s*\.\.\.destinationForAccount\(account\.metadata\)/);
+  });
 });

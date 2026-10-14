@@ -33,7 +33,7 @@ function successReturn(file: string): string {
 
 test("YouTube only reports success with a video id from the platform", () => {
   const src = source("youtube.ts");
-  assert.match(src, /uploadResponse\.json\(\)/);
+  assert.match(src, /const resource = await response\.json\(\)/);
   assert.match(src, /if \(!uploaded\?\.id\)/);
   assert.match(src, /platformPostId: uploaded\.id/);
 });
@@ -42,6 +42,10 @@ test("TikTok only reports success after the bytes were transferred", () => {
   const src = source("tiktok.ts");
   assert.match(src, /await this\.uploadChunks\(uploadUrl, bytes, plan\.plan\)/);
   assert.match(src, /if \(!uploadUrl\)/);
+  // ...and only reports a finished publish on TikTok's own PUBLISH_COMPLETE;
+  // anything earlier is `pending`, followed up by the worker.
+  assert.match(src, /case "PUBLISH_COMPLETE": \{/);
+  assert.match(src, /await this\.awaitPublish\(/);
   // The init must not select the transfer mode that needs a verified domain.
   assert.equal(
     /mediaUrl: options\.mediaUrls\[0\]/.test(src),

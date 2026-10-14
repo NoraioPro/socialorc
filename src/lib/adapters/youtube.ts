@@ -29,8 +29,54 @@ const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
 // "Request contains an invalid argument." with no field named.
 const YOUTUBE_UPLOAD_API_URL = "https://www.googleapis.com/upload/youtube/v3";
 
+/** 8 MiB: a multiple of the 256 KiB the resumable protocol requires per chunk. */
+export const YOUTUBE_UPLOAD_CHUNK_BYTES = 32 * 256 * 1024;
+
+/**
+ * Re-slice a byte stream into fixed-size chunks (the last may be shorter),
+ * holding at most one chunk at a time.
+ */
+export async function* readInChunks(
+  body: ReadableStream<Uint8Array>,
+  size: number,
+): AsyncGenerator<Uint8Array<ArrayBuffer>> {
+  const reader = body.getReader();
+  let buffer = new Uint8Array(size);
+  let filled = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const take = Math.min(size - filled, value.byteLength - offset);
+        buffer.set(value.subarray(offset, offset + take), filled);
+        filled += take;
+        offset += take;
+        if (filled === size) {
+          yield buffer;
+          buffer = new Uint8Array(size);
+          filled = 0;
+        }
+      }
+    }
+    if (filled > 0) yield buffer.subarray(0, filled);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** `Range: bytes=0-524287` -> 524287; no header (nothing persisted) -> -1. */
+function lastPersistedByte(range: string | null): number {
+  const match = range ? /bytes=\d+-(\d+)/.exec(range) : null;
+  return match ? Number(match[1]) : -1;
+}
+
 export class YouTubeAdapter extends BasePlatformAdapter {
   platform = Platform.YOUTUBE;
+
+  /** Resumable chunk size; must be a multiple of 256 KiB. Overridable for tests. */
+  uploadChunkBytes = YOUTUBE_UPLOAD_CHUNK_BYTES;
 
   /**
    * Validate YouTube/Google OAuth credentials: both presence and format.
@@ -222,26 +268,46 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         BasePlatformAdapter.inferMimeType(sourceUrl) ??
         "video/*";
 
-      const initHeaders: Record<string, string> = {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "X-Upload-Content-Type": uploadMimeType,
-      };
-      if (descriptor?.sizeBytes) {
-        initHeaders["X-Upload-Content-Length"] = String(descriptor.sizeBytes);
+      // Open the source as a stream first: its length goes into the session
+      // request, and its bytes are forwarded chunk by chunk below. Nothing here
+      // holds more than one chunk in memory — buffering the whole file is what
+      // made a large video run the function out of memory.
+      const source = await fetch(sourceUrl);
+      if (!source.ok || !source.body) {
+        return {
+          success: false,
+          error: `Could not read the video to upload (HTTP ${source.status} from the media URL).`,
+        };
+      }
+      const servedLength = Number(source.headers.get("content-length"));
+      const totalBytes =
+        Number.isFinite(servedLength) && servedLength > 0 ? servedLength : descriptor?.sizeBytes ?? 0;
+      if (!totalBytes) {
+        await source.body.cancel().catch(() => undefined);
+        return {
+          success: false,
+          error:
+            "The video's size is unknown (no Content-Length from the media host), and YouTube's resumable upload needs it up front.",
+        };
       }
 
       const initResponse = await fetch(
         `${YOUTUBE_UPLOAD_API_URL}/videos?uploadType=resumable&part=snippet,status`,
         {
           method: "POST",
-          headers: initHeaders,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Upload-Content-Type": uploadMimeType,
+            "X-Upload-Content-Length": String(totalBytes),
+          },
           body: JSON.stringify(videoMetadata),
         }
       );
 
       if (!initResponse.ok) {
-        const error = await initResponse.json();
+        await source.body.cancel().catch(() => undefined);
+        const error = await initResponse.json().catch(() => ({}));
         return {
           success: false,
           error: error.error?.message || `YouTube API error: ${initResponse.status}`,
@@ -252,6 +318,7 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       const uploadUrl = initResponse.headers.get("Location");
 
       if (!uploadUrl) {
+        await source.body.cancel().catch(() => undefined);
         return {
           success: false,
           error: "Failed to get upload URL from YouTube",
@@ -259,41 +326,20 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       }
 
       // The resumable session is only a slot. YouTube stores nothing until the
-      // bytes are actually sent to uploadUrl, so returning success here would
-      // claim a publish that never happened.
-      const mimeType = uploadMimeType;
-      const source = await fetch(sourceUrl);
-      if (!source.ok) {
-        return {
-          success: false,
-          error: `Could not read the video to upload (HTTP ${source.status} from the media URL).`,
-        };
-      }
-      const bytes = Buffer.from(await source.arrayBuffer());
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": mimeType,
-          "Content-Length": String(bytes.length),
-        },
-        body: bytes,
+      // bytes are actually sent to uploadUrl, so returning success before the
+      // final chunk is answered would claim a publish that never happened.
+      const upload = await this.streamResumableUpload({
+        accessToken,
+        uploadUrl,
+        body: source.body,
+        totalBytes,
+        mimeType: uploadMimeType,
       });
-
-      if (!uploadResponse.ok) {
-        const detail = await uploadResponse.text().catch(() => "");
-        return {
-          success: false,
-          error: `YouTube rejected the video upload (HTTP ${uploadResponse.status}). ${detail}`
-            .trim()
-            .slice(0, 400),
-          rawResponse: detail || undefined,
-        };
+      if (!upload.ok) {
+        return { success: false, error: upload.error, rawResponse: upload.detail };
       }
 
-      const uploaded = (await uploadResponse.json().catch(() => null)) as {
-        id?: string;
-      } | null;
+      const uploaded = upload.resource as { id?: string } | null;
 
       // Only a video id proves YouTube accepted and stored the upload.
       if (!uploaded?.id) {
@@ -308,7 +354,13 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         success: true,
         platformPostId: uploaded.id,
         platformPostUrl: `https://www.youtube.com/watch?v=${uploaded.id}`,
-        rawResponse: { id: uploaded.id, mimeType, bytes: bytes.length, metadata: videoMetadata },
+        rawResponse: {
+          id: uploaded.id,
+          mimeType: uploadMimeType,
+          bytes: totalBytes,
+          chunks: upload.chunks,
+          metadata: videoMetadata,
+        },
       };
     } catch (error) {
       if (error instanceof AdapterError) {
@@ -319,6 +371,94 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
+  }
+
+  /**
+   * Send the video to a resumable session in chunks, straight from the source
+   * stream (https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol).
+   *
+   * Every chunk but the last is a multiple of 256 KiB, as the protocol requires.
+   * A non-final chunk is answered 308 with a `Range` of what YouTube actually
+   * persisted; if that is short of the chunk, the remainder is re-sent from the
+   * chunk still in memory (overlapping or skipping bytes would make YouTube
+   * discard the upload). The final chunk is answered 200/201 with the video.
+   */
+  private async streamResumableUpload(input: {
+    accessToken: string;
+    uploadUrl: string;
+    body: ReadableStream<Uint8Array>;
+    totalBytes: number;
+    mimeType: string;
+  }): Promise<
+    | { ok: true; resource: unknown; chunks: number }
+    | { ok: false; error: string; detail?: unknown }
+  > {
+    const { accessToken, uploadUrl, totalBytes, mimeType } = input;
+    let next = 0; // first byte YouTube does not have yet
+    let chunks = 0;
+
+    const put = (bytes: Uint8Array<ArrayBuffer>, first: number) =>
+      fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": mimeType,
+          "Content-Range": `bytes ${first}-${first + bytes.byteLength - 1}/${totalBytes}`,
+        },
+        body: bytes,
+      });
+
+    for await (const chunk of readInChunks(input.body, this.uploadChunkBytes)) {
+      const chunkStart = next;
+      const chunkEnd = chunkStart + chunk.byteLength; // exclusive
+      if (chunkEnd > totalBytes) {
+        return {
+          ok: false,
+          error: `The media host sent more bytes than it declared (${totalBytes}); upload abandoned.`,
+        };
+      }
+      chunks += 1;
+
+      for (let tries = 0; next < chunkEnd; tries += 1) {
+        if (tries >= 3) {
+          return { ok: false, error: "YouTube kept refusing to persist an upload chunk; upload abandoned." };
+        }
+        const response = await put(chunk.subarray(next - chunkStart), next);
+
+        if (response.status === 308) {
+          const persisted = lastPersistedByte(response.headers.get("range"));
+          // Never move backwards past what this chunk started at: the bytes
+          // before it are no longer in memory.
+          next = Math.max(chunkStart, persisted + 1);
+          continue;
+        }
+
+        if (response.ok) {
+          if (chunkEnd !== totalBytes) {
+            return {
+              ok: false,
+              error: "YouTube finished the upload before all bytes were sent.",
+            };
+          }
+          const resource = await response.json().catch(() => null);
+          return { ok: true, resource, chunks };
+        }
+
+        const detail = await response.text().catch(() => "");
+        return {
+          ok: false,
+          error: `YouTube rejected the video upload (HTTP ${response.status}). ${detail}`
+            .trim()
+            .slice(0, 400),
+          detail: detail || undefined,
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      error: `The media host sent ${next} of the ${totalBytes} bytes it declared; upload abandoned.`,
+    };
   }
 
   async listComments(
