@@ -134,12 +134,15 @@ export async function runKnowledgeE2E({ baseUrl }) {
   const password = `knowledge-pass-${stamp}`;
   const url = (path) => `${baseUrl}${path}`;
 
+  let ipSeq = 0;
   async function signUp(label, extra = {}) {
     const jar = new Jar();
     const email = `knowledge-${label}-${stamp}@example.test`;
     const reg = await req(jar, url("/api/auth/register"), {
       method: "POST",
       json: { name: `Knowledge ${label}`, email, password, ...extra },
+      // Register is rate limited per IP and every suite in the run signs up.
+      headers: { "x-forwarded-for": `10.83.${Math.floor(stamp / 1000) % 250}.${++ipSeq}` },
     });
     const csrf = await req(jar, url("/api/auth/csrf"));
     await req(jar, url("/api/auth/callback/credentials"), {

@@ -70,12 +70,15 @@ export async function runTenancyE2E({ baseUrl }) {
   const password = `tenancy-pass-${stamp}`;
   const url = (path) => `${baseUrl}${path}`;
 
+  let ipSeq = 0;
   async function signUp(label, extra = {}) {
     const jar = new Jar();
     const email = `tenancy-${label}-${stamp}@example.test`;
     const reg = await req(jar, url("/api/auth/register"), {
       method: "POST",
       json: { name: `Tenancy ${label}`, email, password, ...extra },
+      // Register is rate limited per IP and every suite in the run signs up.
+      headers: { "x-forwarded-for": `10.81.${Math.floor(stamp / 1000) % 250}.${++ipSeq}` },
     });
     const csrf = await req(jar, url("/api/auth/csrf"));
     await req(jar, url("/api/auth/callback/credentials"), {

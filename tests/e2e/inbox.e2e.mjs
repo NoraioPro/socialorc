@@ -70,12 +70,15 @@ export async function runInboxE2E({ baseUrl }) {
 
   console.log(`\nSocialOrc inbox E2E — base ${baseUrl}`);
 
+  let ipSeq = 0;
   async function signUp(label) {
     const jar = new Jar();
     const email = `inbox-${label}-${stamp}@example.test`;
     const reg = await req(jar, url("/api/auth/register"), {
       method: "POST",
       json: { name: `Inbox ${label}`, email, password },
+      // Register is rate limited per IP and every suite in the run signs up.
+      headers: { "x-forwarded-for": `10.82.${Math.floor(stamp / 1000) % 250}.${++ipSeq}` },
     });
     const csrf = await req(jar, url("/api/auth/csrf"));
     await req(jar, url("/api/auth/callback/credentials"), {
