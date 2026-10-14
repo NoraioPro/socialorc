@@ -230,7 +230,12 @@ export class FacebookAdapter extends BasePlatformAdapter {
 
       const data = await response.json();
 
-      const platformPostId = data.id || data.post_id;
+      // /photos answers { id: <photo id>, post_id: <page post id> }. The post id
+      // is what comments, insights and the permalink address; recording the
+      // photo id pointed every later read at the wrong object. A scheduled
+      // (unpublished) photo may have no post_id yet, so fall back to the id.
+      const isPhoto = endpoint.endsWith("/photos");
+      const platformPostId = isPhoto ? data.post_id || data.id : data.id || data.post_id;
 
       // A 200 with no id means Facebook confirmed nothing. Reporting success
       // here would record a PUBLISHED post that does not exist.
