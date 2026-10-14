@@ -6,6 +6,7 @@ import {
   loadWorkspaceAccount,
   prepareEngagementContext,
   handleEngagementResultFailure,
+  sendEngagementComment,
 } from "@/lib/social/engagement-api";
 
 export async function GET(req: NextRequest) {
@@ -104,49 +105,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }
 
-  const prepared = await prepareEngagementContext(account);
-  if (!prepared.ok) {
-    return NextResponse.json(prepared.body, { status: prepared.status });
+  const sent = await sendEngagementComment(account, { platformPostId, text, parentCommentId });
+  if (!sent.ok) {
+    return NextResponse.json(sent.body, { status: sent.status });
   }
 
-  const { ctx } = prepared;
-  const operation = parentCommentId ? "replyToComment" : "createComment";
-  const supported = checkEngagementSupported(ctx.adapter, ctx.account.platform, operation);
-  if (!supported.ok) {
-    return NextResponse.json(supported.body, { status: supported.status });
-  }
-
-  const result = parentCommentId
-    ? await ctx.adapter.replyToComment!(ctx.accessToken, {
-        commentId: parentCommentId,
-        text,
-        platformPostId,
-        additionalOptions: ctx.destinationOptions,
-      })
-    : await ctx.adapter.createComment!(ctx.accessToken, {
-        platformPostId,
-        text,
-        additionalOptions: ctx.destinationOptions,
-      });
-
-  if (!result.success) {
-    const failure = await handleEngagementResultFailure(
-      ctx.account.id,
-      ctx.account.platform,
-      result.error,
-    );
-    const status =
-      failure.error.code === "SOCIAL_AUTH_EXPIRED" ||
-      failure.error.code === "SOCIAL_REAUTHORIZE_REQUIRED"
-        ? 401
-        : 400;
-    return NextResponse.json(failure, { status });
-  }
-
-  return NextResponse.json(
-    { success: true, commentId: result.commentId },
-    { status: 201 },
-  );
+  return NextResponse.json({ success: true, commentId: sent.commentId }, { status: 201 });
 }
 
 const deleteSchema = z.object({
