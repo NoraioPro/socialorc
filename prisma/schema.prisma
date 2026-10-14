@@ -45,6 +45,10 @@ model Session {
 /// src/lib/roles.ts before anything is written.
 model Invitation {
   id         String    @id @default(cuid())
+  /// The workspace the invitee joins on acceptance. Nullable only for rows
+  /// written before tenancy was enforced; the migration stamps them from the
+  /// inviter's membership and every new invitation carries it.
+  workspaceId String?
   email      String
   role       String    @default("EDITOR")
   tokenHash  String    @unique
@@ -54,7 +58,10 @@ model Invitation {
   acceptedBy String?
   createdAt  DateTime  @default(now())
 
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([email])
+  @@index([workspaceId])
 }
 
 /// A fixed-window request counter.
@@ -484,6 +491,8 @@ model Workspace {
   socialAccounts  SocialAccount[]
   aiCredentials            AiCredential[]
   platformCredentials      WorkspacePlatformCredential[]
+  brandBrain               BrandBrain?
+  invitations              Invitation[]
 }
 
 /** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
@@ -839,10 +848,14 @@ model Friendship {
   @@index([requesterId, status])
 }
 
-// Brand Brain: per-user brand profile, voice, and goals (settings UI)
+// Brand Brain: the workspace's brand profile, voice, and goals (settings UI).
+// One per workspace. `userId` records who created it and stays unique because
+// rows written before tenancy were per-user; reads and writes go by workspace.
 model BrandBrain {
   id              String   @id @default(cuid())
   userId          String   @unique
+  /// Owning tenant. Nullable during the rollout (see Post.workspaceId).
+  workspaceId     String?  @unique
 
   brandName       String?
   industry        String?
@@ -864,6 +877,7 @@ model BrandBrain {
   platformOverrides Json?
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
