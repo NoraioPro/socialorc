@@ -55,6 +55,7 @@ describe("tenancy backfill: static", () => {
       "BrandBrain", // stamped per workspace in step 5
       "ScheduledJob", // follows its post in step 6
       "Invitation", // stamped from the inviter in step 7
+      "TelegramConnectCode", // created by a later migration; 15-minute codes, nothing to carry over
     ]);
     const section = backfillOf(SQLITE_SQL);
     const step3 = section.slice(section.indexOf("-- 3."), section.indexOf("-- 4."));
@@ -144,6 +145,22 @@ describe("tenancy backfill: on a seeded sqlite database", () => {
       insert("WorkspacePlatformCredential", { id: "wpc_b_x", workspaceId: P2, platform: "TWITTER" });
       insert("WorkspacePlatformCredential", { id: "wpc_b_y", workspaceId: P2, platform: "LINKEDIN" });
       insert("AiAgent", { id: "ag_b_b", workspaceId: P2, slug: "b" });
+
+      // An invitee who accepted invitations from two inviters in different
+      // workspaces: two candidate targets for one personal workspace. Postgres
+      // would abort on a multi-row scalar subquery; the move table must hold one
+      // row per personal workspace, and an ambiguous one is left where it is.
+      const J = "userinviter2", V3 = "userinviteec", T2 = "wsteam2", P3 = "wspersonalc";
+      insert("User", { id: J, email: `${J}@x.test`, role: "ADMIN" });
+      insert("User", { id: V3, email: `${V3}@x.test`, role: "EDITOR" });
+      insert("Workspace", { id: T2, name: "Team 2", slug: "team2" });
+      insert("Workspace", { id: P3, name: "C", slug: `ws-${V3}` });
+      insert("WorkspaceMember", { id: "m4", workspaceId: T2, userId: J, role: "OWNER", createdAt: "1970-01-01T00:00:00.000Z" });
+      insert("WorkspaceMember", { id: "m5", workspaceId: P3, userId: V3, role: "OWNER" });
+      insert("Invitation", { id: "inv3", email: "c@x", tokenHash: "h3", invitedBy: I, acceptedBy: V3 });
+      insert("Invitation", { id: "inv4", email: "c2@x", tokenHash: "h4", invitedBy: J, acceptedBy: V3 });
+      insert("BrainMemory", { id: "mem_c", workspaceId: P3 });
+      insert("AiAgent", { id: "ag_c", workspaceId: P3, slug: "c" });
       db.pragma("foreign_keys = ON");
 
       const tables = ["AiCredential", "WorkspacePlatformCredential", "BrandProfile", "AiAgent", "BrainSource",
@@ -170,6 +187,9 @@ describe("tenancy backfill: on a seeded sqlite database", () => {
         ["BrandProfile", "bp_team", T], ["BrandProfile", "bp_a", P],
         ["AiAgent", "ag_team_a", T], ["AiAgent", "ag_a_a", P], ["AiAgent", "ag_a_b", T], ["AiAgent", "ag_b_b", P2],
         ["WorkspaceMember", "m2", T], ["WorkspaceMember", "m3", T],
+        // Ambiguous invitee: nothing moves, the migration does not fail.
+        ["WorkspaceMember", "m5", "wspersonalc"], ["BrainMemory", "mem_c", "wspersonalc"],
+        ["AiAgent", "ag_c", "wspersonalc"],
       ];
       for (const [table, id, want] of expected) assert.equal(ws(table, id), want, `${table}.${id}`);
       db.close();
