@@ -16,7 +16,10 @@ import { platformIcons } from "@/components/icons/platform-icons";
 import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
 import { blobPathFor } from "@/lib/social/blob-upload";
 
-type Variant = { platform: Platform; content: string };
+// isMock marks template text from the mock generator (no AI key, outside
+// production). It stays on the variant through edits and is saved with the
+// draft, so mock output is never mistaken for real AI copy.
+type Variant = { platform: Platform; content: string; isMock?: boolean };
 type UploadedMedia = { id: string; url: string; mimeType: string; filename: string };
 const availablePlatforms = Object.values(Platform);
 
@@ -95,8 +98,9 @@ export default function CreatePostPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to generate content. Your existing drafts are still here.");
       if (!Array.isArray(data.variants) || !data.variants.length) throw new Error("No variants were returned. Try refining your brief.");
-      setVariants(data.variants); setActive(data.variants[0].platform); setSaved([]);
-      setNotice("Variants generated. Select a channel to review and edit its draft.");
+      const generated: Variant[] = data.variants.map((v: Variant) => ({ platform: v.platform, content: v.content, isMock: Boolean(v.isMock ?? data.usedMock) }));
+      setVariants(generated); setActive(generated[0].platform); setSaved([]);
+      setNotice(generated.some(v => v.isMock) ? "Mock variants generated: no AI key is configured, so these are template drafts, not AI output." : "Variants generated. Select a channel to review and edit its draft.");
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to generate content."); }
     finally { setBusy(false); }
   }
@@ -117,7 +121,7 @@ export default function CreatePostPage() {
     setSaving(true); setError(""); setNotice(""); let count = 0;
     try {
       for (const variant of pending) {
-        const res = await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...variant,title:title || undefined,mediaAssetIds:media?[media.id]:undefined})});
+        const res = await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({platform:variant.platform,content:variant.content,title:title || undefined,mediaAssetIds:media?[media.id]:undefined,platformContent:variant.isMock?{aiMock:true}:undefined})});
         if (!res.ok) {const data = await res.json(); throw new Error(data.error || "Could not save the draft.");}
         setSaved(prev => [...prev,variant.platform]); count++;
       }
@@ -181,9 +185,10 @@ export default function CreatePostPage() {
             {platformsNeedingMedia.length > 0 && <p className="studio-muted">{platformsNeedingMedia.map(p=>PLATFORM_CONFIGS[p].name).join(", ")} will not publish without a video or image.</p>}
           </div>
           {variants.length ? <>
+            {variants.some(v => v.isMock) && <p className="mx-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" role="note"><strong>Mock Mode:</strong> no AI key is configured. These drafts are deterministic template text, not AI output.</p>}
             <div className="variant-tabs" role="tablist" aria-label="Platform drafts">{variants.map(v => {const Icon=platformIcons[v.platform];return <button id={`tab-${v.platform}`} aria-controls="variant-editor" role="tab" aria-selected={active===v.platform} key={v.platform} onClick={()=>setActive(v.platform)}><Icon className="h-4 w-4"/>{PLATFORM_CONFIGS[v.platform].name}{saved.includes(v.platform)&&<Check size={13}/>}</button>;})}</div>
             <div className="variant-editor" id="variant-editor" role="tabpanel" aria-labelledby={`tab-${active}`}>
-              <div className="editor-meta"><Label htmlFor="variant-content">{PLATFORM_CONFIGS[active].name} draft</Label><span className={(current?.content.length || 0)>limit?"text-destructive":""}>{current?.content.length || 0} / {limit}</span></div>
+              <div className="editor-meta"><Label htmlFor="variant-content">{PLATFORM_CONFIGS[active].name} draft{current?.isMock && <span className="text-amber-600"> · Mock (no AI key)</span>}</Label><span className={(current?.content.length || 0)>limit?"text-destructive":""}>{current?.content.length || 0} / {limit}</span></div>
               <Textarea id="variant-content" value={current?.content || ""} onChange={e=>edit(e.target.value)} disabled={busy || saving || saved.includes(active)} rows={12} placeholder="Write something worth sharing…" />
               <PlatformCharCounts
                 text={current?.content ?? ""}
@@ -198,7 +203,7 @@ export default function CreatePostPage() {
         </section>
         <aside className="studio-panel forge-guidance"><div className="studio-panel-heading"><h2><Sparkles size={16}/> Creative Playbook</h2><p>A few principles for stronger content.</p></div>{[{title:"Lead with a strong hook",text:"Make the first line a reason to stop scrolling."},{title:"Speak to one audience",text:"Use the words and problems your readers recognize."},{title:"Make the next step clear",text:"Give each post one focused call to action."},{title:"Adapt for the channel",text:"Review length, formatting, and tone for every platform."}].map((tip,i)=><div className="guidance-tip" key={tip.title}><span>0{i+1}</span><div><h3>{tip.title}</h3><p>{tip.text}</p></div></div>)}<div className="approval-reminder"><ShieldCheck size={23}/><h3>You give the green light.</h3><p>Saved content stays in Drafts until you submit it for review and approval.</p></div></aside>
       </div>
-      <section className="studio-panel previews-panel"><div className="studio-panel-heading"><h2><Check size={16}/> Multi-Platform Preview</h2><p>Text previews update as you edit. Final appearance varies by platform.</p></div><div className="post-previews">{(variants.length?variants:platforms.map(platform=>({platform,content:""}))).map(v=>{const Icon=platformIcons[v.platform];return <article className="social-preview" key={v.platform}><header><Icon className="h-4 w-4"/><strong>{PLATFORM_CONFIGS[v.platform].name}</strong><span>{saved.includes(v.platform)?"Saved":"Draft"}</span></header><div className="social-preview-body"><span className="preview-user">Your brand <span>· Just now</span></span><p>{v.content || "Your content will appear here once you generate or write a draft."}</p></div></article>;})}</div></section>
+      <section className="studio-panel previews-panel"><div className="studio-panel-heading"><h2><Check size={16}/> Multi-Platform Preview</h2><p>Text previews update as you edit. Final appearance varies by platform.</p></div><div className="post-previews">{(variants.length?variants:platforms.map(platform=>({platform,content:""}))).map(v=>{const Icon=platformIcons[v.platform];return <article className="social-preview" key={v.platform}><header><Icon className="h-4 w-4"/><strong>{PLATFORM_CONFIGS[v.platform].name}</strong><span>{saved.includes(v.platform)?"Saved":"Draft"}{"isMock" in v && v.isMock?" · Mock":""}</span></header><div className="social-preview-body"><span className="preview-user">Your brand <span>· Just now</span></span><p>{v.content || "Your content will appear here once you generate or write a draft."}</p></div></article>;})}</div></section>
       <div className="studio-footer"><ShieldCheck size={15}/><span>Draft first. Approve with confidence. Publish on your terms.</span><Link href="/dashboard/drafts">View your drafts <ArrowRight size={13}/></Link></div>
     </div>
   </div>;

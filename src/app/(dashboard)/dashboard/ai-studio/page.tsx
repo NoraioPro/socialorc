@@ -196,6 +196,9 @@ export default function AIStudioPage() {
         body: JSON.stringify({
           content: variant.content,
           platform: variant.platform,
+          // Keep the mock flag with the draft so template text is never
+          // mistaken for real AI output once it leaves the studio.
+          platformContent: variant.isMock ? { aiMock: true } : undefined,
         }),
       });
 
@@ -227,6 +230,7 @@ export default function AIStudioPage() {
           body: JSON.stringify({
             content: variant.content,
             platform: variant.platform,
+            platformContent: variant.isMock ? { aiMock: true } : undefined,
           }),
         });
       }

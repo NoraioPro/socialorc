@@ -246,6 +246,10 @@ export async function cascadeContent(
   }
 
   const useMock = forceMock || !hasAICapability(aiConfig);
+  // True whenever any adaptation is template text, including a development
+  // fallback after a failed AI call - otherwise the dialog's mock banner is
+  // skipped and the fallback reads as real AI output.
+  let usedMock = useMock;
   const adaptations: CascadeAdaptation[] = [];
 
   // Filter out the source platform from targets
@@ -265,13 +269,14 @@ export async function cascadeContent(
       if (process.env.NODE_ENV === "production") throw error;
       console.error(`AI adaptation failed for ${targetPlatform}, using mock:`, error);
       adaptations.push(mockAdaptContent(source, targetPlatform));
+      usedMock = true;
     }
   }
 
   return {
     source,
     adaptations,
-    usedMock: useMock,
+    usedMock,
   };
 }
 

@@ -99,7 +99,10 @@ function serverEnv(extra = {}) {
     TOKEN_ENCRYPTION_KEY: ENCRYPTION_KEY,
     CRON_SECRET,
     MOCK_SOCIAL_ADAPTERS: "false", // real adapters, that is the point
-    TELEGRAM_BOT_TOKEN: "123456:durability-placeholder",
+    // Fake, but shaped like a real token: the adapter refuses a malformed one as
+    // PLATFORM_NOT_CONFIGURED before any send, which would mask every failure
+    // path this suite exists to exercise (src/lib/adapters/credentials.ts).
+    TELEGRAM_BOT_TOKEN: "1234567:durability_placeholder_token_000000",
     TELEGRAM_CHAT_ID: "1",
     ...extra,
   };
