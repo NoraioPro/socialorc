@@ -83,3 +83,31 @@ export async function handOffPendingPublish(
     update: data,
   });
 }
+
+/**
+ * Clears a status poll from a job. A job closed or re-queued while these are
+ * still set would — on its next run — be taken for a poll (only reading an
+ * outcome for a post in PUBLISHING) and fail "Invalid post status: SCHEDULED",
+ * stranding a post the user deliberately retried or rescheduled.
+ */
+export const CLEARED_PENDING_PUBLISH = {
+  pendingPublishId: null,
+  pendingSince: null,
+} as const;
+
+/**
+ * ScheduledJob fields for a deliberate (re-)queue: a fresh send at
+ * `scheduledAt`, with a full retry budget and no leftover poll state. Used for
+ * both the upsert's create and update so the two cannot drift apart.
+ */
+export function requeueJobData(scheduledAt: Date) {
+  return {
+    scheduledAt,
+    status: "PENDING" as const,
+    attempts: 0,
+    errorMessage: null,
+    startedAt: null,
+    completedAt: null,
+    ...CLEARED_PENDING_PUBLISH,
+  };
+}

@@ -16,6 +16,7 @@ import {
 } from "@/lib/adapters/errors";
 import { publishClaimWhere } from "@/lib/posts/transitions";
 import {
+  CLEARED_PENDING_PUBLISH,
   PENDING_TIMEOUT_MESSAGE,
   pendingExpired,
   pendingPollJobData,
@@ -657,7 +658,14 @@ async function handleFailure(opts: {
       }),
       prisma.scheduledJob.update({
         where: { id: jobId },
-        data: { status: JobStatus.FAILED, completedAt: now, errorMessage: message },
+        // Closed: the poll is over. Leaving the handle set would make a later
+        // Retry/reschedule run as a poll and fail the re-queued post.
+        data: {
+          status: JobStatus.FAILED,
+          completedAt: now,
+          errorMessage: message,
+          ...CLEARED_PENDING_PUBLISH,
+        },
       }),
       ...(accountId && requiresReconnect(code)
         ? [

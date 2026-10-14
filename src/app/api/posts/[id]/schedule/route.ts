@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
-import { PostStatus, JobStatus } from "@prisma/client";
+import { PostStatus } from "@prisma/client";
 import { z } from "zod";
+import { requeueJobData } from "@/lib/jobs/pending-publish";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 import {
   POST_CONFLICT_MESSAGE,
@@ -90,20 +91,14 @@ export async function POST(
 
       if (claim.count === 0) return null;
 
+      // A fresh send: `requeueJobData` also clears any poll state a timed-out
+      // pending publish left behind, or the worker would treat this job as a
+      // poll and fail it ("Invalid post status: SCHEDULED").
+      const jobData = requeueJobData(scheduledFor);
       await tx.scheduledJob.upsert({
         where: { postId: id },
-        create: {
-          workspaceId: guard.workspaceId,
-          postId: id,
-          scheduledAt: scheduledFor,
-          status: JobStatus.PENDING,
-        },
-        update: {
-          scheduledAt: scheduledFor,
-          status: JobStatus.PENDING,
-          attempts: 0,
-          errorMessage: null,
-        },
+        create: { workspaceId: guard.workspaceId, postId: id, ...jobData },
+        update: jobData,
       });
 
       return tx.post.findUnique({
