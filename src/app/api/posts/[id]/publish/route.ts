@@ -15,6 +15,11 @@ import {
 } from "@/lib/posts/publish-gate";
 import { handOffPendingPublish } from "@/lib/jobs/pending-publish";
 import {
+  OUTCOME_UNKNOWN_CODE,
+  outcomeUnknownMessage,
+  recordPublishOutcome,
+} from "@/lib/jobs/record-outcome";
+import {
   ACCOUNT_PLATFORM_MISMATCH_CODE,
   accountPlatformMismatch,
   accountPlatformMismatchMessage,
@@ -236,6 +241,21 @@ export async function POST(
     },
   };
 
+  // Every write after this point records an answer the platform already gave
+  // (or a send that may have reached it). If it fails the post would strand in
+  // PUBLISHING with no job, so each is retried once and otherwise the post is
+  // closed FAILED as "outcome unknown" — see src/lib/jobs/record-outcome.ts.
+  const closeAsUnknown = (detail?: string) => () =>
+    prisma.post.updateMany({
+      where: { id: post.id, status: PostStatus.PUBLISHING },
+      data: { status: PostStatus.FAILED, errorMessage: outcomeUnknownMessage(detail) },
+    });
+  const outcomeUnknown = (detail?: string) =>
+    NextResponse.json(
+      { success: false, error: outcomeUnknownMessage(detail), code: OUTCOME_UNKNOWN_CODE },
+      { status: 502 }
+    );
+
   let result: Awaited<ReturnType<typeof adapter.createPost>>;
   try {
     result = await adapter.createPost(accessToken, sendOptions);
@@ -244,15 +264,19 @@ export async function POST(
     // in PUBLISHING with no job to reclaim it — uneditable, undeletable and
     // unpublishable. Close it as FAILED with the reason instead: the retry path
     // (FAILED plus approvedAt) can then re-queue it deliberately.
-    await prisma.post.update({
-      where: { id: post.id },
-      data: {
-        status: PostStatus.FAILED,
-        errorMessage: `Publishing failed before the platform confirmed: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`,
-      },
-    });
+    const reason = error instanceof Error ? error.message : "unknown error";
+    await recordPublishOutcome(
+      () =>
+        prisma.post.update({
+          where: { id: post.id },
+          data: {
+            status: PostStatus.FAILED,
+            errorMessage: `Publishing failed before the platform confirmed: ${reason}`,
+          },
+        }),
+      closeAsUnknown(reason),
+      { label: "a thrown send" },
+    );
     return NextResponse.json(
       {
         success: false,
@@ -280,11 +304,19 @@ export async function POST(
   // sent again. The worker polls the platform for the verdict; the post stays
   // PUBLISHING until then.
   if (result.success && result.pending && result.platformPostId) {
-    await handOffPendingPublish(prisma, {
-      postId: post.id,
-      workspaceId: post.workspaceId ?? null,
-      publishId: result.platformPostId,
-    });
+    const publishId = result.platformPostId;
+    const detail = `${post.platform} accepted it as ${publishId} and was still processing`;
+    const handedOff = await recordPublishOutcome(
+      () =>
+        handOffPendingPublish(prisma, {
+          postId: post.id,
+          workspaceId: post.workspaceId ?? null,
+          publishId,
+        }),
+      closeAsUnknown(detail),
+      { label: "the pending hand-off" },
+    );
+    if (!handedOff.ok) return outcomeUnknown(detail);
     return NextResponse.json(
       {
         success: true,
@@ -296,16 +328,27 @@ export async function POST(
   }
 
   if (result.success) {
-    const published = await prisma.post.update({
-      where: { id: post.id },
-      data: {
-        status: PostStatus.PUBLISHED,
-        publishedAt: new Date(),
-        platformPostId: result.platformPostId ?? null,
-        platformPostUrl: result.platformPostUrl ?? null,
-        errorMessage: null,
-      },
-    });
+    const succeeded = result;
+    const detail = `${post.platform} reported success${
+      succeeded.platformPostUrl ? ` at ${succeeded.platformPostUrl}` : ""
+    }`;
+    const recorded = await recordPublishOutcome(
+      () =>
+        prisma.post.update({
+          where: { id: post.id },
+          data: {
+            status: PostStatus.PUBLISHED,
+            publishedAt: new Date(),
+            platformPostId: succeeded.platformPostId ?? null,
+            platformPostUrl: succeeded.platformPostUrl ?? null,
+            errorMessage: null,
+          },
+        }),
+      closeAsUnknown(detail),
+      { label: "a successful publish" },
+    );
+    if (!recorded.ok) return outcomeUnknown(detail);
+    const published = recorded.value;
 
     return NextResponse.json({
       success: true,
@@ -315,16 +358,22 @@ export async function POST(
   }
 
   const code = failureCodeOf(result);
+  const failureMessage = result.error ?? "Publishing failed";
 
-  await prisma.$transaction([
-    prisma.post.update({
-      where: { id: post.id },
-      data: { status: PostStatus.FAILED, errorMessage: result.error ?? "Publishing failed" },
-    }),
-    ...(requiresReconnect(code)
-      ? [prisma.socialAccount.update({ where: { id: account.id }, data: { needsReconnect: true } })]
-      : []),
-  ]);
+  await recordPublishOutcome(
+    () =>
+      prisma.$transaction([
+        prisma.post.update({
+          where: { id: post.id },
+          data: { status: PostStatus.FAILED, errorMessage: failureMessage },
+        }),
+        ...(requiresReconnect(code)
+          ? [prisma.socialAccount.update({ where: { id: account.id }, data: { needsReconnect: true } })]
+          : []),
+      ]),
+    closeAsUnknown(`${post.platform} reported a failure: ${failureMessage}`),
+    { label: "a failed publish" },
+  );
 
   // The content was the problem, not the platform — 422 tells the client to fix
   // the post instead of retrying it.
@@ -332,7 +381,7 @@ export async function POST(
     code === "UNSUPPORTED_MEDIA" || code === "MEDIA_INVALID" || code === "CONTENT_INVALID";
 
   return NextResponse.json(
-    { success: false, error: result.error ?? "Publishing failed", code },
+    { success: false, error: failureMessage, code },
     { status: contentProblem ? 422 : 502 }
   );
 }
