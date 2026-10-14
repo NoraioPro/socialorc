@@ -20,8 +20,8 @@ SocialOrc is designed for users who want to automate social media posting withou
 | Platform | Status | Notes |
 |----------|--------|-------|
 | LinkedIn | ✅ Reference Implementation | Personal profile posting via `w_member_social` scope. Architecture supports Company Pages with `w_organization_social`. |
-| X (Twitter) | ⚡ Ready | OAuth 2.0 PKCE for text. Media upload requires OAuth 1.0a (v1.1 endpoint). Free tier: 50 tweets/day. |
-| Instagram | ⚡ Ready | Requires Business/Creator account + Facebook Page link. Two-step container flow. JPEG only. |
+| X (Twitter) | ⚡ Ready | OAuth 2.0 PKCE. Text, up to 4 images, or one video/GIF via the v2 media upload (`media.write` scope). Free tier: 50 tweets/day. |
+| Instagram | ⚡ Ready | Requires Business/Creator account + Facebook Page link. Two-step container flow. JPEG images, carousels of up to 10 JPEGs, and video as Reels. |
 | Facebook | ⚡ Ready | Pages API only (not personal profiles). Requires App Review for non-owned Pages. |
 | TikTok | ⚡ Ready | Video-only. Unaudited apps limited to private/SELF_ONLY visibility. Requires TikTok audit for public posting. |
 | YouTube | ⚡ Ready | Video uploads only. 1,600 quota units per upload (~6/day default). OAuth verification required. |
@@ -96,9 +96,9 @@ cp .env.example .env
 
 # Configure your .env file (see Environment Variables section)
 
-# Generate Prisma client and push schema
+# Generate Prisma client and apply migrations
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 
 # Start development server
 npm run dev
@@ -159,6 +159,26 @@ CRON_SECRET="generate-with-openssl-rand-base64-32"
 # OpenAI-compatible API for AI draft generation
 OPENAI_API_KEY="sk-..."
 OPENAI_BASE_URL="https://api.openai.com/v1"  # Optional: custom endpoint
+
+# Brand Brain knowledge embeddings (uses the account's own key)
+AI_EMBED_MODEL="text-embedding-3-small"       # Optional: default shown. Without a key, sources use keyword search
+```
+
+### Optional (Signing and Storage)
+
+```env
+# Signs the OAuth state cookie. Falls back to NEXTAUTH_SECRET when unset
+OAUTH_STATE_SECRET="generate-with-openssl-rand-base64-32"
+
+# Vercel Blob store for uploaded media. Required in production for media posts
+BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+```
+
+### Telegram
+
+```env
+TELEGRAM_BOT_TOKEN="123456789:..."   # Enables Telegram. Each account connects its own chat via a one-time code
+TELEGRAM_CHAT_ID=""                   # Optional prefill for the connect form only. Never a publishing destination
 ```
 
 ### Platform Credentials
@@ -317,8 +337,8 @@ npx prisma studio
 # Generate Prisma client after schema changes
 npx prisma generate
 
-# Push schema changes to database
-npx prisma db push
+# Apply migrations to the database (use migrate, not db push: db push hides drift)
+npx prisma migrate deploy
 
 # Lint
 npm run lint
@@ -351,6 +371,7 @@ Cron jobs are automatically configured via `vercel.json`.
 
 - OAuth tokens are encrypted at rest using AES encryption
 - Cron endpoint requires authentication via `CRON_SECRET`
+- Every API route and page is scoped to the caller's workspace, and the test suite fails the build if a route is not
 - NextAuth handles session management securely
 - All social platform communications use HTTPS
 
@@ -359,7 +380,7 @@ Cron jobs are automatically configured via `vercel.json`.
 1. **TikTok**: Public posting requires passing TikTok's audit process
 2. **Instagram**: Only Business/Creator accounts with Facebook Page link
 3. **YouTube**: Default quota allows ~6 uploads/day
-4. **X/Twitter**: Media upload requires separate OAuth 1.0a implementation
+4. **X/Twitter**: Video is capped at 32 MB. Accounts connected before `media.write` was requested must reconnect to attach media
 5. **Facebook**: Personal profile posting not supported (Pages only)
 
 ## Contributing

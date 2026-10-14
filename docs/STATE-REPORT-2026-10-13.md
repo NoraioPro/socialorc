@@ -1,3 +1,5 @@
+Superseded by STATE-REPORT-2026-10-15.md
+
 # SocialOrc — handover report, 2026-10-13
 
 For whoever picks this up next. Everything below was measured on this machine or on the live

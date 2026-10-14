@@ -12,6 +12,9 @@ Quick checklist of secrets and configuration Hassan must provide.
 | `CRON_SECRET` | Generate locally | `openssl rand -base64 32` |
 | `NEXTAUTH_URL` | Your deployed URL | e.g., `https://socialorc.vercel.app` |
 
+Optional: `OAUTH_STATE_SECRET` (signs the OAuth state cookie; falls back to `NEXTAUTH_SECRET`). Set it
+separately so rotating one secret does not break the other.
+
 ## LinkedIn OAuth (Priority 1)
 
 LinkedIn is the reference implementation and ready for personal profile posting.
@@ -83,10 +86,23 @@ Configure these only for platforms you want to enable:
 |----------|--------------|
 | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/) |
 
+Optional: `AI_EMBED_MODEL` sets the embedding model for Brand Brain knowledge sources. It defaults to
+`text-embedding-3-small`, uses the account's own key and base URL, and is ignored without a key (sources
+are then searched by keyword and labelled as such).
+
 ### Media Storage
 | Variable | Where to Get |
 |----------|--------------|
 | `BLOB_READ_WRITE_TOKEN` | [Vercel Dashboard](https://vercel.com/dashboard/stores) |
+
+Required in production for media posts. When set, the publishing adapters accept media only from this
+deployment's own Blob store, so the token must belong to the store the app uploads to.
+
+### Telegram
+| Variable | Where to Get |
+|----------|--------------|
+| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_CHAT_ID` | Optional prefill for the connect form only. Not a publishing destination |
 
 ## Vercel Deployment Checklist
 
@@ -111,9 +127,9 @@ openssl rand -base64 32  # Run 3 times for NEXTAUTH_SECRET, TOKEN_ENCRYPTION_KEY
 DATABASE_URL="file:./dev.db"
 NEXTAUTH_URL="http://localhost:3000"
 
-# Generate Prisma client and push schema
+# Generate Prisma client and apply migrations (do not use `db push`: it hides drift)
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 
 # Start dev server
 npm run dev
