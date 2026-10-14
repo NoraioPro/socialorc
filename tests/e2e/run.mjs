@@ -21,6 +21,7 @@ import fs from "node:fs";
 import { runPublishE2E } from "./publish.e2e.mjs";
 import { runEngagementE2E } from "./engagement.e2e.mjs";
 import { runTenancyE2E } from "./tenancy.e2e.mjs";
+import { runKnowledgeE2E } from "./knowledge.e2e.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -227,13 +228,15 @@ async function main() {
     const publishResult = await runPublishE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
     const engagementResult = await runEngagementE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
     const tenancyResult = await runTenancyE2E({ baseUrl: BASE_URL });
-    ok = publishResult.ok && engagementResult.ok && tenancyResult.ok;
+    const knowledgeResult = await runKnowledgeE2E({ baseUrl: BASE_URL });
+    ok = publishResult.ok && engagementResult.ok && tenancyResult.ok && knowledgeResult.ok;
     if (!ok) {
       console.log("\nFailed checks:");
       for (const r of [
         ...publishResult.results,
         ...engagementResult.results,
         ...tenancyResult.results,
+        ...knowledgeResult.results,
       ].filter((x) => !x.ok)) {
         console.log(`  - ${r.name}${r.detail ? ` (${r.detail})` : ""}`);
       }
@@ -249,7 +252,7 @@ async function main() {
 
   console.log(
     ok
-      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement + workspace isolation)"
+      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement + workspace isolation + brand knowledge)"
       : "\nE2E RESULT: FAIL",
   );
   process.exit(ok ? 0 : 1);
