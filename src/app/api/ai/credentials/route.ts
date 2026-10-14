@@ -5,6 +5,7 @@ import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { DEFAULT_BASE_URL, keyHint, resolveAiConfig, type AiKind } from "@/lib/ai-config";
+import { allowPrivateAiBaseUrl, checkAiBaseUrl } from "@/lib/ai-base-url";
 
 /**
  * The one place a person's own AI key is written.
@@ -148,10 +149,13 @@ export async function GET(req: NextRequest) {
   // Which key would actually be used for this request: the person's, the team's,
   // or none. Surfaced so the UI can say so plainly instead of leaving people to
   // guess why AI is behaving the way it is.
-  const effective =
-    scope === "workspace"
-      ? await resolveAiConfig({ workspaceId: target!.workspaceId }, kind)
-      : await resolveAiConfig({ ...target }, kind);
+  // A stored row that can no longer be used (an undecryptable key, a base URL
+  // written before it was validated) must not stop the page that fixes it from
+  // loading, so a resolution failure reads as "no effective key".
+  const effective = await (scope === "workspace"
+    ? resolveAiConfig({ workspaceId: target!.workspaceId }, kind)
+    : resolveAiConfig({ ...target }, kind)
+  ).catch(() => null);
 
   return NextResponse.json({
     scope,
@@ -181,6 +185,15 @@ export async function PUT(req: NextRequest) {
 
   const { target, response } = await resolveTarget(scope, workspaceId ?? null);
   if (response) return response;
+
+  // The server sends requests (with this key) to whatever base URL is stored,
+  // so an unchecked value is an SSRF primitive — see src/lib/ai-base-url.ts.
+  if (baseUrl) {
+    const problem = await checkAiBaseUrl(baseUrl, { allowPrivate: allowPrivateAiBaseUrl() });
+    if (problem) {
+      return NextResponse.json({ error: "invalid_base_url", message: problem }, { status: 400 });
+    }
+  }
 
   // Encrypted before it is stored; the plaintext never reaches the database or
   // the response.

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
+import { aiBaseUrlProblem, allowPrivateAiBaseUrl } from "@/lib/ai-base-url";
 
 /**
  * Where an AI key comes from.
@@ -88,6 +89,14 @@ function toConfig(row: CredentialRow, source: AiSource): AiConfig {
   if (!apiKey) {
     throw new AiKeyMissingError(
       "The stored AI key could not be read. Re-enter it under Settings → AI.",
+    );
+  }
+
+  // Rows written before the base URL was validated may point anywhere. Refuse
+  // to send the key there rather than silently falling back to another provider.
+  if (row.baseUrl && aiBaseUrlProblem(row.baseUrl, { allowPrivate: allowPrivateAiBaseUrl() })) {
+    throw new AiKeyMissingError(
+      "The stored AI base URL is not allowed. Re-enter it under Settings → AI.",
     );
   }
 
