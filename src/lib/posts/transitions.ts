@@ -117,3 +117,13 @@ export function editGuardWhere(id: string, workspaceId: string) {
 export function publishClaimWhere(id: string) {
   return { id, status: "SCHEDULED" as PostStatus, approvedAt: { not: null } };
 }
+
+/**
+ * The worker claims a due job (PENDING -> PROCESSING). `scheduledAt` is
+ * restated in the claim: the job was read as due a moment earlier, but a
+ * reschedule (or a retry's backoff) landing in between moves it into the
+ * future, and claiming it anyway would publish early.
+ */
+export function jobClaimWhere(jobId: string, now: Date) {
+  return { id: jobId, status: "PENDING" as const, scheduledAt: { lte: now } };
+}

@@ -7,6 +7,7 @@ import {
   POST_CONFLICT_STATUS,
   approveGuardWhere,
   editGuardWhere,
+  jobClaimWhere,
   publishClaimWhere,
   rescheduleGuardWhere,
   rescheduleJobWhere,
@@ -129,10 +130,20 @@ test("every status-changing route uses a guard, not a bare update by id", () => 
     ["src/app/api/posts/[id]/reschedule/route.ts", "rescheduleJobWhere"],
     ["src/app/api/posts/[id]/route.ts", "editGuardWhere"],
     ["src/app/api/cron/publish/route.ts", "publishClaimWhere"],
+    ["src/app/api/cron/publish/route.ts", "jobClaimWhere"],
   ];
 
   for (const [file, helper] of expectations) {
     const source = readFileSync(file, "utf8");
     assert.match(source, new RegExp(`${helper}\\(`), `${file} must use ${helper}`);
   }
+});
+
+test("the worker's job claim rechecks that the job is still due", () => {
+  const now = new Date("2026-10-15T12:00:00.000Z");
+  assert.deepEqual(jobClaimWhere("job-1", now), {
+    id: "job-1",
+    status: "PENDING",
+    scheduledAt: { lte: now },
+  });
 });

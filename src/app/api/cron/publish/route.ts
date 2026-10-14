@@ -14,7 +14,7 @@ import {
   requiresReconnect,
   type AdapterErrorCode,
 } from "@/lib/adapters/errors";
-import { publishClaimWhere } from "@/lib/posts/transitions";
+import { jobClaimWhere, publishClaimWhere } from "@/lib/posts/transitions";
 import {
   CLEARED_PENDING_PUBLISH,
   PENDING_TIMEOUT_MESSAGE,
@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
         // publish the post. Only the run that actually wins the
         // PENDING -> PROCESSING transition owns the job; the loser skips it.
         const claim = await prisma.scheduledJob.updateMany({
-          where: { id: job.id, status: JobStatus.PENDING },
+          where: jobClaimWhere(job.id, now),
           data: {
             status: JobStatus.PROCESSING,
             startedAt: new Date(),
