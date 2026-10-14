@@ -628,24 +628,38 @@ export async function runRoutesE2E({ baseUrl }) {
   );
 
   // ------------------------------------------------- social/telegram/connect
-  const anonTg = target(await req(anon, url("/api/social/telegram/connect")));
+  // Connecting is a POST pair (code, then connect) behind accounts:connect and
+  // the signed state cookie; GET only hands the browser back to settings and
+  // never binds a chat.
+  const getTg = target(await req(owner.jar, url("/api/social/telegram/connect?chatId=12345")));
   check(
-    "social/telegram/connect: anonymous is sent to sign in",
-    anonTg?.pathname === "/login",
-    anonTg?.toString() ?? "no redirect",
+    "social/telegram/connect: GET binds nothing and returns to settings",
+    getTg?.pathname === "/settings/accounts" &&
+      getTg.searchParams.get("error") === "telegram_connect_not_verified",
+    getTg?.toString() ?? "no redirect",
   );
-  const clientTg = target(await req(client.jar, url("/api/social/telegram/connect")));
-  check(
-    "social/telegram/connect: CLIENT is refused (not_allowed)",
-    clientTg?.searchParams.get("error") === "not_allowed",
-    clientTg?.toString() ?? "no redirect",
+  expectStatus(
+    "social/telegram/connect: anonymous POST is 401",
+    await req(anon, url("/api/social/telegram/connect"), { method: "POST", json: { code: "ABCD1234" } }),
+    401,
   );
-  const ownerTg = target(await req(owner.jar, url("/api/social/telegram/connect?chatId=12345")));
-  check(
-    "social/telegram/connect: an unconfigured bot says so, naming the variable",
-    ownerTg?.searchParams.get("error") === "telegram_not_configured" &&
-      /TELEGRAM_BOT_TOKEN/.test(ownerTg.searchParams.get("missing") ?? ""),
-    ownerTg?.toString() ?? "no redirect",
+  expectStatus(
+    "social/telegram/connect: CLIENT POST is 403",
+    await req(client.jar, url("/api/social/telegram/connect"), { method: "POST", json: { code: "ABCD1234" } }),
+    403,
+  );
+  expectStatus(
+    "social/telegram/connect/code: CLIENT cannot issue a code (403)",
+    await req(client.jar, url("/api/social/telegram/connect/code"), { method: "POST", json: {} }),
+    403,
+  );
+  expectStatus(
+    "social/telegram/connect: without the signed state cookie the owner is refused (400)",
+    await req(owner.jar, url("/api/social/telegram/connect"), {
+      method: "POST",
+      json: { state: "0".repeat(64), code: "ABCD1234" },
+    }),
+    400,
   );
 
   // ----------------------------------------------------------- ai/credentials

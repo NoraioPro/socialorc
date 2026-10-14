@@ -121,7 +121,7 @@ test("every reader mints or verifies through the module, never by parsing raw JS
 
   for (const file of [
     "src/lib/oauth/callback.ts",
-    "src/app/api/social/telegram/connect/route.ts",
+    "src/lib/social/telegram-connect.ts",
     "src/app/api/social/mock/callback/route.ts",
   ]) {
     const source = readFileSync(file, "utf8");
@@ -130,8 +130,18 @@ test("every reader mints or verifies through the module, never by parsing raw JS
   }
 });
 
-test("the Telegram connect requires this session's cookie before binding a chat", () => {
-  const source = readFileSync("src/app/api/social/telegram/connect/route.ts", "utf8");
-  assert.match(source, /telegram_connect_not_verified/);
-  assert.match(source, /peekStateCookie\(stateCookieValue, oauthStateSecret\(\)\)/);
+test("the Telegram connect requires this session's cookie on every path that issues or binds", () => {
+  for (const file of [
+    "src/app/api/social/telegram/connect/route.ts",
+    "src/app/api/social/telegram/connect/code/route.ts",
+  ]) {
+    const source = readFileSync(file, "utf8");
+    assert.match(source, /readTelegramState\(req, body\?\.state, guard\.userId\)/, file);
+    // The deployment's chat is a UI prefill only, never a connect target.
+    assert.doesNotMatch(source, /chatId[^\n]*process\.env\.TELEGRAM_CHAT_ID/, file);
+  }
+  const connect = readFileSync("src/app/api/social/telegram/connect/route.ts", "utf8");
+  // GET writes nothing: no prisma call before the POST handler.
+  const getHandler = connect.slice(connect.indexOf("export async function GET"), connect.indexOf("export async function POST"));
+  assert.doesNotMatch(getHandler, /prisma\./);
 });

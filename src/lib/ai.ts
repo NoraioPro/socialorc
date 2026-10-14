@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { aiFetch } from "@/lib/ai-base-url";
 import { Platform } from "@prisma/client";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import {
@@ -73,6 +74,8 @@ function getOpenAI(config: AiConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl ?? DEFAULT_BASE_URL,
+    // Public addresses only, checked per request; redirects are an error.
+    fetch: aiFetch,
   });
 }
 

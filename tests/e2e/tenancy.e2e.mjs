@@ -109,6 +109,39 @@ export async function runTenancyE2E({ baseUrl }) {
   const brainId = ownerAccounts.body?.brain?.id ?? null;
   check("workspace 1 connects a mock account", !!account?.id, account?.platformUsername ?? "none");
 
+  // ------------------------------------------------------------ telegram connect
+  // Binding a chat needs the signed state cookie AND a posted one-time code.
+  // The old GET wrote an account (falling back to TELEGRAM_CHAT_ID with no
+  // cookie at all); it must now only redirect to the settings dialog.
+  const fakeState = "a".repeat(64);
+  const tgGet = await req(owner.jar, url(`/api/social/telegram/connect?state=${fakeState}&chatId=-100123`));
+  check(
+    "telegram connect GET only redirects to the verification dialog",
+    tgGet.status >= 300 && tgGet.status < 400 && /telegram_state=a{64}/.test(tgGet.location ?? ""),
+    `status ${tgGet.status} → ${tgGet.location}`,
+  );
+  const tgNoState = await req(owner.jar, url("/api/social/telegram/connect"), {
+    method: "POST",
+    json: { state: fakeState, code: "SOCABCDEFGHJKMNP", chatId: "-100123" },
+  });
+  check("telegram connect POST without this session's state cookie is refused", tgNoState.status === 400 && tgNoState.body?.code === "STATE_INVALID", `status ${tgNoState.status}`);
+  const tgCodeNoState = await req(owner.jar, url("/api/social/telegram/connect/code"), { method: "POST", json: { state: fakeState } });
+  check("telegram code issue without this session's state cookie is refused", tgCodeNoState.status === 400, `status ${tgCodeNoState.status}`);
+  const afterTg = await req(owner.jar, url("/api/accounts"));
+  check(
+    "no Telegram account was created by any of that",
+    !(afterTg.body?.accounts ?? []).some((a) => a.platform === "TELEGRAM"),
+  );
+  // Mock adapters keep their own connect path for Telegram.
+  const tgMock = await req(owner.jar, url("/api/social/connect?platform=TELEGRAM"));
+  if (tgMock.body?.url) await req(owner.jar, tgMock.body.url);
+  const withMockTg = await req(owner.jar, url("/api/accounts"));
+  check(
+    "the mock Telegram connect still works under MOCK_SOCIAL_ADAPTERS",
+    (withMockTg.body?.accounts ?? []).some((a) => a.platform === "TELEGRAM"),
+    tgMock.body?.url ?? `status ${tgMock.status}`,
+  );
+
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: "image/png" }), "pixel.png");
   const upload = await req(owner.jar, url("/api/media"), { method: "POST", body: form });

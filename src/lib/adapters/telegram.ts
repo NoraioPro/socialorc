@@ -25,9 +25,11 @@ import {
 import {
   PrismaTelegramReplyStore,
   botIdFromToken,
+  type ConnectCodeSighting,
   type StoredTelegramReply,
   type TelegramReplyStore,
 } from "./telegram-replies";
+import { extractConnectCodes, hashConnectCode } from "./telegram-connect-code";
 
 const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
@@ -47,16 +49,20 @@ const UPDATES_PER_BATCH = 100;
 /** Batches drained per read: enough to catch up, bounded so a read cannot hang. */
 const MAX_DRAIN_BATCHES = 5;
 
+interface TelegramMessage {
+  message_id: number;
+  date: number;
+  text?: string;
+  chat?: { id: number; type?: string };
+  from?: { id: number; first_name?: string; username?: string };
+  reply_to_message?: { message_id: number };
+}
+
 interface TelegramUpdate {
   update_id: number;
-  message?: {
-    message_id: number;
-    date: number;
-    text?: string;
-    chat?: { id: number };
-    from?: { id: number; first_name?: string; username?: string };
-    reply_to_message?: { message_id: number };
-  };
+  message?: TelegramMessage;
+  /** Posts in a channel the bot administers (connect codes can be posted there). */
+  channel_post?: TelegramMessage;
 }
 
 /**
@@ -105,7 +111,10 @@ export class TelegramAdapter extends BasePlatformAdapter {
     return validateTelegramCredentials();
   }
 
-  /** No OAuth: the "authorize" step is a local confirm-and-store route. */
+  /**
+   * No OAuth: the "authorize" step is the settings page's chat-verification
+   * dialog, which the connect route's GET redirects to. Nothing is stored there.
+   */
   getOAuthUrl(state: string): string {
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
     return `${baseUrl}/api/social/telegram/connect?state=${state}&platform=TELEGRAM`;
@@ -259,6 +268,29 @@ export class TelegramAdapter extends BasePlatformAdapter {
     };
   }
 
+  /**
+   * A member's status in a chat (`creator`, `administrator`, `member`, …), used
+   * to require that whoever posted a connect code in a group administers it.
+   */
+  async getChatMemberStatus(
+    accessToken: string,
+    chatId: string,
+    userId: string,
+  ): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
+    const res = await fetch(
+      `${TELEGRAM_API}/bot${accessToken}/getChatMember?chat_id=${encodeURIComponent(chatId)}&user_id=${encodeURIComponent(userId)}`,
+    );
+    const json = (await res.json().catch(() => ({ ok: false }))) as {
+      ok: boolean;
+      description?: string;
+      result?: { status?: string };
+    };
+    if (!json.ok || !json.result?.status) {
+      return { ok: false, error: json.description ?? `HTTP ${res.status}` };
+    }
+    return { ok: true, status: json.result.status };
+  }
+
   private reactionEmoji(kind: ReactionKind): string {
     switch (kind) {
       case "like":
@@ -352,7 +384,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
    * batch next time, which the store absorbs by update id. Bounded, so a large
    * backlog cannot hold a request open; the next read continues from the cursor.
    */
-  private async drainUpdates(
+  async drainUpdates(
     accessToken: string,
   ): Promise<{ ok: true; drained: number } | { ok: false; error: string; raw?: unknown }> {
     const botId = botIdFromToken(accessToken);
@@ -368,7 +400,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
           ...(offset !== null ? { offset } : {}),
           limit: UPDATES_PER_BATCH,
           timeout: 0,
-          allowed_updates: ["message"],
+          allowed_updates: ["message", "channel_post"],
         }),
       });
 
@@ -389,9 +421,21 @@ export class TelegramAdapter extends BasePlatformAdapter {
       if (json.result.length === 0) break;
 
       const replies: StoredTelegramReply[] = [];
+      const sightings: ConnectCodeSighting[] = [];
       let next = offset ?? 0;
       for (const update of json.result) {
         next = Math.max(next, update.update_id + 1);
+        const posted = update.message ?? update.channel_post;
+        if (posted?.chat?.id !== undefined) {
+          for (const code of extractConnectCodes(posted.text)) {
+            sightings.push({
+              codeHash: hashConnectCode(code),
+              chatId: String(posted.chat.id),
+              chatType: posted.chat.type ?? null,
+              authorId: posted.from ? String(posted.from.id) : null,
+            });
+          }
+        }
         const message = update.message;
         const parentId = message?.reply_to_message?.message_id;
         if (!message?.text || parentId === undefined || message.chat?.id === undefined) continue;
@@ -408,6 +452,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
       }
 
       await this.replyStore.saveReplies(replies);
+      await this.replyStore.recordConnectCodes(sightings);
       await this.replyStore.advanceOffset(botId, next);
       drained += json.result.length;
 

@@ -153,6 +153,7 @@ export function createOAuthCallback(platform: Platform, overrides: Partial<OAuth
             encodePendingConnection(
               {
                 userId: user.userId,
+                workspaceId: tenant.workspaceId,
                 platform,
                 brainId: brain.id,
                 userToken: tokens.accessToken,

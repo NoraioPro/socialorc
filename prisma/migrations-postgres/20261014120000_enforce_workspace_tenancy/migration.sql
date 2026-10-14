@@ -89,6 +89,16 @@ WHERE i."acceptedBy" IS NOT NULL
         WHERE im."userId" = i."invitedBy"
         ORDER BY im."createdAt", im."id" LIMIT 1) <> m."workspaceId";
 
+-- An invitee who accepted invitations into two different teams is ambiguous:
+-- leave them where they are rather than guess (and a correlated subquery over
+-- two targets would fail the migration on postgres).
+DELETE FROM "_TenancyBackfillMove"
+WHERE "fromWorkspaceId" IN (
+  SELECT "fromWorkspaceId" FROM "_TenancyBackfillMove"
+  GROUP BY "fromWorkspaceId"
+  HAVING COUNT(*) > 1
+);
+
 UPDATE "Brain"
 SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "Brain"."workspaceId"),
     "isDefault" = false
@@ -105,6 +115,102 @@ WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" 
 UPDATE "MediaAsset"
 SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "MediaAsset"."workspaceId")
 WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+-- Everything else the personal workspace owns moves too, or the invitee would
+-- arrive in the team while their AI keys, platform credentials, brand profile,
+-- knowledge base, conversations and agents stayed behind in a workspace nobody
+-- can reach. Tables with a unique (workspaceId, ...) key keep the target
+-- workspace's row on a conflict; the invitee's stays in the emptied personal
+-- workspace, untouched, rather than overwriting the team's.
+UPDATE "BrainSource"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrainSource"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+UPDATE "BrainChunk"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrainChunk"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+UPDATE "BrainMemory"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrainMemory"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+UPDATE "BrainInsight"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrainInsight"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+UPDATE "Conversation"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "Conversation"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv);
+
+UPDATE "AiCredential"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiCredential"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv)
+  -- the target workspace's own row wins
+  AND NOT EXISTS (
+    SELECT 1 FROM "AiCredential" x
+    WHERE x."workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiCredential"."workspaceId")
+      AND x."kind" = "AiCredential"."kind"
+  )
+  -- two invitees of one team bringing the same key: the first (by id) moves
+  AND NOT EXISTS (
+    SELECT 1 FROM "AiCredential" x
+    JOIN "_TenancyBackfillMove" xm ON xm."fromWorkspaceId" = x."workspaceId"
+    WHERE xm."toWorkspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiCredential"."workspaceId")
+      AND x."id" < "AiCredential"."id"
+      AND x."kind" = "AiCredential"."kind"
+  );
+
+UPDATE "WorkspacePlatformCredential"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "WorkspacePlatformCredential"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv)
+  -- the target workspace's own row wins
+  AND NOT EXISTS (
+    SELECT 1 FROM "WorkspacePlatformCredential" x
+    WHERE x."workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "WorkspacePlatformCredential"."workspaceId")
+      AND x."platform" = "WorkspacePlatformCredential"."platform"
+  )
+  -- two invitees of one team bringing the same key: the first (by id) moves
+  AND NOT EXISTS (
+    SELECT 1 FROM "WorkspacePlatformCredential" x
+    JOIN "_TenancyBackfillMove" xm ON xm."fromWorkspaceId" = x."workspaceId"
+    WHERE xm."toWorkspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "WorkspacePlatformCredential"."workspaceId")
+      AND x."id" < "WorkspacePlatformCredential"."id"
+      AND x."platform" = "WorkspacePlatformCredential"."platform"
+  );
+
+UPDATE "BrandProfile"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrandProfile"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv)
+  -- the target workspace's own row wins
+  AND NOT EXISTS (
+    SELECT 1 FROM "BrandProfile" x
+    WHERE x."workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrandProfile"."workspaceId")
+  )
+  -- two invitees of one team bringing the same key: the first (by id) moves
+  AND NOT EXISTS (
+    SELECT 1 FROM "BrandProfile" x
+    JOIN "_TenancyBackfillMove" xm ON xm."fromWorkspaceId" = x."workspaceId"
+    WHERE xm."toWorkspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "BrandProfile"."workspaceId")
+      AND x."id" < "BrandProfile"."id"
+  );
+
+UPDATE "AiAgent"
+SET "workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiAgent"."workspaceId")
+WHERE "workspaceId" IN (SELECT mv."fromWorkspaceId" FROM "_TenancyBackfillMove" mv)
+  -- the target workspace's own row wins
+  AND NOT EXISTS (
+    SELECT 1 FROM "AiAgent" x
+    WHERE x."workspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiAgent"."workspaceId")
+      AND x."slug" = "AiAgent"."slug"
+  )
+  -- two invitees of one team bringing the same key: the first (by id) moves
+  AND NOT EXISTS (
+    SELECT 1 FROM "AiAgent" x
+    JOIN "_TenancyBackfillMove" xm ON xm."fromWorkspaceId" = x."workspaceId"
+    WHERE xm."toWorkspaceId" = (SELECT mv."toWorkspaceId" FROM "_TenancyBackfillMove" mv WHERE mv."fromWorkspaceId" = "AiAgent"."workspaceId")
+      AND x."id" < "AiAgent"."id"
+      AND x."slug" = "AiAgent"."slug"
+  );
 
 -- They owned the personal workspace; in the team they hold the invited role.
 UPDATE "WorkspaceMember"

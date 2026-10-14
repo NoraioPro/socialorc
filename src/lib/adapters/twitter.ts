@@ -1,5 +1,6 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
+import { fetchOwnMedia, MediaSourceNotAllowedError } from "@/lib/social/blob-upload";
 import {
   OAuthTokens,
   AccountInfo,
@@ -376,7 +377,15 @@ export class TwitterAdapter extends BasePlatformAdapter {
   }
 
   private async download(descriptor: PostMediaDescriptor): Promise<{ success: true; blob: Blob } | UploadFailure> {
-    const response = await fetch(descriptor.url);
+    let response: Response;
+    try {
+      response = await fetchOwnMedia(descriptor.url);
+    } catch (error) {
+      if (error instanceof MediaSourceNotAllowedError) {
+        return { success: false, error: error.message, code: "MEDIA_INVALID" };
+      }
+      throw error;
+    }
     if (!response.ok) {
       return {
         success: false,

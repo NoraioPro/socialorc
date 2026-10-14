@@ -1,5 +1,6 @@
+import { timingSafeEqual } from "node:crypto";
 import { decrypt, encrypt } from "@/lib/encryption";
-import { signStateJson, verifyStateJson } from "@/lib/oauth/state";
+import { signStateJson } from "@/lib/oauth/state";
 
 /**
  * A finished OAuth grant waiting for the user to pick what to connect it as.
@@ -16,7 +17,12 @@ import { signStateJson, verifyStateJson } from "@/lib/oauth/state";
  *   it cannot be minted or edited client-side;
  * - **the token inside is encrypted** with the token-encryption key — no
  *   plaintext credential ever sits in a cookie;
- * - bound to the user and platform, and short-lived (`PENDING_TTL_MS`).
+ * - bound to the user, the workspace and the platform, and short-lived
+ *   (`PENDING_TTL_MS`); the workspace is re-checked against the live guard, so
+ *   a grant parked before a workspace change cannot land in the new one;
+ * - the signature covers a purpose prefix (`PENDING_PURPOSE`), so a value
+ *   signed for another purpose with the same secret (an OAuth state cookie)
+ *   can never verify as a pending grant, and vice versa.
  *
  * The cookie carries no Page list: candidates are re-read from Meta with the
  * token on every request, so the browser can never offer a Page the grant does
@@ -25,8 +31,13 @@ import { signStateJson, verifyStateJson } from "@/lib/oauth/state";
 
 export const PENDING_TTL_MS = 10 * 60_000;
 
+/** Domain separation from the OAuth state cookie, which shares the secret. */
+export const PENDING_PURPOSE = "socialorc:oauth-pending:v1\n";
+
 export interface PendingConnection {
   userId: string;
+  /** The workspace the grant was parked for; must match the caller's live workspace. */
+  workspaceId: string;
   platform: string;
   brainId: string;
   /** Long-lived user token, decrypted. Never serialise this anywhere. */
@@ -47,17 +58,44 @@ export function encodePendingConnection(data: PendingConnection, secret: string)
   const { userToken, ...rest } = data;
   const envelope: Envelope = { ...rest, tok: encrypt(userToken) };
   const json = JSON.stringify(envelope);
-  return `${signStateJson(json, secret)}.${Buffer.from(json, "utf8").toString("base64url")}`;
+  return `${signStateJson(PENDING_PURPOSE + json, secret)}.${Buffer.from(json, "utf8").toString("base64url")}`;
 }
 
-export type PendingProblem = "missing" | "malformed" | "expired" | "user_mismatch" | "platform_mismatch";
+/** The JSON payload if the purpose-bound signature matches, else null. */
+function verifyPendingJson(raw: string, secret: string): string | null {
+  const separator = raw.indexOf(".");
+  if (separator <= 0) return null;
+  const body = raw.slice(separator + 1);
+  if (body === "") return null;
+  const json = Buffer.from(body, "base64url").toString("utf8");
+  const expected = Buffer.from(signStateJson(PENDING_PURPOSE + json, secret), "utf8");
+  const provided = Buffer.from(raw.slice(0, separator), "utf8");
+  if (expected.length !== provided.length) return null;
+  return timingSafeEqual(expected, provided) ? json : null;
+}
+
+export type PendingProblem =
+  | "missing"
+  | "malformed"
+  | "expired"
+  | "user_mismatch"
+  | "workspace_mismatch"
+  | "platform_mismatch";
 
 export function readPendingConnection(
   raw: string | undefined | null,
-  opts: { userId: string; platform: string; secret: string; now?: Date; ttlMs?: number },
+  opts: {
+    userId: string;
+    /** The caller's workspace from the live guard (requireWorkspace), never from the cookie. */
+    workspaceId: string;
+    platform: string;
+    secret: string;
+    now?: Date;
+    ttlMs?: number;
+  },
 ): { ok: true; data: PendingConnection } | { ok: false; reason: PendingProblem } {
   if (!raw) return { ok: false, reason: "missing" };
-  const json = verifyStateJson(raw, opts.secret);
+  const json = verifyPendingJson(raw, opts.secret);
   if (!json) return { ok: false, reason: "malformed" };
 
   let envelope: Envelope;
@@ -69,6 +107,7 @@ export function readPendingConnection(
   if (
     !envelope ||
     typeof envelope.userId !== "string" ||
+    typeof envelope.workspaceId !== "string" ||
     typeof envelope.platform !== "string" ||
     typeof envelope.brainId !== "string" ||
     typeof envelope.timestamp !== "number" ||
@@ -80,6 +119,7 @@ export function readPendingConnection(
   const now = (opts.now ?? new Date()).getTime();
   if (now - envelope.timestamp > (opts.ttlMs ?? PENDING_TTL_MS)) return { ok: false, reason: "expired" };
   if (envelope.userId !== opts.userId) return { ok: false, reason: "user_mismatch" };
+  if (envelope.workspaceId !== opts.workspaceId) return { ok: false, reason: "workspace_mismatch" };
   if (envelope.platform !== opts.platform) return { ok: false, reason: "platform_mismatch" };
 
   let userToken: string;
@@ -94,6 +134,7 @@ export function readPendingConnection(
     ok: true,
     data: {
       userId: envelope.userId,
+      workspaceId: envelope.workspaceId,
       platform: envelope.platform,
       brainId: envelope.brainId,
       userToken,

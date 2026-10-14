@@ -39,9 +39,14 @@ function problemResponse(reason: PendingProblem) {
   return NextResponse.json({ error: message, code: `PENDING_${reason.toUpperCase()}` }, { status: 410 });
 }
 
-async function loadPending(req: NextRequest, platform: Platform, userId: string) {
+async function loadPending(
+  req: NextRequest,
+  platform: Platform,
+  guard: { userId: string; workspaceId: string },
+) {
   return readPendingConnection(req.cookies.get(pendingCookieName(platform))?.value, {
-    userId,
+    userId: guard.userId,
+    workspaceId: guard.workspaceId,
     platform,
     secret: oauthStateSecret(),
   });
@@ -54,7 +59,7 @@ export async function GET(req: NextRequest) {
   const platform = parsePlatform(req.nextUrl.searchParams.get("platform"));
   if (!platform) return NextResponse.json({ error: "Invalid platform" }, { status: 400 });
 
-  const pending = await loadPending(req, platform, guard.userId);
+  const pending = await loadPending(req, platform, guard);
   if (!pending.ok) return problemResponse(pending.reason);
 
   const adapter = getAdapter(platform);
@@ -88,7 +93,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "platform and targetId are required" }, { status: 400 });
   }
 
-  const pending = await loadPending(req, platform, guard.userId);
+  const pending = await loadPending(req, platform, guard);
   if (!pending.ok) return problemResponse(pending.reason);
 
   const adapter = getAdapter(platform);

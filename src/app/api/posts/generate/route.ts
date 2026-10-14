@@ -61,6 +61,9 @@ const bestTimesSchema = z.object({
   platform: z.nativeEnum(Platform),
 });
 
+const AI_KEY_REJECTED_MESSAGE =
+  "The AI provider rejected the configured key. Check it under Settings → AI.";
+
 export async function POST(req: NextRequest) {
   try {
     // Generating content spends the shared AI budget, so this needs the same
@@ -139,8 +142,10 @@ export async function POST(req: NextRequest) {
           );
         }
         if (error instanceof Error && error.message.includes("API key")) {
+          // The provider's own text can quote part of the key; say it plainly.
+          console.error("AI provider rejected the key:", error.message);
           return NextResponse.json(
-            { error: error.message },
+            { error: AI_KEY_REJECTED_MESSAGE, code: "AI_KEY_REJECTED" },
             { status: 503 }
           );
         }
@@ -174,8 +179,10 @@ export async function POST(req: NextRequest) {
           );
         }
         if (error instanceof Error && error.message.includes("API key")) {
+          // The provider's own text can quote part of the key; say it plainly.
+          console.error("AI provider rejected the key:", error.message);
           return NextResponse.json(
-            { error: error.message },
+            { error: AI_KEY_REJECTED_MESSAGE, code: "AI_KEY_REJECTED" },
             { status: 503 }
           );
         }

@@ -1,6 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
 import {
   ALLOWED_UPLOAD_CONTENT_TYPES,
@@ -19,20 +19,18 @@ import {
  * has no such limit.
  */
 export async function POST(request: Request): Promise<NextResponse> {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // A client upload token lets the holder write objects straight to the bucket,
-  // so minting them is worth a budget.
-  const limited = await enforceRateLimit("upload", `user:${session.user.id}`);
-  if (limited) return limited;
-  // blob store, so it is an upload permission, not just a session.
-  const permission = await requirePermission("media:upload");
+  // Minting a client upload token lets the holder write objects straight to
+  // the blob store, so it is the same workspace-resolved upload permission the
+  // finalize step checks — not just a session.
+  const permission = await requireWorkspace("media:upload");
   if (!permission.ok) {
     return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
+  const userId = permission.userId;
+
+  // …and worth a budget.
+  const limited = await enforceRateLimit("upload", `user:${userId}`);
+  if (limited) return limited;
 
   // Parsed outside the try below, so a non-JSON body used to escape as an
   // unhandled 500. It is a malformed request.
@@ -53,8 +51,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         // The folder the client is expected to upload into. The finalize route
         // independently proves the resulting URL sits inside it for this user.
         tokenPayload: JSON.stringify({
-          userId: session.user.id,
-          folder: blobFolderFor(session.user.id),
+          userId,
+          folder: blobFolderFor(userId),
         }),
       }),
       // Best-effort only: this webhook needs a publicly reachable deployment,

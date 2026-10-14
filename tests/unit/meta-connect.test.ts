@@ -14,6 +14,7 @@ import {
   encodePendingConnection,
   readPendingConnection,
 } from "../../src/lib/oauth/pending-connection";
+import { encodeStateCookie, verifyStateJson } from "../../src/lib/oauth/state";
 import { PLATFORM_CONFIGS } from "../../src/types/platform";
 import { getTokenStatus } from "../../src/lib/adapters/tokens";
 
@@ -276,38 +277,39 @@ const SECRET = "test-secret";
 
 test("the pending grant cookie is signed, user/platform bound, and never holds a plaintext token", () => {
   const raw = encodePendingConnection(
-    { userId: "u1", platform: "FACEBOOK", brainId: "b1", userToken: "EAAB-secret-user-token", timestamp: Date.now() },
+    { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", brainId: "b1", userToken: "EAAB-secret-user-token", timestamp: Date.now() },
     SECRET,
   );
   const decoded = Buffer.from(raw.slice(raw.indexOf(".") + 1), "base64url").toString("utf8");
   assert.equal(decoded.includes("EAAB-secret-user-token"), false, "token must be encrypted in the cookie");
 
-  const ok = readPendingConnection(raw, { userId: "u1", platform: "FACEBOOK", secret: SECRET });
+  const ok = readPendingConnection(raw, { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", secret: SECRET });
   assert.ok(ok.ok);
   assert.equal(ok.ok && ok.data.userToken, "EAAB-secret-user-token");
 
-  assert.deepEqual(readPendingConnection(raw, { userId: "u2", platform: "FACEBOOK", secret: SECRET }), {
+  assert.deepEqual(readPendingConnection(raw, { userId: "u2", workspaceId: "w1", platform: "FACEBOOK", secret: SECRET }), {
     ok: false,
     reason: "user_mismatch",
   });
-  assert.deepEqual(readPendingConnection(raw, { userId: "u1", platform: "INSTAGRAM", secret: SECRET }), {
+  assert.deepEqual(readPendingConnection(raw, { userId: "u1", workspaceId: "w1", platform: "INSTAGRAM", secret: SECRET }), {
     ok: false,
     reason: "platform_mismatch",
   });
-  assert.deepEqual(readPendingConnection(raw, { userId: "u1", platform: "FACEBOOK", secret: "other" }), {
+  assert.deepEqual(readPendingConnection(raw, { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", secret: "other" }), {
     ok: false,
     reason: "malformed",
   });
   assert.deepEqual(
     readPendingConnection(raw, {
       userId: "u1",
+      workspaceId: "w1",
       platform: "FACEBOOK",
       secret: SECRET,
       now: new Date(Date.now() + 11 * 60_000),
     }),
     { ok: false, reason: "expired" },
   );
-  assert.deepEqual(readPendingConnection(undefined, { userId: "u1", platform: "FACEBOOK", secret: SECRET }), {
+  assert.deepEqual(readPendingConnection(undefined, { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", secret: SECRET }), {
     ok: false,
     reason: "missing",
   });
@@ -315,15 +317,51 @@ test("the pending grant cookie is signed, user/platform bound, and never holds a
 
 test("an edited pending cookie is rejected", () => {
   const raw = encodePendingConnection(
-    { userId: "u1", platform: "FACEBOOK", brainId: "b1", userToken: "tok", timestamp: Date.now() },
+    { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", brainId: "b1", userToken: "tok", timestamp: Date.now() },
     SECRET,
   );
   const [sig, body] = raw.split(".");
   const edited = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
   edited.userId = "attacker";
   const forged = `${sig}.${Buffer.from(JSON.stringify(edited)).toString("base64url")}`;
-  assert.deepEqual(readPendingConnection(forged, { userId: "attacker", platform: "FACEBOOK", secret: SECRET }), {
+  assert.deepEqual(readPendingConnection(forged, { userId: "attacker", workspaceId: "w1", platform: "FACEBOOK", secret: SECRET }), {
     ok: false,
     reason: "malformed",
   });
+});
+
+test("a pending grant parked for one workspace does not verify in another", () => {
+  const raw = encodePendingConnection(
+    { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", brainId: "b1", userToken: "tok", timestamp: Date.now() },
+    SECRET,
+  );
+  assert.deepEqual(
+    readPendingConnection(raw, { userId: "u1", workspaceId: "w2", platform: "FACEBOOK", secret: SECRET }),
+    { ok: false, reason: "workspace_mismatch" },
+  );
+});
+
+test("the pending cookie and the OAuth state cookie are not interchangeable", () => {
+  // Same secret, different purposes: a state cookie (signed without the
+  // pending purpose prefix) must never read as a pending grant.
+  const json = JSON.stringify({
+    userId: "u1",
+    workspaceId: "w1",
+    platform: "FACEBOOK",
+    brainId: "b1",
+    timestamp: Date.now(),
+    tok: "x",
+  });
+  const stateStyle = encodeStateCookie(JSON.parse(json), SECRET);
+  assert.deepEqual(
+    readPendingConnection(stateStyle, { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", secret: SECRET }),
+    { ok: false, reason: "malformed" },
+  );
+
+  // …and a pending cookie never verifies as a state cookie.
+  const pending = encodePendingConnection(
+    { userId: "u1", workspaceId: "w1", platform: "FACEBOOK", brainId: "b1", userToken: "tok", timestamp: Date.now() },
+    SECRET,
+  );
+  assert.equal(verifyStateJson(pending, SECRET), null);
 });

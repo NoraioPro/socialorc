@@ -1,5 +1,6 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
+import { fetchOwnMedia } from "@/lib/social/blob-upload";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
 import {
   TIKTOK_AUTHORIZE_URL,
@@ -715,7 +716,7 @@ export class TikTokAdapter extends BasePlatformAdapter {
       // host we cannot verify. So the bytes travel with FILE_UPLOAD, which
       // constants.ts documents as the default. Reporting success straight after
       // the init call - as this used to - claimed a post that was never sent.
-      const source = await fetch(options.mediaUrls[0]);
+      const source = await fetchOwnMedia(options.mediaUrls[0]);
       if (!source.ok) {
         return {
           success: false,

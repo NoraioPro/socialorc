@@ -7,6 +7,7 @@
  */
 
 import { Platform } from "@prisma/client";
+import { aiFetch } from "@/lib/ai-base-url";
 import { PLATFORM_CONFIGS, PlatformConfig } from "@/types/platform";
 import { AINotConfiguredError } from "@/lib/ai";
 import { DEFAULT_BASE_URL, DEFAULT_MODEL, type AiConfig } from "@/lib/ai-config";
@@ -172,6 +173,8 @@ async function aiAdaptContent(
   const openai = new OpenAI({
     apiKey: aiConfig.apiKey,
     baseURL: aiConfig.baseUrl ?? DEFAULT_BASE_URL,
+    // Public addresses only, checked per request; redirects are an error.
+    fetch: aiFetch,
   });
 
   const systemPrompt = `You are a social media content adaptation expert. 

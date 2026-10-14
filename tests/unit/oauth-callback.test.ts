@@ -255,16 +255,18 @@ describe("OAuth callback: grants that cover several Pages", () => {
     assert.doesNotMatch(raw!, /user-access-token/, "the token is never in the clear");
     assert.doesNotMatch(Buffer.from(raw!.split(".")[1], "base64url").toString("utf8"), /user-access-token/);
 
-    const mine = readPendingConnection(raw, { userId: USER, platform: "FACEBOOK", secret: SECRET });
+    const mine = readPendingConnection(raw, { userId: USER, workspaceId: WORKSPACE, platform: "FACEBOOK", secret: SECRET });
     assert.equal(mine.ok, true);
     if (mine.ok) {
       assert.equal(mine.data.userToken, "user-access-token");
       assert.equal(mine.data.brainId, "brain_9");
     }
-    const theirs = readPendingConnection(raw, { userId: "someone_else", platform: "FACEBOOK", secret: SECRET });
+    const theirs = readPendingConnection(raw, { userId: "someone_else", workspaceId: WORKSPACE, platform: "FACEBOOK", secret: SECRET });
     assert.deepEqual(theirs, { ok: false, reason: "user_mismatch" });
-    const otherPlatform = readPendingConnection(raw, { userId: USER, platform: "INSTAGRAM", secret: SECRET });
+    const otherPlatform = readPendingConnection(raw, { userId: USER, workspaceId: WORKSPACE, platform: "INSTAGRAM", secret: SECRET });
     assert.deepEqual(otherPlatform, { ok: false, reason: "platform_mismatch" });
+    const otherWorkspace = readPendingConnection(raw, { userId: USER, workspaceId: "ws_other", platform: "FACEBOOK", secret: SECRET });
+    assert.equal(otherWorkspace.ok, false, "a grant parked for one workspace is not usable from another");
   });
 
   it("says so when the grant covers nothing publishable", async () => {
