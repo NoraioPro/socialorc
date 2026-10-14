@@ -22,7 +22,8 @@ export async function PATCH(
     }
 
     const { id } = await params;
-    const body = await req.json();
+    // A non-JSON body is a malformed request (400), not a server fault.
+    const body = await req.json().catch(() => null);
     const validation = rescheduleSchema.safeParse(body);
 
     if (!validation.success) {
@@ -50,6 +51,15 @@ export async function PATCH(
 
     const scheduledFor = new Date(validation.data.scheduledFor);
     const now = new Date();
+
+    // `Invalid Date <= now` is false, so an unparseable time used to pass the
+    // future check and die in the database write as a 500.
+    if (Number.isNaN(scheduledFor.getTime())) {
+      return NextResponse.json(
+        { error: "scheduledFor must be a valid date and time" },
+        { status: 400 }
+      );
+    }
 
     if (scheduledFor <= now) {
       return NextResponse.json(
