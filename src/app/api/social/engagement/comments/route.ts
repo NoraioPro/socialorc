@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { z } from "zod";
 import {
   checkEngagementSupported,
-  loadOwnedAccount,
+  loadWorkspaceAccount,
   prepareEngagementContext,
   handleEngagementResultFailure,
 } from "@/lib/social/engagement-api";
 
 export async function GET(req: NextRequest) {
-  const guard = await requirePermission("engagement:view");
+  const guard = await requireWorkspace("engagement:view");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const account = await loadOwnedAccount(guard.userId, accountId);
+  const account = await loadWorkspaceAccount(guard.workspaceId, accountId);
   if (!account) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }
@@ -78,7 +78,7 @@ const createSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const guard = await requirePermission("engagement:reply");
+  const guard = await requireWorkspace("engagement:reply");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { accountId, platformPostId, text, parentCommentId } = parsed.data;
-  const account = await loadOwnedAccount(guard.userId, accountId);
+  const account = await loadWorkspaceAccount(guard.workspaceId, accountId);
   if (!account) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }
@@ -155,7 +155,7 @@ const deleteSchema = z.object({
 });
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requirePermission("engagement:delete");
+  const guard = await requireWorkspace("engagement:delete");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -183,7 +183,7 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  const account = await loadOwnedAccount(guard.userId, accountId);
+  const account = await loadWorkspaceAccount(guard.workspaceId, accountId);
   if (!account) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }

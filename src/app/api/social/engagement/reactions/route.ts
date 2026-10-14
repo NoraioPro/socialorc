@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { z } from "zod";
 import {
   checkEngagementSupported,
-  loadOwnedAccount,
+  loadWorkspaceAccount,
   prepareEngagementContext,
   handleEngagementResultFailure,
   parseReactionKind,
@@ -19,7 +19,7 @@ const reactionSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const guard = await requirePermission("engagement:react");
+  const guard = await requireWorkspace("engagement:react");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid reaction kind" }, { status: 400 });
   }
 
-  const account = await loadOwnedAccount(guard.userId, accountId);
+  const account = await loadWorkspaceAccount(guard.workspaceId, accountId);
   if (!account) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }

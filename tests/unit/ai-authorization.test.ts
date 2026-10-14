@@ -48,11 +48,11 @@ test("every AI-spending route enforces the permission, not just a session", () =
     const source = readRoute(route);
     assert.match(
       source,
-      /requirePermission\(\s*"posts:create"\s*\)/,
-      `${route} must call requirePermission("posts:create") before any paid call`,
+      /require(Permission|Workspace)\(\s*"posts:create"\s*\)/,
+      `${route} must call requireWorkspace("posts:create") before any paid call`,
     );
     assert.ok(
-      !/const authz = await requirePermission/.test(source) ||
+      !/const authz = await require(Permission|Workspace)/.test(source) ||
         source.includes("authz.ok"),
       `${route} must check the result of requirePermission`,
     );

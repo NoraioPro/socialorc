@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { resolveAiConfigForUser } from "@/lib/ai-config";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { Platform, PostStatus } from "@prisma/client";
 import { z } from "zod";
 import {
@@ -29,15 +28,15 @@ type RouteContext = {
  */
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const tenant = await requireWorkspace("dashboard:view");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const { id } = await context.params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, workspaceId: tenant.workspaceId },
     });
 
     if (!post) {
@@ -84,16 +83,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
  */
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Cascading spends the shared AI budget, so it needs the draft-creation
     // permission on top of the session: a read-only CLIENT cannot reach a paid
     // provider call. The GET below stays session-only because it only lists
     // targets and never calls the provider.
-    const authz = await requirePermission("posts:create");
+    const authz = await requireWorkspace("posts:create");
     if (!authz.ok) {
       return NextResponse.json({ error: authz.error }, { status: authz.status });
     }
@@ -112,7 +106,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { targetPlatforms, createDrafts } = validation.data;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, workspaceId: authz.workspaceId },
       include: {
         socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
@@ -156,7 +150,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       false,
       // Whose key pays for this adaptation. Never the platform's - see
       // src/lib/ai-config.ts.
-      await resolveAiConfigForUser(session.user.id)
+      await resolveAiConfigForUser(authz.userId)
     );
 
     // Optionally create draft posts for each adaptation
@@ -167,8 +161,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         result.adaptations.map(async (adaptation) => {
           const newPost = await prisma.post.create({
             data: {
-              workspaceId: await workspaceIdForWrite(session.user.id),
-              userId: session.user.id,
+              workspaceId: authz.workspaceId,
+              userId: authz.userId,
               content: adaptation.content,
               platform: adaptation.platform,
               status: PostStatus.DRAFT,

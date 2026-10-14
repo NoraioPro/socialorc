@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { JobStatus, PostStatus } from "@prisma/client";
 import { z } from "zod";
 import {
@@ -32,7 +31,7 @@ export async function POST(
   try {
     // Scheduling work — the same permission that gates /schedule. This route
     // was session-only, so a read-only CLIENT account could re-queue a publish.
-    const guard = await requirePermission("posts:schedule");
+    const guard = await requireWorkspace("posts:schedule");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -48,7 +47,7 @@ export async function POST(
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
       include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     });
 
@@ -82,7 +81,7 @@ export async function POST(
       // be re-queued. `count === 0` means the row moved on (an edit, a delete, a
       // competing retry) and this must not force it back into the queue.
       const claim = await tx.post.updateMany({
-        where: retryGuardWhere(id, guard.userId),
+        where: retryGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.SCHEDULED,
           scheduledFor,
@@ -95,7 +94,7 @@ export async function POST(
       await tx.scheduledJob.upsert({
         where: { postId: id },
         create: {
-          workspaceId: post.workspaceId ?? await workspaceIdForWrite(guard.userId),
+          workspaceId: guard.workspaceId,
           postId: id,
           scheduledAt: scheduledFor,
           status: JobStatus.PENDING,

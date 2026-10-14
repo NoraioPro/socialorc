@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { put } from "@vercel/blob";
 import { mediaStorage } from "@/lib/media-storage";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // The workspace's media library: teammates share it.
+    const tenant = await requireWorkspace("dashboard:view");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const rawLimit = parseInt(searchParams.get("limit") || "50");
+    const rawOffset = parseInt(searchParams.get("offset") || "0");
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
+    const where = { workspaceId: tenant.workspaceId };
     const [assets, total] = await Promise.all([
       prisma.mediaAsset.findMany({
-        where: { userId: session.user.id },
+        where,
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
       }),
-      prisma.mediaAsset.count({ where: { userId: session.user.id } }),
+      prisma.mediaAsset.count({ where }),
     ]);
 
     return NextResponse.json({ assets, total, limit, offset });
@@ -38,14 +41,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Uploads land in the workspace's real storage; the storage bill and the
     // library are shared, so this needs more than a session.
-    const permission = await requirePermission("media:upload");
+    const permission = await requireWorkspace("media:upload");
     if (!permission.ok) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
@@ -103,7 +101,7 @@ export async function POST(req: NextRequest) {
     let blobPath: string | null = null;
 
     if (storage === "blob") {
-      const blob = await put(`socialorc/${session.user.id}/${Date.now()}-${file.name}`, file, {
+      const blob = await put(`socialorc/${permission.userId}/${Date.now()}-${file.name}`, file, {
         access: "public",
       });
       url = blob.url;
@@ -120,8 +118,8 @@ export async function POST(req: NextRequest) {
 
     const asset = await prisma.mediaAsset.create({
       data: {
-        userId: session.user.id,
-        workspaceId: await workspaceIdForWrite(session.user.id),
+        userId: permission.userId,
+        workspaceId: permission.workspaceId,
         filename: file.name,
         mimeType: file.type,
         size: file.size,
@@ -142,13 +140,8 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Deleting media is destructive and irreversible for anyone else using it.
-    const permission = await requirePermission("media:delete");
+    const permission = await requireWorkspace("media:delete");
     if (!permission.ok) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
@@ -161,14 +154,14 @@ export async function DELETE(req: NextRequest) {
     }
 
     const asset = await prisma.mediaAsset.findFirst({
-      where: { id: assetId, userId: session.user.id },
+      where: { id: assetId, workspaceId: permission.workspaceId },
     });
 
     if (!asset) {
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    await prisma.mediaAsset.delete({ where: { id: assetId } });
+    await prisma.mediaAsset.deleteMany({ where: { id: assetId, workspaceId: permission.workspaceId } });
 
     return NextResponse.json({ success: true });
   } catch (error) {

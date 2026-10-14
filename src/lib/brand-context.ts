@@ -22,8 +22,9 @@ function splitList(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-export async function loadBrandContext(userId: string): Promise<BrandContext | null> {
-  const brain = await prisma.brandBrain.findUnique({ where: { userId } });
+/** The brand brain is the workspace's: every member generates in the same voice. */
+export async function loadBrandContext(workspaceId: string): Promise<BrandContext | null> {
+  const brain = await prisma.brandBrain.findUnique({ where: { workspaceId } });
   if (!brain) return null;
 
   const profile = {

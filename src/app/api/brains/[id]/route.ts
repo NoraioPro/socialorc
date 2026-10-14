@@ -1,29 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Rename a brain (project). */
 export async function PATCH(req: NextRequest, context: RouteContext) {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   // Editing a brain changes what every future generation is grounded in.
-  const permission = await requirePermission("brains:manage");
-  if (!permission.ok) {
-    return NextResponse.json({ error: permission.error }, { status: permission.status });
+  const tenant = await requireWorkspace("brains:manage");
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
   }
 
   const { id } = await context.params;
   // Workspace membership, not personal ownership: a teammate must be able to
   // rename a brain the team shares. A brain from another workspace is not found.
-  const workspaceId = await workspaceIdForStamping(session.user.id);
   const brain = await prisma.brain.findFirst({
-    where: workspaceId ? { id, workspaceId } : { id, userId: session.user.id },
+    where: { id, workspaceId: tenant.workspaceId },
   });
   if (!brain) {
     return NextResponse.json({ error: "Brain not found" }, { status: 404 });
@@ -46,21 +39,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
  * delete), the same as disconnecting each of those accounts individually.
  */
 export async function DELETE(req: NextRequest, context: RouteContext) {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const tenant = await requireWorkspace("brains:manage");
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
   }
-
-  const permission = await requirePermission("brains:manage");
-  if (!permission.ok) {
-    return NextResponse.json({ error: permission.error }, { status: permission.status });
-  }
+  const { workspaceId } = tenant;
 
   const { id } = await context.params;
-  const workspaceId = await workspaceIdForStamping(session.user.id);
-  const brain = await prisma.brain.findFirst({
-    where: workspaceId ? { id, workspaceId } : { id, userId: session.user.id },
-  });
+  const brain = await prisma.brain.findFirst({ where: { id, workspaceId } });
   if (!brain) {
     return NextResponse.json({ error: "Brain not found" }, { status: 404 });
   }
@@ -68,9 +54,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   // Deleting the only brain used to succeed and then immediately recreate an
   // empty "Default", which reads as "delete did nothing" while quietly
   // detaching every connected account. Refuse instead and say why.
-  const brainCount = await prisma.brain.count({
-    where: workspaceId ? { workspaceId } : { userId: session.user.id },
-  });
+  const brainCount = await prisma.brain.count({ where: { workspaceId } });
   if (brainCount <= 1) {
     return NextResponse.json(
       {
@@ -85,9 +69,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   // they survive in the database but belong to no brain and vanish from the UI.
   // Move them to the brain the user is about to land on instead.
   const fallback = await prisma.brain.findFirst({
-    where: workspaceId
-      ? { workspaceId, id: { not: id } }
-      : { userId: session.user.id, id: { not: id } },
+    where: { workspaceId, id: { not: id } },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
 
@@ -96,9 +78,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   }
 
   const moved = await prisma.socialAccount.updateMany({
-    where: workspaceId
-      ? { brainId: id, workspaceId }
-      : { brainId: id, userId: session.user.id },
+    where: { brainId: id, workspaceId },
     data: { brainId: fallback.id },
   });
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
@@ -8,8 +7,8 @@ import { isValidTelegramChatIdShape } from "@/lib/adapters/credentials";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { peekStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
-import { resolveBrainForUser } from "@/lib/brains";
-import { requirePermission } from "@/lib/auth";
+import { resolveBrainForWorkspace } from "@/lib/brains";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
 /**
  * Token-based connector handshake for Telegram.
@@ -54,7 +53,7 @@ export async function GET(req: NextRequest) {
 
     // Connecting is a write path that ends in a stored credential, gated by the
     // same permission as every other connector.
-    const permission = await requirePermission("accounts:connect");
+    const permission = await requireWorkspace("accounts:connect");
     if (!permission.ok) {
       return NextResponse.redirect(
         new URL(`/settings/accounts?error=not_allowed${popupSuffix}`, req.url)
@@ -111,7 +110,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const brain = await resolveBrainForUser(user.userId, requestedBrainId);
+    const brain = await resolveBrainForWorkspace(permission, requestedBrainId);
 
     const info = await telegramAdapter.getAccountInfo(token);
 
@@ -127,7 +126,7 @@ export async function GET(req: NextRequest) {
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
 
     // Same takeover rule as the shared OAuth callback: an existing connection
-    // belongs to whoever made it. Telegram is the sharpest case, because every
+    // belongs to the workspace that made it; a teammate may reconnect it. Telegram is the sharpest case, because every
     // tenant resolves the *same* bot from env today, so the row collides with no
     // credentials required at all.
     const existingAccount = await prisma.socialAccount.findUnique({
@@ -137,11 +136,11 @@ export async function GET(req: NextRequest) {
           platformUserId: info.platformUserId,
         },
       },
-      select: { id: true, userId: true },
+      select: { id: true, workspaceId: true },
     });
 
-    if (existingAccount && existingAccount.userId !== user.userId) {
-      console.error("Telegram connect refused: bot already connected by another user");
+    if (existingAccount && existingAccount.workspaceId !== permission.workspaceId) {
+      console.error("Telegram connect refused: bot already connected by another workspace");
       return NextResponse.redirect(
         new URL(`/settings/accounts?error=account_owned_elsewhere${popupSuffix}`, req.url)
       );
@@ -155,7 +154,7 @@ export async function GET(req: NextRequest) {
         },
       },
       create: {
-        workspaceId: await workspaceIdForWrite(user.userId),
+        workspaceId: permission.workspaceId,
         userId: user.userId,
         brainId: brain.id,
         platform: Platform.TELEGRAM,

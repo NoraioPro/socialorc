@@ -10,6 +10,11 @@ import type { PrismaClient } from "@prisma/client";
  * forgets, and a forgotten tenant is exactly the row the NOT NULL migration
  * (Phase 0.5) then fails on — on every build, hotfixes included.
  *
+ * Since tenancy is enforced, every request handler writes `workspaceId`
+ * explicitly from `requireWorkspace()` (src/lib/tenancy/guard.ts), so this hook
+ * is a safety net for writers outside a request (scripts, future jobs), not the
+ * mechanism the routes rely on.
+ *
  * So the stamp lives here instead: one `create` hook that fills `workspaceId`
  * from the row's own `userId` whenever the caller did not set it. A new call
  * site is correct without knowing this exists.

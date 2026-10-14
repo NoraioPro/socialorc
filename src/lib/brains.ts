@@ -1,63 +1,38 @@
 import prisma from "@/lib/prisma";
-import { workspaceIdForStamping } from "@/lib/tenancy/workspace";
+import type { TenantContext } from "@/lib/tenancy/guard";
 
 /**
  * A brain is the container social accounts are connected into. A team can run
  * several (one per brand or client), each with an independent set of platform
  * connections.
  *
- * Phase 1: a brain belongs to the **workspace**, not to the person. Two members
- * of one team now share the same connected accounts; before this, each held a
- * private brain the other could not see, so a colleague's connected Instagram
- * was invisible and could not be posted through.
+ * A brain belongs to the **workspace**, not to the person: teammates share the
+ * same brains and therefore the same connected accounts. Both helpers take the
+ * resolved tenant from `requireWorkspace()` (src/lib/tenancy/guard.ts) — the
+ * workspace is the scope, the user only records who created a row.
  *
  * Every workspace needs at least one brain to connect anything to, so the first
- * one is created lazily rather than behind an explicit setup step.
- *
- * The `userId` parameter is the **acting user**, not the owner: it resolves the
- * workspace and records who created the row. Signatures are deliberately
- * unchanged so no caller had to move in the same step.
+ * one is created lazily rather than behind an explicit setup step — once per
+ * workspace. Before this was workspace-scoped, every member who joined lazily
+ * created yet another "Default".
  */
-export async function getOrCreateDefaultBrain(userId: string) {
-  const workspaceId = await workspaceIdForStamping(userId);
+type BrainTenant = Pick<TenantContext, "userId" | "workspaceId">;
 
-  // A user with no workspace keeps the old user-scoped lookup rather than
-  // failing: this runs on every read of the accounts page, and throwing here
-  // would lock someone out of their own brains. Phase 0.4 backfilled a workspace
-  // for every existing user, so this branch is a safety net, not the normal path.
+export async function getOrCreateDefaultBrain(tenant: BrainTenant) {
   const existing = await prisma.brain.findFirst({
-    where: workspaceId ? { workspaceId } : { userId },
+    where: { workspaceId: tenant.workspaceId },
     // Prefer the flagged default: once a team shares a brain, "the default"
     // should mean the one someone chose, not merely the oldest row.
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
-
-  if (existing) {
-    if (existing.workspaceId !== null || workspaceId === null) return existing;
-
-    // Brains created before Phase 0 carry a null workspace. Stamp on access so
-    // the rollout does not depend on the backfill having run.
-    try {
-      await prisma.brain.update({
-        where: { id: existing.id },
-        data: { workspaceId },
-      });
-      return { ...existing, workspaceId };
-    } catch (error) {
-      console.error("[tenancy] could not stamp brain with its workspace", {
-        brainId: existing.id,
-        error,
-      });
-      return existing;
-    }
-  }
+  if (existing) return existing;
 
   return prisma.brain.create({
     data: {
-      userId,
+      userId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       name: "Default",
       isDefault: true,
-      workspaceId: workspaceId ?? undefined,
     },
   });
 }
@@ -68,17 +43,15 @@ export async function getOrCreateDefaultBrain(userId: string) {
  * a stray or forged id from reading or writing someone else's connections,
  * without a separate error path for it.
  */
-export async function resolveBrainForUser(userId: string, brainId?: string | null) {
-  const workspaceId = await workspaceIdForStamping(userId);
-
+export async function resolveBrainForWorkspace(tenant: BrainTenant, brainId?: string | null) {
   if (brainId) {
     // Membership is the check, not creation: a teammate may legitimately open a
     // brain a colleague created.
     const brain = await prisma.brain.findFirst({
-      where: workspaceId ? { id: brainId, workspaceId } : { id: brainId, userId },
+      where: { id: brainId, workspaceId: tenant.workspaceId },
     });
     if (brain) return brain;
   }
 
-  return getOrCreateDefaultBrain(userId);
+  return getOrCreateDefaultBrain(tenant);
 }

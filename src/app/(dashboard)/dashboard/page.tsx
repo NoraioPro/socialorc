@@ -1,5 +1,6 @@
 import { Header } from "@/components/dashboard/header";
 import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,15 +19,15 @@ const statusColors: Record<PostStatus, string> = {
   FAILED: "bg-red-500",
 };
 
-async function getStats(userId: string) {
+async function getStats(workspaceId: string) {
   const [drafts, pendingApproval, scheduled, published, failed, recentPosts] = await Promise.all([
-    prisma.post.count({ where: { userId, status: PostStatus.DRAFT } }),
-    prisma.post.count({ where: { userId, status: PostStatus.PENDING_APPROVAL } }),
-    prisma.post.count({ where: { userId, status: PostStatus.SCHEDULED } }),
-    prisma.post.count({ where: { userId, status: PostStatus.PUBLISHED } }),
-    prisma.post.count({ where: { userId, status: PostStatus.FAILED } }),
+    prisma.post.count({ where: { workspaceId, status: PostStatus.DRAFT } }),
+    prisma.post.count({ where: { workspaceId, status: PostStatus.PENDING_APPROVAL } }),
+    prisma.post.count({ where: { workspaceId, status: PostStatus.SCHEDULED } }),
+    prisma.post.count({ where: { workspaceId, status: PostStatus.PUBLISHED } }),
+    prisma.post.count({ where: { workspaceId, status: PostStatus.FAILED } }),
     prisma.post.findMany({
-      where: { userId },
+      where: { workspaceId },
       orderBy: { updatedAt: "desc" },
       take: 5,
       include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
@@ -39,8 +40,10 @@ async function getStats(userId: string) {
 export default async function DashboardPage() {
   const session = await getAuthSession();
   if (!session?.user?.id) return null;
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) return null;
 
-  const stats = await getStats(session.user.id);
+  const stats = await getStats(tenant.workspaceId);
   const campaignXp = stats.drafts * 10 + stats.pendingApproval * 20 + stats.scheduled * 40 + stats.published * 100;
   const rank = Math.floor(campaignXp / 250) + 1;
   const rankProgress = campaignXp % 250;

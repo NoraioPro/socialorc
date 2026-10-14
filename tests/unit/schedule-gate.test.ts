@@ -43,9 +43,9 @@ test("APPROVED with no approvedAt is refused — the status alone is not proof",
 });
 
 test("the schedule write carries the state it checked", () => {
-  assert.deepEqual(scheduleGuardWhere("post_1", "user_1"), {
+  assert.deepEqual(scheduleGuardWhere("post_1", "ws_1"), {
     id: "post_1",
-    userId: "user_1",
+    workspaceId: "ws_1",
     status: "APPROVED",
     approvedAt: { not: null },
   });
@@ -60,35 +60,35 @@ test("the worker's publish claim carries the same approval requirement", () => {
 });
 
 test("unschedule only applies to a scheduled post", () => {
-  assert.deepEqual(unscheduleGuardWhere("post_1", "user_1"), {
+  assert.deepEqual(unscheduleGuardWhere("post_1", "ws_1"), {
     id: "post_1",
-    userId: "user_1",
+    workspaceId: "ws_1",
     status: "SCHEDULED",
   });
 });
 
 test("approve and submit only apply while a decision is still pending", () => {
-  assert.deepEqual(approveGuardWhere("post_1", "user_1"), {
+  assert.deepEqual(approveGuardWhere("post_1", "ws_1"), {
     id: "post_1",
-    userId: "user_1",
+    workspaceId: "ws_1",
     status: { in: ["DRAFT", "PENDING_APPROVAL"] },
   });
-  assert.deepEqual(submitGuardWhere("post_1", "user_1"), approveGuardWhere("post_1", "user_1"));
+  assert.deepEqual(submitGuardWhere("post_1", "ws_1"), approveGuardWhere("post_1", "ws_1"));
 });
 
 test("a retry needs a failed post that was approved", () => {
-  assert.deepEqual(retryGuardWhere("post_1", "user_1"), {
+  assert.deepEqual(retryGuardWhere("post_1", "ws_1"), {
     id: "post_1",
-    userId: "user_1",
+    workspaceId: "ws_1",
     status: "FAILED",
     approvedAt: { not: null },
   });
 });
 
 test("editing is refused for a post that is publishing or published", () => {
-  assert.deepEqual(editGuardWhere("post_1", "user_1"), {
+  assert.deepEqual(editGuardWhere("post_1", "ws_1"), {
     id: "post_1",
-    userId: "user_1",
+    workspaceId: "ws_1",
     status: { notIn: ["PUBLISHING", "PUBLISHED"] },
   });
   assert.deepEqual([...EDIT_BLOCKED_STATUSES], ["PUBLISHING", "PUBLISHED"]);

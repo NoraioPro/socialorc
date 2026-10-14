@@ -73,7 +73,8 @@ test("an empty token does not count as configured", () => {
 
 test("the route requires a session before touching storage", () => {
   const source = routeSource();
-  const guard = source.indexOf("getAuthSession");
+  // requireWorkspace() authenticates and resolves the tenant (src/lib/tenancy/guard.ts).
+  const guard = source.indexOf("requireWorkspace(");
   const storage = source.indexOf("await put(");
   assert.ok(guard > -1, "the route must authenticate");
   assert.ok(guard < storage, "authentication must precede the storage call");
@@ -129,5 +130,7 @@ test("the MediaAsset row is persisted with the storage facts, not the payload", 
 });
 
 test("the Blob pathname is scoped per user, keeping uploads separated", () => {
-  assert.match(routeSource(), /socialorc\/\$\{session\.user\.id\}\//);
+  // Paths stay per user (the upload-token folder check depends on it); access
+  // control is the row's workspaceId, not the path.
+  assert.match(routeSource(), /socialorc\/\$\{permission\.userId\}\//);
 });

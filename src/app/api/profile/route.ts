@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 
 const updateSchema = z.object({
@@ -15,12 +16,14 @@ const updateSchema = z.object({
 const select = { id: true, name: true, email: true, image: true, headline: true, bio: true, location: true, website: true, coverImageUrl: true, role: true, createdAt: true } as const;
 
 export async function GET() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // The caller's own posts, within the workspace they are in now.
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  const mine = { userId: tenant.userId, workspaceId: tenant.workspaceId };
   const [profile, posts, counts] = await Promise.all([
-    prisma.user.findUnique({ where: { id: session.user.id }, select }),
-    prisma.post.findMany({ where: { userId: session.user.id }, orderBy: { createdAt: "desc" }, take: 12, include: { mediaAssets: { include: { mediaAsset: true }, take: 1 } } }),
-    prisma.post.groupBy({ by: ["status"], where: { userId: session.user.id }, _count: true }),
+    prisma.user.findUnique({ where: { id: tenant.userId }, select }),
+    prisma.post.findMany({ where: mine, orderBy: { createdAt: "desc" }, take: 12, include: { mediaAssets: { include: { mediaAsset: true }, take: 1 } } }),
+    prisma.post.groupBy({ by: ["status"], where: mine, _count: true }),
   ]);
   if (!profile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
   return NextResponse.json({ profile, posts, counts });

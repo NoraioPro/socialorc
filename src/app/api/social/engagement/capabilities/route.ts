@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { adapters } from "@/lib/adapters";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { engagementCapabilitiesForPlatform } from "@/lib/social/engagement-api";
 
 export async function GET() {
-  const guard = await requirePermission("engagement:view");
+  const guard = await requireWorkspace("engagement:view");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
   const accounts = await prisma.socialAccount.findMany({
-    where: { userId: guard.userId, isActive: true },
+    where: { workspaceId: guard.workspaceId, isActive: true },
     select: {
       id: true,
       platform: true,

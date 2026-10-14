@@ -1,5 +1,5 @@
 import { Header } from "@/components/dashboard/header";
-import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { DraftsPostsGrid } from "@/components/posts/drafts-posts-grid";
@@ -7,10 +7,10 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
-async function getDrafts(userId: string) {
+async function getDrafts(workspaceId: string) {
   return prisma.post.findMany({
     where: {
-      userId,
+      workspaceId,
       status: {
         in: [PostStatus.DRAFT, PostStatus.PENDING_APPROVAL, PostStatus.APPROVED],
       },
@@ -27,10 +27,10 @@ async function getDrafts(userId: string) {
 }
 
 export default async function DraftsPage() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) return null;
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) return null;
 
-  const posts = await getDrafts(session.user.id);
+  const posts = await getDrafts(tenant.workspaceId);
 
   return (
     <div className="flex flex-col">

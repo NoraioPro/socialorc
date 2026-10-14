@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { Platform } from "@prisma/client";
 import { createUnifiedInbox, ConnectedAccount } from "@/lib/inbox";
@@ -8,19 +8,15 @@ import { decrypt } from "@/lib/encryption";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Reading the inbox is a view permission; replying is a separate one below.
-    const permission = await requirePermission("engagement:view");
+    // The inbox is the workspace's: every connected account the team shares.
+    const permission = await requireWorkspace("engagement:view");
     if (!permission.ok) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
     const socialAccounts = await prisma.socialAccount.findMany({
-      where: { userId: session.user.id, isActive: true },
+      where: { workspaceId: permission.workspaceId, isActive: true },
       select: {
         platform: true,
         accessToken: true,
@@ -86,15 +82,10 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Replying publishes a comment as this workspace, on a real platform. The
     // permission for it has existed since the engagement build; the inbox — the
     // one place a reply is actually sent from — never checked it.
-    const permission = await requirePermission("engagement:reply");
+    const permission = await requireWorkspace("engagement:reply");
     if (!permission.ok) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
@@ -111,7 +102,7 @@ export async function PATCH(req: NextRequest) {
 
     const socialAccount = await prisma.socialAccount.findFirst({
       where: {
-        userId: session.user.id,
+        workspaceId: permission.workspaceId,
         platform: platform as Platform,
         isActive: true,
       },

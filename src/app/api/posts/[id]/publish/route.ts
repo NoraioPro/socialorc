@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
@@ -37,7 +37,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const guard = await requirePermission("posts:schedule");
+  const guard = await requireWorkspace("posts:schedule");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -45,7 +45,7 @@ export async function POST(
   const { id } = await params;
 
   const post = await prisma.post.findFirst({
-    where: { id, userId: guard.userId },
+    where: { id, workspaceId: guard.workspaceId },
     include: { socialAccount: true },
   });
 
@@ -73,13 +73,13 @@ export async function POST(
     );
   }
 
-  // An unlinked post has nothing to publish to. Fall back to the user's active
+  // An unlinked post has nothing to publish to. Fall back to the workspace's active
   // account for the platform rather than refusing: the create form does not
   // always carry the choice, and there is exactly one account per platform.
   let account = post.socialAccount;
   if (!account) {
     account = await prisma.socialAccount.findFirst({
-      where: { userId: guard.userId, platform: post.platform, isActive: true },
+      where: { workspaceId: guard.workspaceId, platform: post.platform, isActive: true },
     });
     if (!account) {
       return NextResponse.json(
@@ -90,11 +90,11 @@ export async function POST(
     await prisma.post.update({ where: { id: post.id }, data: { socialAccountId: account.id } });
   }
 
-  // The linked account must belong to the caller. The post's own ownership was
-  // checked above, but `socialAccountId` is a separate row: before this check,
-  // pointing a post at another tenant's account id decrypted *their* token and
-  // published through their profile.
-  if (account.userId !== guard.userId) {
+  // The linked account must belong to the caller's workspace. The post's own
+  // tenancy was checked above, but `socialAccountId` is a separate row: before
+  // this check, pointing a post at another tenant's account id decrypted
+  // *their* token and published through their profile.
+  if (account.workspaceId !== guard.workspaceId) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }
 
@@ -175,7 +175,11 @@ export async function POST(
   // landing between the checks above and this line, send content that was no
   // longer approved; the loser of the race sends nothing at all.
   const claim = await prisma.post.updateMany({
-    where: { id: post.id, status: { in: [PostStatus.APPROVED, PostStatus.SCHEDULED] } },
+    where: {
+      id: post.id,
+      workspaceId: guard.workspaceId,
+      status: { in: [PostStatus.APPROVED, PostStatus.SCHEDULED] },
+    },
     data: { status: PostStatus.PUBLISHING },
   });
   if (claim.count === 0) {

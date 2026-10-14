@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { requireWorkspace, type TenantContext } from "@/lib/tenancy/guard";
 import * as z from "zod";
 import { Prisma } from "@prisma/client";
 
@@ -53,21 +53,51 @@ function prepareBrandBrainData(
   };
 }
 
+/**
+ * Write the workspace's brand brain: update the workspace's row, or create it.
+ *
+ * `BrandBrain.userId` is still unique (rows written before tenancy were one per
+ * person), so a member who already holds an old, unstamped row of their own
+ * cannot get a second one: that row is claimed for the workspace instead.
+ */
+async function saveWorkspaceBrandBrain(tenant: TenantContext, input: BrandBrainInput) {
+  const data = prepareBrandBrainData(input, tenant.userId);
+  const { userId: _creator, ...fields } = data;
+  void _creator;
+
+  const current = await prisma.brandBrain.findUnique({
+    where: { workspaceId: tenant.workspaceId },
+    select: { id: true },
+  });
+  if (current) {
+    // The creator stays the creator; the content is the team's.
+    return prisma.brandBrain.update({ where: { id: current.id }, data: fields });
+  }
+
+  const ownLegacyRow = await prisma.brandBrain.findFirst({
+    where: { workspaceId: null, userId: tenant.userId },
+    select: { id: true },
+  });
+  if (ownLegacyRow) {
+    return prisma.brandBrain.update({
+      where: { id: ownLegacyRow.id },
+      data: { ...fields, workspaceId: tenant.workspaceId },
+    });
+  }
+
+  return prisma.brandBrain.create({ data: { ...data, workspaceId: tenant.workspaceId } });
+}
+
 export async function GET() {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Reading the brand brain is fine for any member; writing it is not.
-    const permission = await requirePermission("brains:read");
-    if (!permission.ok) {
-      return NextResponse.json({ error: permission.error }, { status: permission.status });
+    const tenant = await requireWorkspace("brains:read");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const brandBrain = await prisma.brandBrain.findUnique({
-      where: { userId: session.user.id },
+      where: { workspaceId: tenant.workspaceId },
     });
 
     return NextResponse.json({
@@ -84,15 +114,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // The brand brain is the workspace's voice; writing it is an admin action.
-    const permission = await requirePermission("brains:manage");
-    if (!permission.ok) {
-      return NextResponse.json({ error: permission.error }, { status: permission.status });
+    const tenant = await requireWorkspace("brains:manage");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const body = await req.json();
@@ -106,7 +131,8 @@ export async function POST(req: NextRequest) {
     }
 
     const existing = await prisma.brandBrain.findUnique({
-      where: { userId: session.user.id },
+      where: { workspaceId: tenant.workspaceId },
+      select: { id: true },
     });
 
     if (existing) {
@@ -116,11 +142,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const createData = prepareBrandBrainData(validation.data, session.user.id);
-    
-    const brandBrain = await prisma.brandBrain.create({
-      data: createData,
-    });
+    const brandBrain = await saveWorkspaceBrandBrain(tenant, validation.data);
 
     return NextResponse.json({
       success: true,
@@ -138,14 +160,9 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const permission = await requirePermission("brains:manage");
-    if (!permission.ok) {
-      return NextResponse.json({ error: permission.error }, { status: permission.status });
+    const tenant = await requireWorkspace("brains:manage");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const body = await req.json();
@@ -158,29 +175,7 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const preparedData = prepareBrandBrainData(validation.data, session.user.id);
-
-    const brandBrain = await prisma.brandBrain.upsert({
-      where: { userId: session.user.id },
-      create: preparedData,
-      update: {
-        brandName: preparedData.brandName,
-        industry: preparedData.industry,
-        description: preparedData.description,
-        targetAudience: preparedData.targetAudience,
-        uniqueValue: preparedData.uniqueValue,
-        tone: preparedData.tone,
-        personality: preparedData.personality,
-        writingStyle: preparedData.writingStyle,
-        avoidTopics: preparedData.avoidTopics,
-        keyPhrases: preparedData.keyPhrases,
-        primaryGoal: preparedData.primaryGoal,
-        contentPillars: preparedData.contentPillars,
-        callToAction: preparedData.callToAction,
-        hashtagStrategy: preparedData.hashtagStrategy,
-        platformOverrides: preparedData.platformOverrides,
-      },
-    });
+    const brandBrain = await saveWorkspaceBrandBrain(tenant, validation.data);
 
     return NextResponse.json({
       success: true,

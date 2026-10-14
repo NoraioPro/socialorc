@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { computeTractionScore, computeMetricsFromPosts } from "@/lib/traction-score";
 import { computePlatformStats, generateGrowthBrief } from "@/lib/growth-brief";
 
 export async function GET() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // The workspace's numbers: the team publishes together.
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
   }
 
   const posts = await prisma.post.findMany({
-    where: { userId: session.user.id },
+    where: { workspaceId: tenant.workspaceId },
     select: {
       status: true,
       platform: true,

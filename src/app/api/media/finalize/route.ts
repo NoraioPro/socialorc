@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import {
   ALLOWED_UPLOAD_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
@@ -29,13 +28,8 @@ const finalizeSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     // Finalising writes a MediaAsset row into the workspace library.
-    const permission = await requirePermission("media:upload");
+    const permission = await requireWorkspace("media:upload");
     if (!permission.ok) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
@@ -53,7 +47,9 @@ export async function POST(req: NextRequest) {
     // the whole string used to let `https://evil/.public.blob.vercel-storage.com/x`
     // and any other tenant's blob through — and the recorded URL is fetched by
     // the adapters on publish, so that was an SSRF primitive, not just bookkeeping.
-    const problem = blobUrlProblem(url, session.user.id);
+    // The upload token issues per-user folders (blob paths are not access
+    // control — the row's workspaceId is), so the folder check stays per user.
+    const problem = blobUrlProblem(url, permission.userId);
     if (problem) {
       return NextResponse.json({ error: problem }, { status: 400 });
     }
@@ -77,8 +73,8 @@ export async function POST(req: NextRequest) {
 
     const asset = await prisma.mediaAsset.create({
       data: {
-        userId: session.user.id,
-        workspaceId: await workspaceIdForWrite(session.user.id),
+        userId: permission.userId,
+        workspaceId: permission.workspaceId,
         filename,
         mimeType,
         size,

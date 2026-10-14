@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { z } from "zod";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
@@ -23,7 +22,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requirePermission("posts:schedule");
+    const guard = await requireWorkspace("posts:schedule");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -40,7 +39,7 @@ export async function POST(
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
       include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     });
 
@@ -82,7 +81,7 @@ export async function POST(
       // happen: otherwise an edited, unapproved post ends up SCHEDULED, and the
       // worker — which only reads the status — publishes it.
       const claim = await tx.post.updateMany({
-        where: scheduleGuardWhere(id, guard.userId),
+        where: scheduleGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.SCHEDULED,
           scheduledFor,
@@ -94,7 +93,7 @@ export async function POST(
       await tx.scheduledJob.upsert({
         where: { postId: id },
         create: {
-          workspaceId: post.workspaceId ?? await workspaceIdForWrite(guard.userId),
+          workspaceId: guard.workspaceId,
           postId: id,
           scheduledAt: scheduledFor,
           status: JobStatus.PENDING,
@@ -146,7 +145,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requirePermission("posts:schedule");
+    const guard = await requireWorkspace("posts:schedule");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -154,7 +153,7 @@ export async function DELETE(
     const { id } = await params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
     });
 
     if (!post) {
@@ -170,7 +169,7 @@ export async function DELETE(
 
     await prisma.$transaction(async (tx) => {
       const claim = await tx.post.updateMany({
-        where: unscheduleGuardWhere(id, guard.userId),
+        where: unscheduleGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.APPROVED,
           scheduledFor: null,

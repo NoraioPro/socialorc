@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { getAdapterStatus } from "@/lib/adapters";
 import { capabilitiesFor } from "@/lib/social/capabilities";
 import { appApprovalFor, appOrigin } from "@/lib/social/approval";
@@ -17,13 +17,13 @@ export const dynamic = "force-dynamic";
  * register in that platform's portal. Names and URIs only — never a secret.
  */
 export async function GET() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
   }
 
   const accounts = await prisma.socialAccount.findMany({
-    where: { userId: session.user.id, isActive: true },
+    where: { workspaceId: tenant.workspaceId, isActive: true },
     select: { platform: true },
   });
 
