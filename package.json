@@ -21,13 +21,13 @@
     "db:pg:status": "prisma migrate status"
   },
   "dependencies": {
+    "@ai-sdk/openai": "4.0.65",
     "@auth/prisma-adapter": "^2.11.3",
     "@base-ui/react": "^1.8.0",
     "@hookform/resolvers": "^5.9.1",
     "@prisma/adapter-better-sqlite3": "^7.10.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "pg": "^8.23.0",
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.97",
     "bcryptjs": "^3.0.3",
@@ -39,6 +39,7 @@
     "next": "16.3.4",
     "next-auth": "^4.24.15",
     "openai": "^7.13.0",
+    "pg": "^8.23.0",
     "prisma": "^7.10.0",
     "react": "19.2.8",
     "react-day-picker": "^10.0.1",
