@@ -4,6 +4,7 @@ import { requireWorkspace } from "@/lib/tenancy/guard";
 import { PostStatus } from "@prisma/client";
 import { z } from "zod";
 import { requeueJobData } from "@/lib/jobs/pending-publish";
+import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 import {
   ACCOUNT_PLATFORM_MISMATCH_CODE,
@@ -32,7 +33,8 @@ export async function POST(
     }
 
     const { id } = await params;
-    const body = await req.json();
+    // A malformed body is the caller's mistake: 400 (via the schema), not 500.
+    const body = await req.json().catch(() => null);
     const validation = scheduleSchema.safeParse(body);
 
     if (!validation.success) {
@@ -78,8 +80,12 @@ export async function POST(
       );
     }
 
-    const scheduledFor = new Date(validation.data.scheduledFor);
+    const scheduledFor = parseInstant(validation.data.scheduledFor);
     const now = new Date();
+
+    if (!scheduledFor) {
+      return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+    }
 
     if (scheduledFor <= now) {
       return NextResponse.json(

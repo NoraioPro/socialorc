@@ -19,6 +19,7 @@ import {
   POST_CONFLICT_STATUS,
 } from "@/lib/posts/transitions";
 import { discardInFlightMediaForPost } from "@/lib/adapters/in-flight-media";
+import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 
 const updatePostSchema = z.object({
   title: z.string().optional(),
@@ -74,7 +75,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const body = await req.json();
+    // A malformed body is a 400 (via the schema), not a 500.
+    const body = await req.json().catch(() => null);
     const validation = updatePostSchema.safeParse(body);
 
     if (!validation.success) {
@@ -160,7 +162,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     };
 
     if (scheduledFor !== undefined) {
-      updatePayload.scheduledFor = scheduledFor ? new Date(scheduledFor) : null;
+      const at = scheduledFor ? parseInstant(scheduledFor) : null;
+      if (scheduledFor && !at) {
+        return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+      }
+      updatePayload.scheduledFor = at;
     }
 
     if (socialAccountId !== undefined) {
