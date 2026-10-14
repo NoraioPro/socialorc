@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Every value below is a throwaway CI test value, not a secret. The e2e and
+# durability harnesses also generate their own NEXTAUTH_SECRET,
+# TOKEN_ENCRYPTION_KEY and CRON_SECRET per run (tests/e2e/run.mjs,
+# tests/e2e/durability.mjs); these job-level ones only cover the steps that run
+# outside a harness.
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  NEXTAUTH_SECRET: ci-only-nextauth-secret-not-a-real-secret
+  TOKEN_ENCRYPTION_KEY: ci-only-token-encryption-key-not-a-real-key
+  CRON_SECRET: ci-only-cron-secret
+
+jobs:
+  sqlite:
+    name: typecheck, lint, unit, e2e (sqlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # prisma7.config.ts refuses to run without DATABASE_URL, and its scheme
+      # picks the schema, so `npm ci`'s postinstall `prisma generate` needs it.
+      DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
+      # Boots its own `next dev` against a throwaway sqlite file with
+      # MOCK_SOCIAL_ADAPTERS=true; no real platform is touched.
+      - run: npm run test:e2e
+
+  postgres:
+    name: migrations + durability (postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: socialorc
+          POSTGRES_PASSWORD: socialorc
+          POSTGRES_DB: socialorc_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U socialorc -d socialorc_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A postgresql:// URL makes prisma7.config.ts use
+      # prisma/schema.postgres.prisma + prisma/migrations-postgres, and makes
+      # `npm ci`'s postinstall generate the postgres client.
+      DATABASE_URL: postgresql://socialorc:socialorc@localhost:5432/socialorc_ci
+      E2E_DATABASE_URL: postgresql://socialorc:socialorc@localhost:5432/socialorc_ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Applies prisma/migrations-postgres to an empty database, so a broken
+      # postgres baseline fails here rather than at deploy.
+      - run: npx prisma migrate deploy
+      - run: npx prisma migrate status
+      # Real adapters with injected failures (unreachable API, invalid token,
+      # already published, expired token). Case B calls api.telegram.org with a
+      # deliberately invalid token; nothing is ever published.
+      # Not `npm test`/`test:unit` here: test:unit regenerates the sqlite client.
+      - run: npm run test:durability
