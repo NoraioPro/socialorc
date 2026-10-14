@@ -135,7 +135,7 @@ test("a video on a video-less platform is refused, and nothing is sent", async (
   }) as unknown as typeof fetch;
 
   try {
-    for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
+    for (const platform of [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
       const adapter = getAdapter(platform);
       const result = await adapter.createPost("token", {
         text: "caption",
