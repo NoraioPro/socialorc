@@ -472,6 +472,30 @@ model TelegramUpdateCursor {
   updatedAt  DateTime @updatedAt
 }
 
+/// One-time proof that the person connecting Telegram controls the chat.
+///
+/// Issued (hashed, short-lived, bound to one user in one workspace) by
+/// /api/social/telegram/connect/code. The user posts the code in the chat; the
+/// bot's update drain records the first chat it was seen in, and only then can
+/// /api/social/telegram/connect bind that chat to the workspace.
+model TelegramConnectCode {
+  id          String    @id @default(cuid())
+  codeHash    String    @unique
+  userId      String
+  workspaceId String
+  expiresAt   DateTime
+  /// Where the code was first seen, recorded by the update drain.
+  chatId      String?
+  chatType    String?
+  authorId    String?
+  seenAt      DateTime?
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, workspaceId])
+  @@index([expiresAt])
+}
+
 enum JobStatus {
   PENDING
   PROCESSING
