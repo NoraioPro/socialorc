@@ -22,6 +22,12 @@ import {
   validateTelegramCredentials,
   type CredentialValidationResult,
 } from "./credentials";
+import {
+  PrismaTelegramReplyStore,
+  botIdFromToken,
+  type StoredTelegramReply,
+  type TelegramReplyStore,
+} from "./telegram-replies";
 
 const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
@@ -35,6 +41,23 @@ const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https
 const MISSING_CHAT_ERROR =
   "This Telegram account has no target chat id, so there is nowhere to publish. " +
   "Reconnect the account and choose the chat the bot should post into.";
+
+/** getUpdates returns at most 100 updates per call. */
+const UPDATES_PER_BATCH = 100;
+/** Batches drained per read: enough to catch up, bounded so a read cannot hang. */
+const MAX_DRAIN_BATCHES = 5;
+
+interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    date: number;
+    text?: string;
+    chat?: { id: number };
+    from?: { id: number; first_name?: string; username?: string };
+    reply_to_message?: { message_id: number };
+  };
+}
 
 /**
  * Telegram adapter.
@@ -51,6 +74,14 @@ const MISSING_CHAT_ERROR =
  */
 export class TelegramAdapter extends BasePlatformAdapter {
   platform: Platform = Platform.TELEGRAM;
+
+  /** Where drained replies are kept; injectable so tests need no database. */
+  readonly replyStore: TelegramReplyStore;
+
+  constructor(deps: { replyStore?: TelegramReplyStore } = {}) {
+    super();
+    this.replyStore = deps.replyStore ?? new PrismaTelegramReplyStore();
+  }
 
   /**
    * Validate Telegram credentials: both presence and token shape.
@@ -251,6 +282,17 @@ export class TelegramAdapter extends BasePlatformAdapter {
     }
   }
 
+  /**
+   * Replies to one of this account's messages.
+   *
+   * The bot's update queue is shared by every chat (and so every tenant) the
+   * bot serves, and reading it with an offset destroys what was read. So this
+   * drains the queue into a per-chat store first (see telegram-replies.ts) and
+   * then answers from the store, scoped to THIS account's chat: message ids are
+   * only unique within a chat, so the chat id is part of the match.
+   *
+   * `cursor` is a position in this post's stored replies, not a Telegram offset.
+   */
   async listComments(
     accessToken: string,
     options: ListCommentsOptions,
@@ -261,83 +303,118 @@ export class TelegramAdapter extends BasePlatformAdapter {
     }
 
     const postMessageId = Number(options.platformPostId);
-    if (!Number.isFinite(postMessageId)) {
+    if (!Number.isInteger(postMessageId)) {
       return { success: false, error: "platformPostId must be a Telegram message id" };
     }
 
-    const offset = options.cursor ? Number(options.cursor) : undefined;
-    const limit = options.limit ?? 50;
+    const drained = await this.drainUpdates(accessToken);
+    if (!drained.ok) {
+      return { success: false, error: drained.error, rawResponse: drained.raw };
+    }
 
-    const res = await fetch(`${TELEGRAM_API}/bot${accessToken}/getUpdates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        offset: offset && offset > 0 ? offset : undefined,
-        limit: Math.min(limit, 100),
-        allowed_updates: ["message"],
-      }),
+    const skip = options.cursor && /^\d+$/.test(options.cursor) ? Number(options.cursor) : 0;
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+    // One extra row tells us whether there is a next page without a count query.
+    const rows = await this.replyStore.listReplies(chatId, postMessageId, {
+      skip,
+      take: limit + 1,
     });
+    const page = rows.slice(0, limit);
 
-    const json = (await res.json()) as {
-      ok: boolean;
-      description?: string;
-      result?: Array<{
-        update_id: number;
-        message?: {
-          message_id: number;
-          date: number;
-          text?: string;
-          from?: { id: number; first_name?: string; username?: string };
-          reply_to_message?: { message_id: number };
-        };
-      }>;
-    };
-
-    if (!json.ok || !json.result) {
-      return {
-        success: false,
-        error: `Telegram getUpdates failed: ${json.description ?? res.status}`,
-        rawResponse: json,
-      };
-    }
-
-    const replies: SocialComment[] = [];
-    let maxUpdateId = offset ?? 0;
-
-    for (const update of json.result) {
-      maxUpdateId = Math.max(maxUpdateId, update.update_id + 1);
-      const message = update.message;
-      if (!message?.text) continue;
-      const parentId = message.reply_to_message?.message_id;
-      if (parentId !== postMessageId) continue;
-
-      const author = message.from;
-      replies.push({
-        id: String(message.message_id),
-        platform: this.platform,
-        platformPostId: options.platformPostId,
-        authorId: author ? String(author.id) : "unknown",
-        authorName: author?.first_name ?? author?.username ?? "unknown",
-        text: message.text,
-        createdAt: new Date(message.date * 1000),
-        parentCommentId: String(postMessageId),
-        canReply: true,
-        canReact: true,
-        canDelete: true,
-        raw: message,
-      });
-    }
-
-    const pageStart = offset ?? 0;
-    const page = replies.slice(pageStart, pageStart + limit);
-    const nextCursor = pageStart + limit < replies.length ? String(pageStart + limit) : null;
+    const items: SocialComment[] = page.map((reply) => ({
+      id: String(reply.messageId),
+      platform: this.platform,
+      platformPostId: options.platformPostId,
+      authorId: reply.authorId ?? "unknown",
+      authorName: reply.authorName ?? "unknown",
+      text: reply.text,
+      createdAt: reply.sentAt,
+      parentCommentId: String(postMessageId),
+      canReply: true,
+      canReact: true,
+      canDelete: true,
+    }));
 
     return {
       success: true,
-      items: page,
-      nextCursor,
-      rawResponse: { updates: json.result, nextUpdateOffset: maxUpdateId },
+      items,
+      nextCursor: rows.length > limit ? String(skip + limit) : null,
+      rawResponse: { drainedUpdates: drained.drained },
     };
+  }
+
+  /**
+   * Move everything waiting on the bot's queue into the reply store.
+   *
+   * Ordering is the safety property: replies are written BEFORE the offset that
+   * confirms them is stored, and Telegram only forgets an update once a later
+   * call passes an offset above it. A crash between the two re-reads the same
+   * batch next time, which the store absorbs by update id. Bounded, so a large
+   * backlog cannot hold a request open; the next read continues from the cursor.
+   */
+  private async drainUpdates(
+    accessToken: string,
+  ): Promise<{ ok: true; drained: number } | { ok: false; error: string; raw?: unknown }> {
+    const botId = botIdFromToken(accessToken);
+    let drained = 0;
+
+    for (let batch = 0; batch < MAX_DRAIN_BATCHES; batch += 1) {
+      const offset = await this.replyStore.getOffset(botId);
+
+      const res = await fetch(`${TELEGRAM_API}/bot${accessToken}/getUpdates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(offset !== null ? { offset } : {}),
+          limit: UPDATES_PER_BATCH,
+          timeout: 0,
+          allowed_updates: ["message"],
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({ ok: false }))) as {
+        ok: boolean;
+        description?: string;
+        result?: TelegramUpdate[];
+      };
+
+      if (!json.ok || !json.result) {
+        return {
+          ok: false,
+          error: `Telegram getUpdates failed: ${json.description ?? res.status}`,
+          raw: { ok: json.ok, description: json.description },
+        };
+      }
+
+      if (json.result.length === 0) break;
+
+      const replies: StoredTelegramReply[] = [];
+      let next = offset ?? 0;
+      for (const update of json.result) {
+        next = Math.max(next, update.update_id + 1);
+        const message = update.message;
+        const parentId = message?.reply_to_message?.message_id;
+        if (!message?.text || parentId === undefined || message.chat?.id === undefined) continue;
+        replies.push({
+          updateId: update.update_id,
+          chatId: String(message.chat.id),
+          messageId: message.message_id,
+          replyToMessageId: parentId,
+          authorId: message.from ? String(message.from.id) : null,
+          authorName: message.from?.first_name ?? message.from?.username ?? null,
+          text: message.text,
+          sentAt: new Date(message.date * 1000),
+        });
+      }
+
+      await this.replyStore.saveReplies(replies);
+      await this.replyStore.advanceOffset(botId, next);
+      drained += json.result.length;
+
+      if (json.result.length < UPDATES_PER_BATCH) break;
+    }
+
+    return { ok: true, drained };
   }
 
   async createComment(
