@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import {
   INVITATION_TTL_MS,
   ROLE_VALUES,
@@ -11,15 +11,15 @@ import {
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Pending invitations: not yet accepted and not yet expired. */
+/** This workspace's pending invitations: not yet accepted and not yet expired. */
 export async function GET() {
-  const guard = await requirePermission("users:manage");
+  const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
   const invitations = await prisma.invitation.findMany({
-    where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+    where: { workspaceId: guard.workspaceId, acceptedAt: null, expiresAt: { gt: new Date() } },
     select: { id: true, email: true, role: true, invitedBy: true, expiresAt: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });
@@ -33,10 +33,11 @@ export async function GET() {
  * The raw token is returned exactly once, here; only its hash is stored, so a
  * dump of the database cannot be turned into working signup links. Signup itself
  * is invite-only by default (src/lib/signup-policy.ts), so this is the door that
- * makes MANAGER and CLIENT reachable at all.
+ * makes MANAGER and CLIENT reachable at all. The invitee joins the inviter's
+ * workspace on acceptance.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requirePermission("users:manage");
+  const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
   const { token, tokenHash } = createInvitationToken();
   const invitation = await prisma.invitation.create({
     data: {
+      workspaceId: guard.workspaceId,
       email,
       role,
       tokenHash,
