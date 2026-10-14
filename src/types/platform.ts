@@ -634,6 +634,8 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "Access token expires in 24h",
       "25 posts per creator per day limit",
       "TikTok Content Posting API does not expose public comment read/write",
+      "A post shows as published only after TikTok's status endpoint reports PUBLISH_COMPLETE; until then it stays 'publishing' and the worker re-checks each run (up to 2 hours)",
+      "Private (SELF_ONLY) and not-yet-moderated posts have no public link",
     ],
   },
   YOUTUBE: {
@@ -678,7 +680,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "1,600 quota units per upload",
       "Default quota: ~6 uploads/day",
       "OAuth consent screen verification required",
-      "Resumable uploads recommended for large files",
+      "Uploads stream into a resumable session in 8 MiB chunks; one publish run has a 60 s ceiling, so very large files may not finish in one run",
       "Comment threads use commentThreads/comments; video rating uses videos.rate (not comment likes)",
       "Comment write/delete requires youtube.force-ssl scope (reconnect after scope change)",
     ],
@@ -729,7 +731,9 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "Publishes to a chat or channel where the bot is a member/admin",
       "Caption limit is 1024 characters when media is attached",
       "Real-network reference implementation for token-based connectors",
-      "Comment reads use getUpdates (replies the bot has received); reactions use setMessageReaction",
+      "Comment reads show replies to this account's own messages in its own chat, collected from the bot's update queue (getUpdates); they do not work while a webhook is set on the bot",
+      "In groups the bot sees replies to its own messages; comments on a channel post live in the linked discussion group, which the bot must also be in",
+      "Reactions use setMessageReaction",
     ],
   },
 };

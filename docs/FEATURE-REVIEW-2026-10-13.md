@@ -73,13 +73,13 @@ Test column: a file is listed only if it imports the module or drives the route 
 
 | Platform | Connect | Refresh | Publish (file:line) | Engagement | Wall outside code |
 |---|---|---|---|---|---|
-| LinkedIn | real (`linkedin.ts:9,49`) | code exists (`:87`); UNVERIFIED if app gets a refresh token | **REAL** text via `POST /rest/posts` (`:264`), single image (`:164,210`), no video | none | Share on LinkedIn product approval, UNVERIFIED |
+| LinkedIn | real (`linkedin.ts:9,49`) | code exists (`:87`); UNVERIFIED if app gets a refresh token | **REAL** text via `POST /rest/posts`, single image, single MP4 video via the Videos API (initializeUpload → parts → finalizeUpload; *fixed 2026-10-14*) | none | Share on LinkedIn product approval, UNVERIFIED |
 | X | real, PKCE (`twitter.ts:22-24`) | real (`:145`) | **REAL** text only (`:220`); media rejected (`platform.ts:438`) | read, reply, delete real (`:274,347,386`); likes false | X API tier UNVERIFIED |
 | Facebook | real (`facebook.ts:26-28`) | unreachable: stores `refreshToken:null` (`:100-110`) | **REAL** feed/photo (`:226-230`); picks `pages[0]` only (`:156-186`) | **REAL** (`:302-565`) | Meta App Review UNVERIFIED |
 | Instagram | real (`instagram.ts:22`) | unreachable (`:94-110`) | **REAL** container→`media_publish` (`:253,274`), image only, no status polling | methods present (`:350-477`); depth UNVERIFIED | Meta review UNVERIFIED |
-| TikTok | real, PKCE (`tiktok.ts:~120`) | real (`:205`) | **PARTIAL**: returns success after chunk PUT with no URL (`~:590`); status poll (`:436`) never called by the worker | none | audit needed for public posts (`approval.ts:5-9`) |
-| YouTube | real (`youtube.ts:23-25`) | real (`:108`) | **REAL** video only, buffered in memory (`:234-303`) | comments real (`:340-492`); video rate (`:537`) | Google verification UNVERIFIED |
-| Telegram | token-based (`telegram/connect/route.ts:70-156`) | no-op | **REAL** via cron. Publish-now fails every time (`telegram.ts:130-132`) | getUpdates; no chat filter (`telegram.ts:~320`) | bot must already be in the chat |
+| TikTok | real, PKCE (`tiktok.ts:~120`) | real (`:205`) | **REAL** (*fixed 2026-10-14*): bounded status poll after the upload; still-processing posts stay PUBLISHING and the worker polls `checkPublishStatus` (never re-uploads) until PUBLISH_COMPLETE/FAILED, max 2h. The upload itself still reads the whole file into memory | none | audit needed for public posts (`approval.ts:5-9`) |
+| YouTube | real (`youtube.ts:23-25`) | real (`:108`) | **REAL** video only, streamed into the resumable session in 8 MiB chunks (*fixed 2026-10-14*); one run is capped at 60 s | comments real (`:340-492`); video rate (`:537`) | Google verification UNVERIFIED |
+| Telegram | token-based (`telegram/connect/route.ts:70-156`) | no-op | **REAL** via cron. Publish-now fails every time (`telegram.ts:130-132`) | getUpdates drained into a per-chat store, read back by the account's chat id (*fixed 2026-10-14*) | bot must already be in the chat |
 
 None of the platform adapters has been confirmed against a live platform from this checkout. Tests use mock adapters or stubbed `fetch`. `ROADMAP-2.0.md:15` claims manual Telegram delivery and cannot be reproduced from the repo.
 
