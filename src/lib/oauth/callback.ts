@@ -14,6 +14,31 @@ import {
 } from "@/lib/oauth/pending-connection";
 import type { AccountInfo } from "@/types/platform";
 
+/**
+ * The collaborators the callback reaches out to. Injectable only so the unit
+ * tests can drive the real control flow (state checks, ownership refusal, the
+ * multi-target pending path) without a session, a database or a provider;
+ * production always uses the defaults.
+ */
+export interface OAuthCallbackDeps {
+  resolveSessionUser: typeof resolveSessionUser;
+  tenantForUser: typeof tenantForUser;
+  resolveBrainForWorkspace: (
+    tenant: { userId: string; workspaceId: string },
+    brainId?: string | null,
+  ) => Promise<{ id: string }>;
+  getAdapter: (platform: Platform) => ReturnType<typeof getAdapter>;
+  persistConnectedAccount: typeof persistConnectedAccount;
+}
+
+const defaultDeps: OAuthCallbackDeps = {
+  resolveSessionUser,
+  tenantForUser,
+  resolveBrainForWorkspace,
+  getAdapter: (platform) => getAdapter(platform),
+  persistConnectedAccount,
+};
+
 /** Shown when a grant covers nothing this connector can publish to. */
 export function noTargetMessage(platform: Platform): string {
   return platform === Platform.INSTAGRAM
@@ -32,7 +57,8 @@ export function noTargetMessage(platform: Platform): string {
  * Anything provider-specific stays in the adapter (`exchangeCodeForTokens`
  * accepts an optional PKCE verifier; adapters that do not use one ignore it).
  */
-export function createOAuthCallback(platform: Platform) {
+export function createOAuthCallback(platform: Platform, overrides: Partial<OAuthCallbackDeps> = {}) {
+  const deps: OAuthCallbackDeps = { ...defaultDeps, ...overrides };
   return async function GET(req: NextRequest) {
     // Read as early as possible (before state validation can even run) so a
     // popup that fails early still knows to self-close instead of rendering
@@ -53,7 +79,7 @@ export function createOAuthCallback(platform: Platform) {
       // The session must exist in *this* database: a cookie minted by another
       // local server on the same host (different port, same NEXTAUTH_SECRET)
       // would otherwise reach the write and die as a foreign-key violation.
-      const user = await resolveSessionUser();
+      const user = await deps.resolveSessionUser();
       if (!user.ok) {
         console.error(`${platform} OAuth callback rejected:`, user.code);
         return NextResponse.redirect(new URL(sessionProblemRedirect(user.code).path, req.url));
@@ -97,11 +123,11 @@ export function createOAuthCallback(platform: Platform) {
 
       // The connection belongs to the caller's workspace, resolved fresh (the
       // role may have changed since the flow started).
-      const tenant = await tenantForUser(user.userId);
+      const tenant = await deps.tenantForUser(user.userId);
       if (!tenant.ok) return failure("no_workspace", popup);
-      const brain = await resolveBrainForWorkspace(tenant, stateCheck.data.brainId);
+      const brain = await deps.resolveBrainForWorkspace(tenant, stateCheck.data.brainId);
 
-      const adapter = getAdapter(platform);
+      const adapter = deps.getAdapter(platform);
       // Prefer the server-side verifier (PKCE for TikTok and any newer
       // connector); fall back to the one X packs into the state string.
       const codeVerifier =
@@ -146,7 +172,7 @@ export function createOAuthCallback(platform: Platform) {
         info = await adapter.getAccountInfo(tokens.accessToken);
       }
 
-      const saved = await persistConnectedAccount({
+      const saved = await deps.persistConnectedAccount({
         platform,
         workspaceId: tenant.workspaceId,
         userId: user.userId,
