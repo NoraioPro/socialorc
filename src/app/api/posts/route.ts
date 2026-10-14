@@ -8,6 +8,11 @@ import {
   POST_SAFE_INCLUDE_WITH_AUTHOR,
   foreignMediaAssetIds,
 } from "@/lib/social/account-select";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+} from "@/lib/posts/transitions";
 
 const createPostSchema = z.object({
   title: z.string().optional(),
@@ -106,6 +111,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: "Social account not found" },
           { status: 404 }
+        );
+      }
+      if (accountPlatformMismatch(platform, account)) {
+        return NextResponse.json(
+          {
+            error: accountPlatformMismatchMessage(platform, account.platform),
+            code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+          },
+          { status: 400 }
         );
       }
     } else {

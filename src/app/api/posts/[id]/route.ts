@@ -9,7 +9,12 @@ import {
   findWorkspaceSocialAccount,
   foreignMediaAssetIds,
 } from "@/lib/social/account-select";
-import { editGuardWhere } from "@/lib/posts/transitions";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+  editGuardWhere,
+} from "@/lib/posts/transitions";
 import { discardInFlightMediaForPost } from "@/lib/adapters/in-flight-media";
 
 const updatePostSchema = z.object({
@@ -96,6 +101,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     // A `socialAccountId` from the request body is a capability handle: writing
     // it unchecked let anyone point their own draft at another tenant's account
     // and publish through it. Refuse unless it is in the caller's workspace.
+    const effectivePlatform = restData.platform ?? existingPost.platform;
+    // When only the platform changes, the old link points at the wrong network:
+    // relink to the workspace's account for the new platform (as create does),
+    // or unlink if there is none — never keep a mismatched account.
+    let relinkAccountId: string | null | undefined;
     if (socialAccountId !== undefined && socialAccountId !== null) {
       const owned = await findWorkspaceSocialAccount(guard.workspaceId, socialAccountId);
       if (!owned) {
@@ -104,6 +114,27 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           { status: 404 }
         );
       }
+      if (accountPlatformMismatch(effectivePlatform, owned)) {
+        return NextResponse.json(
+          {
+            error: accountPlatformMismatchMessage(effectivePlatform, owned.platform),
+            code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (
+      socialAccountId === undefined &&
+      restData.platform !== undefined &&
+      restData.platform !== existingPost.platform &&
+      existingPost.socialAccountId
+    ) {
+      const replacement = await prisma.socialAccount.findFirst({
+        where: { workspaceId: guard.workspaceId, platform: effectivePlatform, isActive: true },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      relinkAccountId = replacement?.id ?? null;
     }
 
     // Same for media: attaching someone else's asset leaked its URL back to the
@@ -131,6 +162,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     if (socialAccountId !== undefined) {
       updatePayload.socialAccountId = socialAccountId;
+    } else if (relinkAccountId !== undefined) {
+      updatePayload.socialAccountId = relinkAccountId;
     }
 
     if (platformContent !== undefined) {

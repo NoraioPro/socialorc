@@ -14,7 +14,13 @@ import {
   requiresReconnect,
   type AdapterErrorCode,
 } from "@/lib/adapters/errors";
-import { jobClaimWhere, publishClaimWhere } from "@/lib/posts/transitions";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+  jobClaimWhere,
+  publishClaimWhere,
+} from "@/lib/posts/transitions";
 import {
   CLEARED_PENDING_PUBLISH,
   PENDING_TIMEOUT_MESSAGE,
@@ -269,6 +275,33 @@ export async function GET(req: NextRequest) {
           results.permanent++;
           results.failed++;
           results.errors.push({ postId: job.postId, error: "Account ownership mismatch" });
+          continue;
+        }
+
+        // The adapter is picked by the post's platform and fed the account's
+        // token: they must be the same network. Permanent, and deliberately not
+        // routed through handleFailure — the auth-shaped error a mismatched send
+        // produces would flag a healthy account for reconnect.
+        if (accountPlatformMismatch(post.platform, post.socialAccount)) {
+          const message = accountPlatformMismatchMessage(post.platform, post.socialAccount.platform);
+          await prisma.$transaction([
+            prisma.post.update({
+              where: { id: post.id },
+              data: { status: PostStatus.FAILED, errorMessage: message },
+            }),
+            prisma.scheduledJob.update({
+              where: { id: job.id },
+              data: {
+                status: JobStatus.FAILED,
+                completedAt: new Date(),
+                errorMessage: message,
+                ...CLEARED_PENDING_PUBLISH,
+              },
+            }),
+          ]);
+          results.permanent++;
+          results.failed++;
+          results.errors.push({ postId: job.postId, error: ACCOUNT_PLATFORM_MISMATCH_CODE });
           continue;
         }
 

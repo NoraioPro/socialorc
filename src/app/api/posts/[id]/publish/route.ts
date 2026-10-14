@@ -14,6 +14,11 @@ import {
   publishBlockStatus,
 } from "@/lib/posts/publish-gate";
 import { handOffPendingPublish } from "@/lib/jobs/pending-publish";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+} from "@/lib/posts/transitions";
 
 /**
  * Publish one post immediately, in the request.
@@ -98,6 +103,19 @@ export async function POST(
   // *their* token and published through their profile.
   if (account.workspaceId !== guard.workspaceId) {
     return NextResponse.json({ error: "Social account not found" }, { status: 404 });
+  }
+
+  // The adapter follows the post's platform; the token comes from the account.
+  // A mismatch is a linking mistake, not a credential problem: refuse before
+  // anything is sent, and leave the account's reconnect flag alone.
+  if (accountPlatformMismatch(post.platform, account)) {
+    return NextResponse.json(
+      {
+        error: accountPlatformMismatchMessage(post.platform, account.platform),
+        code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+      },
+      { status: 400 }
+    );
   }
 
   if (account.needsReconnect) {

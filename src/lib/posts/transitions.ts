@@ -127,3 +127,27 @@ export function publishClaimWhere(id: string) {
 export function jobClaimWhere(jobId: string, now: Date) {
   return { id: jobId, status: "PENDING" as const, scheduledAt: { lte: now } };
 }
+
+/**
+ * A post goes out through its linked account, and the adapter is chosen by the
+ * POST's platform. A post for INSTAGRAM linked to a TWITTER account would hand
+ * the X token to the Instagram adapter: the send fails with an auth-shaped
+ * error and the (perfectly healthy) account gets flagged for reconnect. So the
+ * two must agree on every write and again before every send. This is never a
+ * credential problem, so it must never set `needsReconnect`.
+ */
+export const ACCOUNT_PLATFORM_MISMATCH_CODE = "ACCOUNT_PLATFORM_MISMATCH";
+
+export function accountPlatformMismatch(
+  postPlatform: string,
+  account: { platform: string } | null | undefined,
+): boolean {
+  return Boolean(account) && account!.platform !== postPlatform;
+}
+
+export function accountPlatformMismatchMessage(postPlatform: string, accountPlatform: string): string {
+  return (
+    `This post is for ${postPlatform}, but the linked account is a ${accountPlatform} account. ` +
+    `Link a ${postPlatform} account to the post and try again.`
+  );
+}

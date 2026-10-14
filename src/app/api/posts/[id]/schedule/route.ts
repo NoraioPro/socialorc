@@ -6,6 +6,9 @@ import { z } from "zod";
 import { requeueJobData } from "@/lib/jobs/pending-publish";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
   POST_CONFLICT_MESSAGE,
   POST_CONFLICT_STATUS,
   scheduleBlockMessage,
@@ -61,6 +64,16 @@ export async function POST(
     if (!post.socialAccountId || !post.socialAccount) {
       return NextResponse.json(
         { error: "Post must be linked to a social account before scheduling" },
+        { status: 400 }
+      );
+    }
+
+    if (accountPlatformMismatch(post.platform, post.socialAccount)) {
+      return NextResponse.json(
+        {
+          error: accountPlatformMismatchMessage(post.platform, post.socialAccount.platform),
+          code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+        },
         { status: 400 }
       );
     }
