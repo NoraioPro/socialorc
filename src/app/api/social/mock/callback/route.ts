@@ -7,6 +7,7 @@ import { resolveBrainForWorkspace } from "@/lib/brains";
 import { isMockAdapterAllowed } from "@/lib/adapters";
 import { peekStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
+import { safeRedirectCode } from "@/lib/social/session-user";
 
 /**
  * Mock OAuth callback for development/testing.
@@ -103,7 +104,9 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("Mock callback error:", error);
     return NextResponse.redirect(
-      new URL(`/settings/accounts?error=${encodeURIComponent(error instanceof Error ? error.message : "mock_connection_failed")}`, req.url)
+      // Never reflect the raw error: it can carry connection strings, stack
+      // fragments and query text into the URL bar, history and logs.
+      new URL(`/settings/accounts?error=${safeRedirectCode(error, "mock_connection_failed")}`, req.url)
     );
   }
 }
