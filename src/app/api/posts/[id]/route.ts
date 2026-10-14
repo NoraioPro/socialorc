@@ -13,7 +13,10 @@ import {
   ACCOUNT_PLATFORM_MISMATCH_CODE,
   accountPlatformMismatch,
   accountPlatformMismatchMessage,
+  deleteGuardWhere,
   editGuardWhere,
+  POST_CONFLICT_MESSAGE,
+  POST_CONFLICT_STATUS,
 } from "@/lib/posts/transitions";
 import { discardInFlightMediaForPost } from "@/lib/adapters/in-flight-media";
 
@@ -276,10 +279,18 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Scoped by workspace in the write too, so a row that moved cannot be hit.
-    const deleted = await prisma.post.deleteMany({ where: { id, workspaceId: guard.workspaceId } });
+    // Guarded write (workspace + status), so the worker claiming the post, or an
+    // approval landing, between the read above and here makes this a 409.
+    const deleted = await prisma.post.deleteMany({
+      where: deleteGuardWhere(id, guard.workspaceId, {
+        draftOnly: !tenantCan(guard, "posts:delete"),
+      }),
+    });
     if (deleted.count === 0) {
-      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: POST_CONFLICT_MESSAGE },
+        { status: POST_CONFLICT_STATUS }
+      );
     }
 
     return NextResponse.json({ success: true });

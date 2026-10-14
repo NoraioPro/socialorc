@@ -151,3 +151,20 @@ export function accountPlatformMismatchMessage(postPlatform: string, accountPlat
     `Link a ${postPlatform} account to the post and try again.`
   );
 }
+
+/**
+ * Deleting races the worker: a post read as SCHEDULED can be claimed
+ * (PUBLISHING) a moment later, and deleting it mid-send loses the record of a
+ * post that may go live. The write restates "not PUBLISHING". A caller without
+ * `posts:delete` (deleting their own draft) restates that it is still a draft,
+ * so an approval landing in between is not deleted out from under the approver.
+ */
+export function deleteGuardWhere(id: string, workspaceId: string, opts: { draftOnly: boolean }) {
+  return {
+    id,
+    workspaceId,
+    status: opts.draftOnly
+      ? { in: ["DRAFT", "PENDING_APPROVAL"] as PostStatus[] }
+      : { not: "PUBLISHING" as PostStatus },
+  };
+}
