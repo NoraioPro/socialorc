@@ -1,5 +1,6 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
+import { fetchOwnMedia } from "@/lib/social/blob-upload";
 import {
   OAuthTokens,
   AccountInfo,
@@ -272,7 +273,7 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       // request, and its bytes are forwarded chunk by chunk below. Nothing here
       // holds more than one chunk in memory — buffering the whole file is what
       // made a large video run the function out of memory.
-      const source = await fetch(sourceUrl);
+      const source = await fetchOwnMedia(sourceUrl);
       if (!source.ok || !source.body) {
         return {
           success: false,

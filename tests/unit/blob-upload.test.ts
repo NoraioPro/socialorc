@@ -1,10 +1,16 @@
-import { test } from "node:test";
+import { test, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   blobUrlProblem,
   blobPathFromUrl,
   blobPathFor,
   blobFolderFor,
+  ownBlobHost,
+  mediaSourceUrlProblem,
+  assertOwnBlobUrl,
+  fetchOwnMedia,
+  MediaSourceNotAllowedError,
 } from "../../src/lib/social/blob-upload";
 
 /**
@@ -112,20 +118,91 @@ test("blobUrlProblem accepts a port on the storage host", () => {
 });
 
 /**
- * KNOWN LIMITATION, asserted so it cannot change silently.
- *
- * The host check accepts ANY Vercel Blob store, so someone with their own store
- * can host a file under `socialorc/<their id>/` and have it recorded. The host
- * is still Vercel's, so this is not internal SSRF, but it is not proof of
- * provenance either. Closing it means pinning to our own store id, derived from
- * `BLOB_READ_WRITE_TOKEN`. If this test starts failing, that pin landed and this
- * assertion should be inverted.
+ * Without a store configured (local development) any Vercel Blob store is
+ * accepted: not internal SSRF, but not provenance either. With
+ * `BLOB_READ_WRITE_TOKEN` set the host is pinned to this app's own store.
  */
-test("blobUrlProblem accepts a different Vercel Blob store (known limitation)", () => {
+test("blobUrlProblem accepts a different Vercel Blob store only when no store is configured", () => {
+  const other = url("/socialorc/u1/a.png", "someone-elses-store.public.blob.vercel-storage.com");
+  assert.equal(blobUrlProblem(other, USER, {} as NodeJS.ProcessEnv), null);
+  const pinned = { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_Store123_secretpart" } as unknown as NodeJS.ProcessEnv;
+  assert.notEqual(blobUrlProblem(other, USER, pinned), null);
+  assert.equal(blobUrlProblem(url("/socialorc/u1/a.png"), USER, pinned), null);
+});
+
+test("ownBlobHost derives the store host from the read-write token", () => {
   assert.equal(
-    blobUrlProblem(url("/socialorc/u1/a.png", "someone-elses-store.public.blob.vercel-storage.com"), USER),
-    null,
+    ownBlobHost({ BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_AbC123_xyz" } as unknown as NodeJS.ProcessEnv),
+    "abc123.public.blob.vercel-storage.com",
   );
+  assert.equal(ownBlobHost({} as NodeJS.ProcessEnv), null);
+  assert.equal(ownBlobHost({ BLOB_READ_WRITE_TOKEN: "garbage" } as unknown as NodeJS.ProcessEnv), null);
+});
+
+describe("media source URLs the adapters may download", () => {
+  const prod = {
+    NODE_ENV: "production",
+    BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_Store123_secretpart",
+  } as unknown as NodeJS.ProcessEnv;
+
+  it("accepts our own store over https and data: URLs", () => {
+    assert.equal(mediaSourceUrlProblem(url("/socialorc/u1/a.mp4"), prod), null);
+    assert.equal(mediaSourceUrlProblem("data:image/png;base64,AAAA", prod), null);
+  });
+
+  it("refuses everything else in production", () => {
+    for (const bad of [
+      "http://store123.public.blob.vercel-storage.com/socialorc/u1/a.mp4",
+      "https://store123.public.blob.vercel-storage.com:8443/a.mp4",
+      "https://user:pw@store123.public.blob.vercel-storage.com/a.mp4",
+      "https://other.public.blob.vercel-storage.com/a.mp4",
+      "https://169.254.169.254/latest/meta-data/",
+      "https://127.0.0.1/a.mp4",
+      "https://internal.service/a.mp4",
+      "https://cdn.example.invalid/a.mp4",
+      "file:///etc/passwd",
+      "not a url",
+    ]) {
+      assert.notEqual(mediaSourceUrlProblem(bad, prod), null, bad);
+      assert.throws(() => assertOwnBlobUrl(bad, prod), MediaSourceNotAllowedError, bad);
+    }
+  });
+
+  it("accepts the reserved test hosts only outside production", () => {
+    const dev = { NODE_ENV: "test" } as unknown as NodeJS.ProcessEnv;
+    assert.equal(mediaSourceUrlProblem("https://cdn.example.invalid/a.mp4", dev), null);
+    assert.equal(mediaSourceUrlProblem("https://cdn.example.com/a.mp4", dev), null);
+    assert.notEqual(mediaSourceUrlProblem("https://169.254.169.254/x", dev), null);
+    assert.notEqual(mediaSourceUrlProblem("https://localhost/x", dev), null);
+  });
+
+  it("fetchOwnMedia refuses before any request and never follows redirects", async () => {
+    const original = globalThis.fetch;
+    const seen: { url: string; redirect?: RequestRedirect }[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(input), redirect: init?.redirect });
+      return new Response("ok");
+    }) as typeof fetch;
+    try {
+      await assert.rejects(fetchOwnMedia("https://169.254.169.254/latest/"), MediaSourceNotAllowedError);
+      assert.equal(seen.length, 0, "a refused URL must not be requested at all");
+      await fetchOwnMedia("https://cdn.example.invalid/a.mp4");
+      assert.deepEqual(seen, [{ url: "https://cdn.example.invalid/a.mp4", redirect: "error" }]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+test("no adapter downloads media with a bare fetch", () => {
+  for (const file of ["youtube", "linkedin", "twitter", "tiktok"]) {
+    const source = readFileSync(`src/lib/adapters/${file}.ts`, "utf8");
+    assert.ok(
+      !/\bfetch\((sourceUrl|descriptor\.url|options\.mediaUrls\[0\]|attachment\.url)\)/.test(source),
+      `${file}.ts downloads media without fetchOwnMedia`,
+    );
+    assert.ok(source.includes("fetchOwnMedia("), `${file}.ts does not use fetchOwnMedia`);
+  }
 });
 
 test("blobPathFromUrl strips the leading slash", () => {

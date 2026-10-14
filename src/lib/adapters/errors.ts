@@ -78,6 +78,7 @@ const MESSAGE_RULES: { pattern: RegExp; code: AdapterErrorCode }[] = [
   { pattern: /media storage is not configured/i, code: "MEDIA_STORAGE_NOT_CONFIGURED" },
   { pattern: /ai is not configured|no ai provider|api key not configured/i, code: "AI_NOT_CONFIGURED" },
   { pattern: /does not support (media|video|image)|carousel publishing is not supported|unsupported media type for/i, code: "UNSUPPORTED_MEDIA" },
+  { pattern: /not one of this app's uploads/i, code: "MEDIA_INVALID" },
   { pattern: /unsupported media|media type|video required|requires (at least one )?media|media is required/i, code: "MEDIA_INVALID" },
   { pattern: /rate limit|too many requests|slow down/i, code: "RATE_LIMITED" },
   { pattern: /fetch failed|econnrefused|econnreset|etimedout|enotfound|network|socket hang up|deadline/i, code: "NETWORK" },

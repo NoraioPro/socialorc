@@ -1,5 +1,6 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
+import { fetchOwnMedia } from "@/lib/social/blob-upload";
 import { OAuthTokens, AccountInfo, PostOptions, PostResult } from "@/types/platform";
 import {
   validateLinkedInCredentials,
@@ -265,7 +266,7 @@ export class LinkedInAdapter extends BasePlatformAdapter {
       );
     }
 
-    const source = await fetch(sourceUrl);
+    const source = await fetchOwnMedia(sourceUrl);
     if (!source.ok) {
       throw new AdapterError(
         `Could not read the image to upload (HTTP ${source.status}).`,
@@ -317,7 +318,7 @@ export class LinkedInAdapter extends BasePlatformAdapter {
     sourceUrl: string,
     sizeHint?: number,
   ): Promise<string> {
-    const source = await fetch(sourceUrl);
+    const source = await fetchOwnMedia(sourceUrl);
     if (!source.ok || !source.body) {
       throw new AdapterError(
         `Could not read the video to upload (HTTP ${source.status}).`,
