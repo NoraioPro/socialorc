@@ -306,6 +306,17 @@ test("inbox read state is keyed by account + comment id, checked against the wor
   assert.match(model.slice(0, model.indexOf("}")), /@@unique\(\[socialAccountId, commentId\]\)/);
 });
 
+test("inbox posts are queried per account, so a busy account cannot starve the rest", () => {
+  const source = readFileSync("src/app/api/inbox/route.ts", "utf8");
+  const query = source.slice(source.indexOf("prisma.post.findMany("));
+  const call = query.slice(0, query.indexOf("})") + 2);
+  assert.match(call, /socialAccountId: account\.id/);
+  assert.match(call, /take: DEFAULT_INBOX_LIMITS\.maxPostsPerAccount/);
+  assert.doesNotMatch(source, /accounts\.length \* DEFAULT_INBOX_LIMITS/);
+  // Bounded: only the accounts collectInbox will read are queried.
+  assert.match(source, /accounts\.slice\(0, DEFAULT_INBOX_LIMITS\.maxAccounts\)/);
+});
+
 test("the inbox route is workspace-scoped and reuses the engagement write path", () => {
   const source = readFileSync("src/app/api/inbox/route.ts", "utf8");
   assert.match(source, /loadWorkspaceAccount\(workspaceId, body\.accountId\)/);

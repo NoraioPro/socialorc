@@ -67,37 +67,47 @@ export async function GET(req: NextRequest) {
     } satisfies InboxResponse);
   }
 
-  // Newest published posts that the platform can be asked about. One query for
-  // all accounts, trimmed per account below; the take bounds it either way.
-  const posts = await prisma.post.findMany({
-    where: {
-      workspaceId,
-      status: "PUBLISHED",
-      platformPostId: { not: null },
-      socialAccountId: { in: accounts.map((a) => a.id) },
-    },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-    take: accounts.length * DEFAULT_INBOX_LIMITS.maxPostsPerAccount * 4,
-    select: {
-      id: true,
-      socialAccountId: true,
-      platformPostId: true,
-      platformPostUrl: true,
-      content: true,
-    },
-  });
+  // Newest published posts per account. One global query ordered by recency
+  // let a busy account fill the whole window and starve quieter ones (they
+  // showed no comments at all), so each account gets its own bounded query.
+  // Only accounts collectInbox will actually read are queried (it skips the
+  // rest past maxAccounts), so this is at most maxAccounts small queries.
+  const readable = accounts.slice(0, DEFAULT_INBOX_LIMITS.maxAccounts);
+  const postsByAccount = new Map(
+    await Promise.all(
+      readable.map(
+        async (account) =>
+          [
+            account.id,
+            await prisma.post.findMany({
+              where: {
+                workspaceId,
+                status: "PUBLISHED",
+                platformPostId: { not: null },
+                socialAccountId: account.id,
+              },
+              orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+              take: DEFAULT_INBOX_LIMITS.maxPostsPerAccount,
+              select: {
+                id: true,
+                platformPostId: true,
+                platformPostUrl: true,
+                content: true,
+              },
+            }),
+          ] as const,
+      ),
+    ),
+  );
 
   const sources: InboxSource[] = accounts.map((account) => ({
     account,
-    posts: posts
-      .filter((p) => p.socialAccountId === account.id)
-      .slice(0, DEFAULT_INBOX_LIMITS.maxPostsPerAccount)
-      .map((p) => ({
-        id: p.id,
-        platformPostId: p.platformPostId as string,
-        platformPostUrl: p.platformPostUrl,
-        content: p.content,
-      })),
+    posts: (postsByAccount.get(account.id) ?? []).map((p) => ({
+      id: p.id,
+      platformPostId: p.platformPostId as string,
+      platformPostUrl: p.platformPostUrl,
+      content: p.content,
+    })),
   }));
 
   const collected = await collectInbox(sources);
