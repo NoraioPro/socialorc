@@ -1,9 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { metaAppId, metaAppSecret } from "./meta-app";
+import { metaAppId } from "./meta-app";
 import {
   OAuthTokens,
   AccountInfo,
+  ConnectTarget,
   PostOptions,
   PostResult,
   ListCommentsOptions,
@@ -19,13 +20,21 @@ import {
 } from "@/types/platform";
 import { graphPagingCursor, mapGraphComment } from "./meta-graph-comments";
 import {
+  FACEBOOK_AUTH_URL,
+  GRAPH_API_URL,
+  exchangeCodeForLongLivedUserToken,
+  fetchManagedPages,
+  metaTokensDoNotRefresh,
+  type ManagedPage,
+} from "./meta-graph";
+import { encodeMetaPageCredential, parseMetaCredential } from "./meta-credential";
+import { formatGraphError } from "./errors";
+import {
   validateFacebookCredentials,
   type CredentialValidationResult,
 } from "./credentials";
 
-const FACEBOOK_AUTH_URL = "https://www.facebook.com/v25.0/dialog/oauth";
-const FACEBOOK_TOKEN_URL = "https://graph.facebook.com/v25.0/oauth/access_token";
-const GRAPH_API_URL = "https://graph.facebook.com/v25.0";
+const PAGE_FIELDS = "id,name,access_token,picture{url},tasks";
 
 export class FacebookAdapter extends BasePlatformAdapter {
   platform = Platform.FACEBOOK;
@@ -62,135 +71,116 @@ export class FacebookAdapter extends BasePlatformAdapter {
     return `${FACEBOOK_AUTH_URL}?${params.toString()}`;
   }
 
+  /** Returns the long-lived USER token; the callback turns it into a Page credential. */
   async exchangeCodeForTokens(code: string): Promise<OAuthTokens> {
-    const response = await fetch(FACEBOOK_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: metaAppId(),
-        client_secret: metaAppSecret(),
-        redirect_uri: this.getRedirectUri(),
-        code,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new AdapterError(
-        `Failed to exchange code for tokens: ${error}`,
-        "TOKEN_EXCHANGE_FAILED",
-        response.status,
-        error
-      );
-    }
-
-    const data = await response.json();
-
-    const longLivedResponse = await fetch(
-      `${GRAPH_API_URL}/oauth/access_token?` +
-        new URLSearchParams({
-          grant_type: "fb_exchange_token",
-          client_id: metaAppId(),
-          client_secret: metaAppSecret(),
-          fb_exchange_token: data.access_token,
-        })
-    );
-
-    if (longLivedResponse.ok) {
-      const longLivedData = await longLivedResponse.json();
-      return {
-        accessToken: longLivedData.access_token,
-        refreshToken: null,
-        expiresAt: longLivedData.expires_in
-          ? new Date(Date.now() + longLivedData.expires_in * 1000)
-          : null,
-        tokenType: longLivedData.token_type || "bearer",
-      };
-    }
-
-    return {
-      accessToken: data.access_token,
-      refreshToken: null,
-      expiresAt: data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000)
-        : null,
-      tokenType: data.token_type || "bearer",
-    };
+    return exchangeCodeForLongLivedUserToken(code, this.getRedirectUri());
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
-    const response = await fetch(
-      `${GRAPH_API_URL}/oauth/access_token?` +
-        new URLSearchParams({
-          grant_type: "fb_exchange_token",
-          client_id: metaAppId(),
-          client_secret: metaAppSecret(),
-          fb_exchange_token: refreshToken,
-        })
-    );
+  async refreshAccessToken(): Promise<OAuthTokens> {
+    return metaTokensDoNotRefresh("Facebook");
+  }
 
-    if (!response.ok) {
-      const error = await response.text();
+  /** Pages this grant can publish to — one per entry, chosen by the user when there are several. */
+  async listConnectTargets(userToken: string): Promise<ConnectTarget[]> {
+    const pages = await fetchManagedPages(userToken, PAGE_FIELDS);
+    return pages.filter(publishablePage).map((page) => ({
+      id: page.id,
+      name: page.name,
+      pictureUrl: page.picture?.data?.url,
+    }));
+  }
+
+  /**
+   * Store the chosen Page's own token. A Page token read with a long-lived
+   * user token has no expiry, so the connection no longer dies after 60 days.
+   * The Page list is re-read here rather than trusted from the browser: the id
+   * must be one this grant actually manages.
+   */
+  async connectTarget(
+    userToken: string,
+    pageId: string,
+  ): Promise<{ tokens: OAuthTokens; info: AccountInfo }> {
+    const pages = await fetchManagedPages(userToken, PAGE_FIELDS);
+    const page = pages.find((p) => p.id === pageId);
+    if (!page || !publishablePage(page)) {
       throw new AdapterError(
-        `Failed to refresh token: ${error}`,
-        "TOKEN_REFRESH_FAILED",
-        response.status,
-        error
+        "That Facebook Page is not one this login can publish to.",
+        "PAGE_NOT_MANAGED",
       );
     }
 
-    const data = await response.json();
-
     return {
-      accessToken: data.access_token,
-      refreshToken: data.access_token,
-      expiresAt: data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000)
-        : null,
-      tokenType: data.token_type || "bearer",
+      tokens: {
+        accessToken: encodeMetaPageCredential({ token: page.access_token as string, pageId: page.id }),
+        refreshToken: null,
+        // Page tokens from a long-lived user token do not expire. Recording the
+        // user token's 60-day expiry here is what used to put a healthy Page
+        // into the reconnect banner.
+        expiresAt: null,
+        tokenType: "page",
+      },
+      info: {
+        platformUserId: page.id,
+        displayName: page.name,
+        profileImageUrl: page.picture?.data?.url,
+        metadata: { accountType: "facebook_page", pageId: page.id },
+      },
     };
   }
 
   async getAccountInfo(accessToken: string): Promise<AccountInfo> {
-    const pagesResponse = await fetch(
-      `${GRAPH_API_URL}/me/accounts?fields=id,name,access_token,picture&access_token=${accessToken}`
-    );
-
-    if (!pagesResponse.ok) {
-      throw new AdapterError(
-        "Failed to get Facebook Pages",
-        "PAGES_FETCH_FAILED",
-        pagesResponse.status
+    const credential = parseMetaCredential(accessToken);
+    if (credential.kind === "page") {
+      const response = await fetch(
+        `${GRAPH_API_URL}/${credential.pageId}?` +
+          new URLSearchParams({ fields: "id,name,picture{url}", access_token: credential.token }),
       );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const formatted = formatGraphError(body, "Failed to get Facebook Page");
+        throw new AdapterError(formatted.message, "PAGE_FETCH_FAILED", response.status, body);
+      }
+      return {
+        platformUserId: body.id,
+        displayName: body.name,
+        profileImageUrl: body.picture?.data?.url,
+        metadata: { accountType: "facebook_page", pageId: body.id },
+      };
     }
 
-    const pagesData = await pagesResponse.json();
-    const pages = pagesData.data || [];
-
+    // Legacy row (bare long-lived user token, connected before Page selection
+    // existed): first Page, as before. These expire and are reconnected.
+    const pages = await fetchManagedPages(credential.token, PAGE_FIELDS);
     if (pages.length === 0) {
       throw new AdapterError(
         "No Facebook Pages found. You must be an admin of at least one Facebook Page to use this feature.",
         "NO_PAGES_FOUND"
       );
     }
-
     const primaryPage = pages[0];
-
     return {
       platformUserId: primaryPage.id,
       displayName: primaryPage.name,
       profileImageUrl: primaryPage.picture?.data?.url,
       metadata: {
         pageAccessToken: primaryPage.access_token,
-        allPages: pages.map((p: { id: string; name: string; access_token: string }) => ({
-          id: p.id,
-          name: p.name,
-          accessToken: p.access_token,
-        })),
+        allPages: pages.map((p) => ({ id: p.id, name: p.name, accessToken: p.access_token })),
       },
     };
+  }
+
+  /** The Page to act as and its token, from either credential shape. */
+  private async resolvePage(accessToken: string): Promise<{ pageId: string; pageToken: string }> {
+    const credential = parseMetaCredential(accessToken);
+    if (credential.kind === "page") {
+      return { pageId: credential.pageId, pageToken: credential.token };
+    }
+    const info = await this.getAccountInfo(credential.token);
+    const pageToken = (info.metadata as Record<string, unknown>)?.pageAccessToken as string;
+    if (!pageToken) {
+      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
+    }
+    return { pageId: info.platformUserId, pageToken };
   }
 
   async createPost(accessToken: string, options: PostOptions): Promise<PostResult> {
@@ -200,17 +190,11 @@ export class FacebookAdapter extends BasePlatformAdapter {
     }
 
     try {
-      const accountInfo = await this.getAccountInfo(accessToken);
-      const pageId = accountInfo.platformUserId;
-      const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
-
-      if (!pageAccessToken) {
-        return { success: false, error: "Page access token not found" };
-      }
+      const { pageId, pageToken } = await this.resolvePage(accessToken);
 
       const postParams: Record<string, string> = {
         message: options.text,
-        access_token: pageAccessToken,
+        access_token: pageToken,
       };
 
       if (options.scheduledTime) {
@@ -234,10 +218,12 @@ export class FacebookAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
+        const formatted = formatGraphError(error, `Facebook API error: ${response.status}`);
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatted.message,
+          code: formatted.code,
           rawResponse: error,
         };
       }
@@ -274,13 +260,9 @@ export class FacebookAdapter extends BasePlatformAdapter {
   }
 
   private async resolvePageAccessToken(accessToken: string): Promise<string> {
-    const accountInfo = await this.getAccountInfo(accessToken);
-    const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
-    if (!pageAccessToken) {
-      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
-    }
-    return pageAccessToken;
+    return (await this.resolvePage(accessToken)).pageToken;
   }
+
 
   async listComments(
     accessToken: string,
@@ -304,10 +286,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -350,10 +332,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -387,10 +369,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -420,10 +402,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -461,10 +443,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -494,10 +476,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -535,10 +517,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -568,10 +550,10 @@ export class FacebookAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Facebook API error: ${response.status}`,
+          error: formatGraphError(error, `Facebook API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -588,6 +570,17 @@ export class FacebookAdapter extends BasePlatformAdapter {
       };
     }
   }
+}
+
+/**
+ * A Page can be published to only with a Page token and, when Meta reports
+ * tasks, the CREATE_CONTENT task (MANAGE implies it). A Page the person only
+ * moderates or analyses would connect and then fail every post.
+ */
+function publishablePage(page: ManagedPage): boolean {
+  if (!page.access_token) return false;
+  if (!Array.isArray(page.tasks)) return true;
+  return page.tasks.includes("CREATE_CONTENT") || page.tasks.includes("MANAGE");
 }
 
 export const facebookAdapter = new FacebookAdapter();

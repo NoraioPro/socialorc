@@ -369,6 +369,10 @@ export async function GET(req: NextRequest) {
 
         const sendOptions = {
           text: post.content,
+          // Lets async-media adapters (Instagram Reels, X video) resume an
+          // upload still processing from an earlier attempt instead of
+          // re-uploading — see src/lib/adapters/in-flight-media.ts.
+          idempotencyKey: post.id,
           mediaUrls: mediaUrls.map((m) => m.mediaAsset.url),
           // Addressing travels with the account, not with the process: a
           // Telegram account publishes into its own chat. Reaching for a global

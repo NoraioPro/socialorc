@@ -11,6 +11,13 @@ import { platformIcons } from "@/components/icons/platform-icons";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { isRole, parseRole, permissionsFor, ROLE_META, type Permission } from "@/lib/roles";
 import { accountNeedsReconnect, reconnectNotices, reconnectReason, reconnectSummary } from "@/lib/social/reconnect";
+import { ConnectTargetPicker } from "@/components/settings/connect-target-picker";
+
+/** `?select=facebook` from the OAuth callback -> the platform whose Page/account to pick. */
+function selectablePlatform(value: string | null): Platform | null {
+  const upper = value?.toUpperCase();
+  return upper === "FACEBOOK" || upper === "INSTAGRAM" ? (upper as Platform) : null;
+}
 
 const PERMISSION_LABELS: Record<Permission, string> = {
   "dashboard:view": "View the dashboard",
@@ -90,6 +97,8 @@ function SettingsContent() {
   const [editingBrainName, setEditingBrainName] = useState<string | null>(null);
   const [confirmingDeleteBrain, setConfirmingDeleteBrain] = useState(false);
   const [managingPlatform, setManagingPlatform] = useState<Platform | null>(null);
+  /** A Facebook/Instagram login covered several Pages/accounts: ask which one. */
+  const [pickingPlatform, setPickingPlatform] = useState<Platform | null>(null);
   const isPopupCallback = searchParams.get("popup") === "1";
 
   /** Re-fetch just the connected-platform list, scoped to one brain (project). */
@@ -125,8 +134,10 @@ function SettingsContent() {
   useEffect(() => {
     if (isPopupCallback) return;
     const error = searchParams.get("error"), success = searchParams.get("success");
+    const select = selectablePlatform(searchParams.get("select"));
     if (error) { setMessage({ text: error, error: true }); setActive("integrations"); }
     else if (success) { setMessage({ text: `Connected ${success.replace("_connected", "")}.` }); setActive("integrations"); }
+    else if (select) { setPickingPlatform(select); setActive("integrations"); }
   }, [searchParams, isPopupCallback]);
   useEffect(() => {
     // Sidebar links (e.g. every "Connect <platform>" entry) point straight at
@@ -149,7 +160,8 @@ function SettingsContent() {
     if (!isPopupCallback) return;
     const success = searchParams.get("success");
     const error = searchParams.get("error");
-    window.localStorage.setItem("socialorc-connect-result", JSON.stringify({ success, error }));
+    const select = searchParams.get("select");
+    window.localStorage.setItem("socialorc-connect-result", JSON.stringify({ success, error, select }));
     window.close();
   }, [isPopupCallback, searchParams]);
 
@@ -197,9 +209,11 @@ function SettingsContent() {
       const raw = window.localStorage.getItem("socialorc-connect-result");
       window.localStorage.removeItem("socialorc-connect-result");
       if (raw) {
-        const result = JSON.parse(raw) as { success?: string; error?: string };
+        const result = JSON.parse(raw) as { success?: string; error?: string; select?: string };
+        const select = selectablePlatform(result.select ?? null);
         if (result.error) setMessage({ text: result.error, error: true });
         else if (result.success) setMessage({ text: `Connected ${result.success.replace("_connected", "").replace("_mock", "")}.` });
+        else if (select) setPickingPlatform(select);
       }
       await loadAccounts(brainId);
     } catch (error) {
@@ -394,9 +408,10 @@ function SettingsContent() {
 
   if (isPopupCallback) {
     const ok = !searchParams.get("error");
+    const choosing = ok && Boolean(searchParams.get("select"));
     return <div className="settings-popup-done">
       {ok ? <Check size={28} /> : <X size={28} />}
-      <p>{ok ? "Connected." : "Something went wrong."}</p>
+      <p>{choosing ? "Almost done — choose the account in the main window." : ok ? "Connected." : "Something went wrong."}</p>
       <small>This window will close automatically.</small>
     </div>;
   }
@@ -591,6 +606,15 @@ function SettingsContent() {
           </div>
         </div>;
       })()}
+      {pickingPlatform && <ConnectTargetPicker
+        platform={pickingPlatform}
+        onConnected={(text) => {
+          setPickingPlatform(null); setMessage({ text });
+          router.replace("/settings/accounts?tab=integrations");
+          void loadAccounts(brainId);
+        }}
+        onClose={() => { setPickingPlatform(null); router.replace("/settings/accounts?tab=integrations"); }}
+      />}
       <div className="studio-footer"><ShieldCheck size={14} />Your command center. Ready for what comes next.<Link href="/dashboard/create">Forge your next post<ArrowUpRight size={13} /></Link></div>
       </>}
     </div>

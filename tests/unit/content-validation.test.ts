@@ -60,19 +60,32 @@ test("Instagram refuses a media type it cannot publish (PNG/WebP are unsupported
   assert.equal(r.code, "UNSUPPORTED_MEDIA");
 });
 
-test("Instagram accepts a single JPEG and refuses a carousel it cannot publish", async () => {
+test("Instagram accepts a JPEG, a Reel video and an image carousel, and refuses PNG", async () => {
   const single = await post(Platform.INSTAGRAM, "caption", ["https://cdn.example/a.jpg"]);
   assert.equal(single.success, true, single.error);
 
-  // Carousel is declared false because the adapter only ever sends
-  // `mediaUrls[0]`. Accepting two images would silently drop the second.
+  const reel = await post(Platform.INSTAGRAM, "caption", ["https://cdn.example/clip.mp4"]);
+  assert.equal(reel.success, true, reel.error);
+
+  // The adapter builds a CAROUSEL container from every item, so the rules let
+  // it through — up to Instagram's 10.
   const carousel = await post(Platform.INSTAGRAM, "caption", [
     "https://cdn.example/a.jpg",
     "https://cdn.example/b.jpg",
   ]);
-  assert.equal(carousel.success, false);
-  assert.match(carousel.error ?? "", /does not support carousel posts/);
-  assert.equal(carousel.code, "UNSUPPORTED_MEDIA");
+  assert.equal(carousel.success, true, carousel.error);
+
+  const eleven = await post(
+    Platform.INSTAGRAM,
+    "caption",
+    Array.from({ length: 11 }, (_, i) => `https://cdn.example/${i}.jpg`),
+  );
+  assert.equal(eleven.success, false);
+  assert.equal(eleven.code, "MEDIA_INVALID");
+
+  const png = await post(Platform.INSTAGRAM, "caption", ["https://cdn.example/a.png"]);
+  assert.equal(png.success, false);
+  assert.equal(png.code, "UNSUPPORTED_MEDIA");
 });
 
 test("TikTok refuses multiple videos (single-video platform) and any still image", async () => {
@@ -134,16 +147,25 @@ test("multi-media is refused when the platform cannot publish a carousel", async
 
 // --- Capability honesty: nothing may be accepted and then dropped ------------
 
-test("X refuses media instead of publishing the text alone", async () => {
-  const r = await post(Platform.TWITTER, "text plus an image", ["https://cdn.example/a.jpg"]);
-  assert.equal(r.success, false);
-  assert.equal(r.code, "UNSUPPORTED_MEDIA");
-  assert.match(r.error ?? "", /does not support media attachments/);
+test("X accepts up to four images or one video, and refuses a fifth image", async () => {
+  const image = await post(Platform.TWITTER, "text plus an image", ["https://cdn.example/a.jpg"]);
+  assert.equal(image.success, true, image.error);
+
+  const video = await post(Platform.TWITTER, "clip", ["https://cdn.example/clip.mp4"]);
+  assert.equal(video.success, true, video.error);
+
+  const five = await post(
+    Platform.TWITTER,
+    "five",
+    Array.from({ length: 5 }, (_, i) => `https://cdn.example/${i}.jpg`),
+  );
+  assert.equal(five.success, false);
+  assert.equal(five.code, "MEDIA_INVALID");
 });
 
 test("video is refused on every platform that does not implement it", async () => {
   const video = ["https://cdn.example/clip.mp4"];
-  for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
+  for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.TELEGRAM]) {
     const r = await post(platform, "caption", video);
     assert.equal(r.success, false, `${platform} must refuse video`);
     assert.equal(r.code, "UNSUPPORTED_MEDIA", `${platform} code`);
@@ -152,7 +174,7 @@ test("video is refused on every platform that does not implement it", async () =
 });
 
 test("video-capable platforms still accept a video", async () => {
-  for (const platform of [Platform.YOUTUBE, Platform.TIKTOK]) {
+  for (const platform of [Platform.YOUTUBE, Platform.TIKTOK, Platform.INSTAGRAM, Platform.TWITTER]) {
     const r = await post(platform, "my clip", ["https://cdn.example/clip.mp4"]);
     assert.equal(r.success, true, `${platform}: ${r.error}`);
   }

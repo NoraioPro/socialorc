@@ -273,12 +273,24 @@ function instagramHandler(withMediaId = true) {
     if (url.includes("/ig-1?fields=")) return json({ id: "ig-1", username: "myig", name: "My IG" });
     // media_publish must be matched before /media, which is a prefix of it.
     if (url.includes("/ig-1/media_publish")) return withMediaId ? json({ id: "media-1" }) : json({});
-    if (url.includes("/ig-1/media")) return json({ id: "container-1" });
+    if (url.includes("/ig-1/media")) {
+      containers++;
+      return json({ id: `container-${containers}` });
+    }
+    // The container is polled until FINISHED before it may be published.
+    if (url.includes("/container-") && url.includes("fields=status_code")) {
+      return json({ status_code: "FINISHED" });
+    }
+    if (url.includes("/media-1?fields=permalink")) {
+      return json({ permalink: "https://www.instagram.com/p/AbC123/" });
+    }
     return undefined;
   };
 }
+let containers = 0;
 
-test("Instagram: a single JPEG is containerised then published", async () => {
+test("Instagram: a single JPEG is containerised, checked FINISHED, then published", async () => {
+  containers = 0;
   const calls = stubFetch(instagramHandler());
   try {
     const result = await instagramAdapter.createPost("user-token", {
@@ -288,27 +300,41 @@ test("Instagram: a single JPEG is containerised then published", async () => {
 
     assert.equal(result.success, true);
     assert.equal(result.platformPostId, "media-1");
-    assert.equal(result.platformPostUrl, "https://www.instagram.com/p/media-1/");
+    // The permalink Meta reports — a media id is not a /p/ shortcode.
+    assert.equal(result.platformPostUrl, "https://www.instagram.com/p/AbC123/");
 
     const container = calls.find((c) => c.url.includes("/ig-1/media") && !c.url.includes("media_publish"));
     assert.equal(container?.form?.image_url, "https://cdn.example.invalid/shot.jpg");
 
-    const publish = calls.find((c) => c.url.includes("/ig-1/media_publish"));
-    assert.equal(publish?.form?.creation_id, "container-1", "the container must be published by id");
+    const statusIndex = calls.findIndex((c) => c.url.includes("/container-1?") && c.url.includes("status_code"));
+    const publishIndex = calls.findIndex((c) => c.url.includes("/ig-1/media_publish"));
+    assert.ok(statusIndex >= 0 && statusIndex < publishIndex, "status must be checked before media_publish");
+    assert.equal(calls[publishIndex].form?.creation_id, "container-1", "the container must be published by id");
   } finally {
     globalThis.fetch = realFetch;
   }
 });
 
-test("Instagram: more than one image is refused, with no API calls", async () => {
+test("Instagram: several images become carousel items, then one CAROUSEL container", async () => {
+  containers = 0;
   const calls = stubFetch(instagramHandler());
   try {
     const result = await instagramAdapter.createPost("user-token", {
       text: "Two pictures",
       mediaUrls: ["https://cdn.example.invalid/a.jpg", "https://cdn.example.invalid/b.jpg"],
     } as unknown as PostOptions);
-    assert.equal(result.success, false);
-    assert.equal(calls.length, 0, "an unsupported carousel must not reach the API");
+    assert.equal(result.success, true, result.error);
+
+    const created = calls.filter((c) => c.url.endsWith("/ig-1/media"));
+    assert.equal(created.length, 3, "two items and one parent");
+    assert.equal(created[0].form?.is_carousel_item, "true");
+    assert.equal(created[0].form?.caption, undefined, "items carry no caption");
+    assert.equal(created[2].form?.media_type, "CAROUSEL");
+    assert.equal(created[2].form?.children, "container-1,container-2");
+    assert.equal(created[2].form?.caption, "Two pictures");
+
+    const publish = calls.find((c) => c.url.includes("/ig-1/media_publish"));
+    assert.equal(publish?.form?.creation_id, "container-3", "the parent is what gets published");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -349,16 +375,41 @@ test("X: a text post returns the real tweet id", async () => {
   }
 });
 
-test("X: an attached image is refused with no API call - X is text only", async () => {
-  const calls = stubFetch(() => undefined);
+test("X: an attached image is uploaded and its media id attached to the post", async () => {
+  const calls = stubFetch((url) => {
+    if (url === "https://api.x.com/2/media/upload") return json({ data: { id: "710511363345354753" } });
+    if (url.includes("/2/tweets")) return json({ data: { id: "1812345678901234567" } });
+    return undefined;
+  });
+  try {
+    const result = await twitterAdapter.createPost("token", {
+      text: "With a picture",
+      mediaUrls: [MEDIA_URL],
+    } as unknown as PostOptions);
+    assert.equal(result.success, true, result.error);
+
+    const upload = calls.find((c) => c.url === "https://api.x.com/2/media/upload");
+    assert.equal(upload?.method, "POST");
+    assert.equal(upload?.headers.authorization, "Bearer token", "OAuth 2.0 user token, not OAuth 1.0a");
+    const post = calls.find((c) => c.url.includes("/2/tweets"));
+    assert.deepEqual(post?.json?.media, { media_ids: ["710511363345354753"] });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("X: a failed media upload publishes nothing — the text never goes out alone", async () => {
+  const calls = stubFetch((url) =>
+    url === "https://api.x.com/2/media/upload" ? json({ title: "Forbidden", detail: "missing media.write" }, 403) : undefined,
+  );
   try {
     const result = await twitterAdapter.createPost("token", {
       text: "With a picture",
       mediaUrls: [MEDIA_URL],
     } as unknown as PostOptions);
     assert.equal(result.success, false);
-    assert.equal(result.code, "UNSUPPORTED_MEDIA");
-    assert.equal(calls.length, 0, "the text must not go out with the media silently dropped");
+    assert.equal(result.code, "PERMISSION_DENIED", "a missing scope is a reconnect, not a content problem");
+    assert.equal(calls.filter((c) => c.url.includes("/2/tweets")).length, 0);
   } finally {
     globalThis.fetch = realFetch;
   }

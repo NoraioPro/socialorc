@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Platform } from "@prisma/client";
-import prisma from "@/lib/prisma";
 import { tenantForUser } from "@/lib/tenancy/guard";
 import { getAdapter } from "@/lib/adapters";
-import { encryptTokens } from "@/lib/encryption";
 import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
 import { resolveBrainForWorkspace } from "@/lib/brains";
-import { sanitizeAccountMetadata } from "@/lib/social/account-metadata";
+import { persistConnectedAccount } from "@/lib/oauth/persist-account";
+import {
+  encodePendingConnection,
+  pendingCookieName,
+  pendingCookieOptions,
+} from "@/lib/oauth/pending-connection";
+import type { AccountInfo } from "@/types/platform";
+
+/** Shown when a grant covers nothing this connector can publish to. */
+export function noTargetMessage(platform: Platform): string {
+  return platform === Platform.INSTAGRAM
+    ? "No Instagram professional account linked to a Facebook Page you manage was found for this login."
+    : "No Facebook Page you can publish to was found for this login.";
+}
 
 /**
  * One OAuth callback, shared by every redirect-based connector.
@@ -95,90 +106,57 @@ export function createOAuthCallback(platform: Platform) {
       // connector); fall back to the one X packs into the state string.
       const codeVerifier =
         verifierFromStateCookie(stateCookieValue, oauthStateSecret()) ?? verifier ?? undefined;
-      const tokens = await adapter.exchangeCodeForTokens(code, codeVerifier);
-      const info = await adapter.getAccountInfo(tokens.accessToken);
-      const encrypted = encryptTokens(tokens);
+      let tokens = await adapter.exchangeCodeForTokens(code, codeVerifier);
+      let info: AccountInfo;
 
-      // Capabilities and scopes are stored with the connection: "connected" and
-      // "allowed to publish" are different facts and the UI needs both.
-      const scopes = tokens.scope ?? null;
-      const accountType =
-        (info.metadata?.accountType as string | undefined) ?? null;
-      let capabilities: object | undefined;
-      if (adapter.getCapabilities) {
-        try {
-          const report = adapter.getCapabilities({
-            scopes: scopes ? scopes.split(/[\s,]+/).filter(Boolean) : [],
-            accountType,
-          });
-          capabilities = {
-            capabilities: report.capabilities,
-            limitations: report.limitations,
-            computedAt: new Date().toISOString(),
-          };
-        } catch (error) {
-          console.error(`${platform} capability computation failed:`, error instanceof Error ? error.message : error);
+      // Grants that cover several identities (Facebook Pages, Instagram
+      // accounts): connect the only one directly, or park the grant in a
+      // signed, encrypted cookie and let the user choose in settings.
+      if (adapter.listConnectTargets && adapter.connectTarget) {
+        const targets = await adapter.listConnectTargets(tokens.accessToken);
+        if (targets.length === 0) return failure(noTargetMessage(platform), popup);
+        if (targets.length > 1) {
+          const pending = NextResponse.redirect(
+            new URL(
+              `/settings/accounts?select=${platform.toLowerCase()}&brain=${brain.id}${popup ? "&popup=1" : ""}`,
+              req.url,
+            ),
+          );
+          pending.cookies.set(
+            pendingCookieName(platform),
+            encodePendingConnection(
+              {
+                userId: user.userId,
+                platform,
+                brainId: brain.id,
+                userToken: tokens.accessToken,
+                userTokenExpiresAt: tokens.expiresAt?.toISOString() ?? null,
+                scope: tokens.scope ?? null,
+                timestamp: Date.now(),
+              },
+              oauthStateSecret(),
+            ),
+            pendingCookieOptions(),
+          );
+          pending.cookies.delete(`oauth_state_${baseState}`);
+          return pending;
         }
+        ({ tokens, info } = await adapter.connectTarget(tokens.accessToken, targets[0].id));
+      } else {
+        info = await adapter.getAccountInfo(tokens.accessToken);
       }
 
-      const shared = {
+      const saved = await persistConnectedAccount({
+        platform,
         workspaceId: tenant.workspaceId,
         userId: user.userId,
         brainId: brain.id,
-        platformUserId: info.platformUserId,
-        platformUsername: info.platformUsername,
-        displayName: info.displayName,
-        profileImageUrl: info.profileImageUrl,
-        accessToken: encrypted.accessToken,
-        refreshToken: encrypted.refreshToken,
-        tokenExpiresAt: tokens.expiresAt ?? null,
-        refreshTokenExpiresAt: tokens.refreshExpiresAt ?? null,
-        // Connector metadata can carry a Page access token (Facebook/Instagram).
-        // Both adapters resolve that token live at publish time and never read
-        // the stored copy, so the secrets are dropped rather than persisted.
-        metadata: sanitizeAccountMetadata(info.metadata) as object | undefined,
-        accountType,
-        externalParentId: info.metadata?.externalParentId as string | undefined,
-        scopes,
-        capabilities,
-        isActive: true,
-        lastSyncAt: new Date(),
-        disconnectedAt: null,
-        // Re-connecting is the operator's answer to a reconnect prompt.
-        needsReconnect: false,
-        lastError: null,
-      };
-
-      // An existing connection belongs to the workspace that authorised it. The
-      // unique key is (platform, platformUserId) across the whole database, so a
-      // second tenant connecting the *same* platform account — a co-admin of the
-      // same Facebook Page, the same brand YouTube channel — matched that row
-      // and the `update` branch rewrote `userId`/`brainId`: the account changed
-      // hands with no warning to either side. Refuse, and leave it where it is.
-      // A teammate in the same workspace may reconnect it.
-      const existingAccount = await prisma.socialAccount.findUnique({
-        where: {
-          platform_platformUserId: { platform, platformUserId: info.platformUserId },
-        },
-        select: { id: true, workspaceId: true },
+        adapter,
+        tokens,
+        info,
       });
-
-      if (existingAccount && existingAccount.workspaceId !== tenant.workspaceId) {
-        console.error(
-          `${platform} OAuth callback refused: ${info.platformUserId} is already connected by another workspace`,
-        );
-        return failure("account_owned_elsewhere", popup);
-      }
-
-      const account = await prisma.socialAccount.upsert({
-        where: {
-          platform_platformUserId: { platform, platformUserId: info.platformUserId },
-        },
-        create: { platform, ...shared },
-        // `userId`/`workspaceId` are deliberately not part of the update:
-        // ownership is decided on create and a later connect may never rewrite it.
-        update: { ...shared, userId: undefined, workspaceId: undefined },
-      });
+      if (!saved.ok) return failure(saved.reason, popup);
+      const account = { id: saved.accountId };
 
       const response = NextResponse.redirect(
         new URL(

@@ -172,6 +172,27 @@ export interface PostOptions {
   scheduledTime?: Date;
   visibility?: "public" | "private" | "connections";
   additionalOptions?: Record<string, unknown>;
+  /**
+   * Stable id of the thing being published (the SocialOrc post id). Adapters
+   * whose uploads are processed asynchronously (Instagram Reels, X video) use
+   * it to resume an in-flight upload on the next attempt instead of starting
+   * over — see src/lib/adapters/in-flight-media.ts. Optional: without it they
+   * still never double-publish, they just re-upload on retry.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * One thing an OAuth grant can be connected as — a Facebook Page, an
+ * Instagram professional account. A person who manages several picks one.
+ */
+export interface ConnectTarget {
+  id: string;
+  name: string;
+  username?: string;
+  pictureUrl?: string;
+  /** Short context line, e.g. the Facebook Page an Instagram account hangs off. */
+  detail?: string;
 }
 
 export interface PostResult {
@@ -360,6 +381,23 @@ export interface PlatformAdapter {
   createAuthorizationRequest?(state: string): AuthorizationRequest;
 
   /**
+   * Connectors whose grant covers several publishable identities (Facebook
+   * Pages, Instagram accounts) list them here. The OAuth callback connects the
+   * only one directly, or parks the grant and lets the user choose.
+   */
+  listConnectTargets?(accessToken: string): Promise<ConnectTarget[]>;
+
+  /**
+   * Resolve one target into the credential to store and the account identity.
+   * Must re-verify that the grant really covers `targetId` — the id comes
+   * from the browser.
+   */
+  connectTarget?(
+    accessToken: string,
+    targetId: string,
+  ): Promise<{ tokens: OAuthTokens; info: AccountInfo }>;
+
+  /**
    * Per-account capability report (granted scopes + account type + app
    * approval). Connectors implement it as they are migrated to the provider
    * contract; the UI must treat an absent report as "nothing available".
@@ -423,21 +461,23 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "twitter",
     color: "#000000",
     maxTextLength: 280,
-    // Text only: twitter.ts posts `POST /2/tweets` with `{ text }` and never
-    // reads mediaUrls. An attached image used to publish the text alone and
-    // silently drop the file, so media is now declared unsupported and
-    // validation refuses it. Real media needs the v1.1 upload endpoint + OAuth 1.0a.
-    maxMediaCount: 0,
-    maxImageSizeMb: 0,
-    maxVideoSizeMb: 0,
-    supportedMediaTypes: [],
+    // twitter.ts uploads through the v2 media endpoints with the OAuth 2.0
+    // user token (`media.write` scope) and attaches `media.media_ids`: up to 4
+    // images, or one video or GIF (the adapter refuses mixes). The video cap is
+    // ours, not X's (X allows 512 MB): the file is downloaded and re-uploaded
+    // inside a publish function that has 60 seconds in total, so larger files
+    // would be cut off mid-upload. GIFs share the 5 MB image cap.
+    maxMediaCount: 4,
+    maxImageSizeMb: 5,
+    maxVideoSizeMb: 32,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/quicktime"],
     supportsScheduling: false,
-    supportsVideo: false,
+    supportsVideo: true,
     capabilities: {
       text: true,
-      image: false,
-      video: false,
-      carousel: false,
+      image: true,
+      video: true,
+      carousel: true,
       mediaRequired: false,
       authMethod: "oauth",
       tokenBasedAuth: false,
@@ -461,8 +501,8 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     notes: [
       "Free tier: 50 tweets/day",
       "Basic ($200/mo): 50K tweets/mo",
-      "Media upload requires OAuth 1.0a (v1.1 endpoint)",
-      "Text posting works with OAuth 2.0 PKCE",
+      "Text and media posting use OAuth 2.0 PKCE; media needs the media.write scope (accounts connected earlier must reconnect)",
+      "Up to 4 images, or one video or GIF; video capped at 32 MB by the publish time budget",
       "Replies are tweets (POST /2/tweets); conversation replies are read via recent search (7-day window)",
       "Like/unlike write endpoints are not available on self-serve API tiers",
     ],
@@ -473,26 +513,28 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "instagram",
     color: "#E4405F",
     maxTextLength: 2200,
-    // Single image only. instagram.ts sets `containerParams.image_url =
-    // mediaUrls[0]` — a second image was silently discarded and video was sent
-    // as an image URL. Carousel and video are declared off until implemented
-    // (carousel needs `is_carousel_item` children; video needs media_type=REELS).
-    maxMediaCount: 1,
+    // instagram.ts publishes one JPEG, one video as a Reel (media_type=REELS,
+    // container polled to FINISHED before media_publish), or a carousel of
+    // 2–10 JPEGs. Carousels with video are refused by the adapter. Limits are
+    // Meta's: JPEG ≤ 8 MB; Reels MP4/MOV ≤ 300 MB.
+    maxMediaCount: 10,
     maxImageSizeMb: 8,
-    maxVideoSizeMb: 0,
-    supportedMediaTypes: ["image/jpeg"],
+    maxVideoSizeMb: 300,
+    supportedMediaTypes: ["image/jpeg", "video/mp4", "video/quicktime"],
     supportsScheduling: false,
-    supportsVideo: false,
+    supportsVideo: true,
     requiresBusinessAccount: true,
     capabilities: {
       text: true,
       image: true,
-      video: false,
-      carousel: false,
+      video: true,
+      carousel: true,
       mediaRequired: true,
       authMethod: "oauth",
       tokenBasedAuth: false,
-      refreshableTokens: true,
+      // A Page access token is stored; it does not expire and cannot be
+      // refreshed — a revoked one needs a reconnect (see meta-credential.ts).
+      refreshableTokens: false,
       schedulingHorizonDays: 30,
       captionMaxWithMedia: 2200,
       readComments: true,
@@ -513,8 +555,10 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     notes: [
       "REQUIRES Business or Creator account",
       "Must be linked to a Facebook Page",
-      "Two-step publishing: create container → publish",
-      "50 posts per 24 hours limit",
+      "Two-step publishing: create container → wait for FINISHED → publish",
+      "Video publishes as a Reel (3 s – 15 min, MP4/MOV, ≤ 300 MB); a slow Reel is re-checked on the next worker run",
+      "Carousels: 2–10 JPEG images (no video items yet)",
+      "100 API-published posts per 24 hours limit",
       "JPEG only for images (no PNG/WebP)",
       "Comment moderation requires instagram_manage_comments (reconnect after scope change)",
       "Instagram does not expose liking arbitrary media via Graph API",
@@ -544,7 +588,9 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       mediaRequired: false,
       authMethod: "oauth",
       tokenBasedAuth: false,
-      refreshableTokens: true,
+      // A Page access token is stored; it does not expire and cannot be
+      // refreshed — a revoked one needs a reconnect (see meta-credential.ts).
+      refreshableTokens: false,
       schedulingHorizonDays: 180,
       readComments: true,
       writeComments: true,
@@ -562,7 +608,8 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       threads: false,
     },
     notes: [
-      "Posts to Pages only (not personal profiles)",
+      "Posts to Pages only (not personal profiles); choose the Page when you manage several",
+      "Stores a non-expiring Page token; reconnect only if Facebook revokes it",
       "Requires pages_manage_posts permission",
       "App Review required for non-owned Pages",
       "Business Verification required for Advanced Access",
