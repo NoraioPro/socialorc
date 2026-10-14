@@ -29,7 +29,9 @@ import {
   Brain,
   Target,
   MessageSquare,
+  Library,
 } from "lucide-react";
+import { KnowledgeSources } from "@/components/settings/knowledge-sources";
 
 interface BrandBrain {
   id?: string;
@@ -106,6 +108,7 @@ export default function BrandBrainPage() {
   const [brandBrain, setBrandBrain] = useState<BrandBrain>(emptyBrandBrain);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState("profile");
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -201,8 +204,8 @@ export default function BrandBrainPage() {
             </div>
           )}
 
-          <Tabs defaultValue="profile" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="profile" className="flex items-center gap-2">
                 <Brain className="h-4 w-4" />
                 Brand Profile
@@ -214,6 +217,10 @@ export default function BrandBrainPage() {
               <TabsTrigger value="goals" className="flex items-center gap-2">
                 <Target className="h-4 w-4" />
                 Goals & Strategy
+              </TabsTrigger>
+              <TabsTrigger value="knowledge" className="flex items-center gap-2">
+                <Library className="h-4 w-4" />
+                Knowledge
               </TabsTrigger>
             </TabsList>
 
@@ -444,18 +451,24 @@ export default function BrandBrainPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+            <TabsContent value="knowledge" className="space-y-4 mt-6">
+              <KnowledgeSources />
+            </TabsContent>
           </Tabs>
 
-          <div className="flex justify-end">
-            <Button onClick={handleSave} disabled={saving} size="lg">
-              {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save Brand Brain
-            </Button>
-          </div>
+          {/* Knowledge sources save themselves; the button saves the profile form. */}
+          {tab !== "knowledge" && (
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving} size="lg">
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Save Brand Brain
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
