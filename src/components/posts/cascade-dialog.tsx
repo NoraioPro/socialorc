@@ -236,7 +236,7 @@ export function CascadeDialog({
           <div className="space-y-4">
             {usedMock && (
               <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-700">
-                <strong>Mock Mode:</strong> AI is not configured. Using template-based adaptations.
+                <strong>Mock Mode:</strong> AI is not configured or did not respond. These are template-based adaptations, not AI output.
               </div>
             )}
 

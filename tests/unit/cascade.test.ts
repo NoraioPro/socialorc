@@ -210,6 +210,20 @@ test("each adaptation includes platform-specific notes", async () => {
   }
 });
 
+test("cascadeContent reports usedMock when a failed AI call falls back to template text", async () => {
+  // A key is configured but the endpoint refuses the connection, so outside
+  // production the adaptation falls back to the template. The result must say
+  // so, or the cascade dialog skips its mock banner.
+  const result = await cascadeContent(
+    { content: "We shipped a new release today with faster uploads.", platform: Platform.LINKEDIN },
+    [Platform.TWITTER],
+    false,
+    { apiKey: "test-key", baseUrl: "http://127.0.0.1:9/v1", provider: "openai", source: "user" }
+  );
+  assert.equal(result.adaptations.length, 1);
+  assert.equal(result.usedMock, true);
+});
+
 test("validateCascadeSource validates all platforms", () => {
   const validContent = "This is a sufficiently long piece of content for testing.";
 
