@@ -12,6 +12,7 @@ import {
 } from "@/lib/cascade";
 import { AINotConfiguredError } from "@/lib/ai";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
+import { retrieveBrandKnowledge } from "@/lib/brand-knowledge";
 
 const cascadeSchema = z.object({
   targetPlatforms: z.array(z.nativeEnum(Platform)).min(1),
@@ -139,6 +140,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Extract hashtags from original content
     const hashtags = extractHashtags(post.content);
 
+    // Whose key pays for this adaptation. Never the platform's - see
+    // src/lib/ai-config.ts.
+    const aiConfig = await resolveAiConfigForUser(authz.userId);
+    // Brand Brain knowledge relevant to the post, bounded; none without a key
+    // (mock adaptations do not read it).
+    const knowledge = aiConfig
+      ? await retrieveBrandKnowledge(authz.workspaceId, post.content, aiConfig)
+      : null;
+
     // Perform cascade
     const result = await cascadeContent(
       {
@@ -148,9 +158,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       targetPlatforms,
       false,
-      // Whose key pays for this adaptation. Never the platform's - see
-      // src/lib/ai-config.ts.
-      await resolveAiConfigForUser(authz.userId)
+      aiConfig,
+      knowledge?.section ?? ""
     );
 
     // Optionally create draft posts for each adaptation
@@ -188,6 +197,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       adaptations: result.adaptations,
       usedMock: result.usedMock,
+      knowledgeUsed: result.usedMock ? null : knowledge?.usage ?? null,
       createdDrafts: createdPosts,
     });
   } catch (error) {

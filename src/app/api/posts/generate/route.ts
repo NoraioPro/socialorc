@@ -12,6 +12,7 @@ import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext } from "@/types/brand-brain";
 import { loadBrandContext } from "@/lib/brand-context";
+import { retrieveBrandKnowledge } from "@/lib/brand-knowledge";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
 
 const brandContextSchema = z.object({
@@ -99,6 +100,17 @@ export async function POST(req: NextRequest) {
         (await loadBrandContext(authz.workspaceId)) ??
         undefined;
 
+      // The workspace's knowledge sources most relevant to this idea, bounded.
+      // Only fetched when a real model will read it: mock output ignores it.
+      const knowledge =
+        aiConfig && !forceMock
+          ? await retrieveBrandKnowledge(
+              authz.workspaceId,
+              [idea, additionalContext].filter(Boolean).join("\n"),
+              aiConfig
+            )
+          : null;
+
       try {
         const result = await aiStudioGenerate({
           aiConfig,
@@ -107,6 +119,7 @@ export async function POST(req: NextRequest) {
           tone,
           additionalContext,
           brandContext: brandForPrompt,
+          knowledgeContext: knowledge?.section,
           forceMock,
         });
 
@@ -115,6 +128,7 @@ export async function POST(req: NextRequest) {
           variants: result.variants,
           usedMock: result.usedMock,
           brandContextUsed: result.brandContextUsed,
+          knowledgeUsed: result.usedMock ? null : knowledge?.usage ?? null,
           openAIAvailable: isOpenAIAvailable(aiConfig),
         });
       } catch (error) {

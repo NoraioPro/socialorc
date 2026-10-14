@@ -31,6 +31,7 @@ import {
   UnsupportedFileTypeError,
   extractText,
   ingestText,
+  type ReadyInfo,
   type SourceChunkRow,
   type SourceWritePort,
 } from "../../src/lib/brain/ingest";
@@ -296,7 +297,7 @@ test("unsupported formats throw instead of indexing an empty source", () => {
 
 interface FakePort extends SourceWritePort {
   chunks: SourceChunkRow[];
-  ready: Array<{ sourceId: string; chunkCount: number; embeddingModel: string; degraded: boolean }>;
+  ready: Array<{ sourceId: string } & ReadyInfo>;
   failures: Array<{ sourceId: string; message: string }>;
   created: Array<Record<string, unknown>>;
 }

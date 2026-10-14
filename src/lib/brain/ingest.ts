@@ -15,8 +15,25 @@
 
 import { chunkText } from "./chunk";
 import { encodeEmbedding } from "./embed";
-import { embedWithPlan } from "./ai";
 import type { BrainSourceType } from "./types";
+
+/**
+ * Turns chunk texts into vectors. Production passes the provider embedder built
+ * from the workspace's own AI key (src/lib/brain/embedder.ts); tests pass a stub.
+ * `degraded` marks the offline hash embedder, which is for tests only.
+ */
+export type Embedder = (
+  texts: string[],
+  apiKey?: string | null,
+) => Promise<{ vectors: Float32Array[]; model: string; degraded?: boolean }>;
+
+/**
+ * How a source is searchable:
+ *   semantic   — chunks carry provider embeddings;
+ *   lexical    — chunks are stored without vectors and found by keyword (BM25);
+ *   local-hash — the offline feature-hash embedder (tests and mock only).
+ */
+export type SourceIndexMode = "semantic" | "lexical" | "local-hash";
 
 export class UnsupportedFileTypeError extends Error {
   constructor(fileName: string, supported: string[]) {
@@ -192,8 +209,9 @@ export interface SourceChunkRow {
   sourceId: string;
   chunkIndex: number;
   content: string;
-  embedding: string;
-  embeddingModel: string;
+  /** base64 Float32 vector, or null for a keyword-only (lexical) chunk. */
+  embedding: string | null;
+  embeddingModel: string | null;
   tokenCount: number;
   metadata?: Record<string, unknown>;
 }
@@ -214,7 +232,7 @@ export interface SourceWritePort {
     createdBy?: string;
   }): Promise<{ id: string }>;
   storeChunks(rows: SourceChunkRow[]): Promise<void>;
-  markReady(sourceId: string, info: { chunkCount: number; embeddingModel: string; degraded: boolean }): Promise<void>;
+  markReady(sourceId: string, info: ReadyInfo): Promise<void>;
   markFailed(sourceId: string, message: string): Promise<void>;
 }
 
@@ -235,11 +253,27 @@ export interface IngestInput {
   apiKey?: string | null;
 }
 
-export interface IngestResult {
-  sourceId: string;
+export interface ReadyInfo {
   chunkCount: number;
-  embeddingModel: string;
+  embeddingModel: string | null;
   degraded: boolean;
+  index: SourceIndexMode;
+  /** Why a source that should have been embedded is keyword-only. */
+  embeddingError?: string;
+}
+
+export interface IngestResult extends ReadyInfo {
+  sourceId: string;
+}
+
+export interface IngestOptions {
+  /**
+   * What a failed embed does. "fail" (default) marks the source failed and
+   * stores nothing — a half-indexed document is worse than a failed one.
+   * "lexical" stores every chunk without vectors and records why, so the source
+   * is fully searchable by keyword and labelled as such.
+   */
+  onEmbedError?: "fail" | "lexical";
 }
 
 export class EmptySourceError extends Error {
@@ -251,12 +285,17 @@ export class EmptySourceError extends Error {
 
 /**
  * Ingest text into a source. Creates the source first so a failure has a row to
- * report on, then chunks, embeds and stores — and only then marks it ready.
+ * report on, then chunks, embeds (when an embedder is given) and stores — and
+ * only then marks it ready.
+ *
+ * With no embedder the chunks are stored for keyword (BM25) retrieval: that is
+ * the honest no-key mode, not a fake vector.
  */
 export async function ingestText(
   port: SourceWritePort,
   input: IngestInput,
-  embed: typeof embedWithPlan = embedWithPlan,
+  embed: Embedder | null = null,
+  options: IngestOptions = {},
 ): Promise<IngestResult> {
   const source = await port.createSource({
     workspaceId: input.workspaceId,
@@ -267,6 +306,7 @@ export async function ingestText(
     fileName: input.fileName,
     fileType: input.fileType,
     fileSize: input.fileSize,
+    extractedText: input.text,
     metadata: input.metadata,
     createdBy: input.createdBy,
   });
@@ -280,24 +320,53 @@ export async function ingestText(
       throw new EmptySourceError();
     }
 
-    const { vectors, model, degraded } = await embed(limited.map((chunk) => chunk.content), input.apiKey);
+    let vectors: Float32Array[] | null = null;
+    let model: string | null = null;
+    let degraded = false;
+    let embeddingError: string | undefined;
+
+    if (embed) {
+      try {
+        const result = await embed(limited.map((chunk) => chunk.content), input.apiKey);
+        if (result.vectors.length !== limited.length) {
+          throw new Error(
+            `The embedding provider returned ${result.vectors.length} vectors for ${limited.length} chunks.`,
+          );
+        }
+        vectors = result.vectors;
+        model = result.model;
+        degraded = Boolean(result.degraded);
+      } catch (error) {
+        if (options.onEmbedError !== "lexical") throw error;
+        embeddingError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const index: SourceIndexMode = !vectors ? "lexical" : degraded ? "local-hash" : "semantic";
 
     await port.storeChunks(
-      limited.map((chunk, index) => ({
+      limited.map((chunk, i) => ({
         workspaceId: input.workspaceId,
         sourceId: source.id,
         chunkIndex: chunk.index,
         content: chunk.content,
-        embedding: encodeEmbedding(vectors[index]),
-        embeddingModel: model,
+        embedding: vectors ? encodeEmbedding(vectors[i]) : null,
+        embeddingModel: vectors ? model : null,
         tokenCount: chunk.tokenEstimate,
-        metadata: { ...input.metadata, degraded },
+        metadata: { ...input.metadata, degraded, index },
       })),
     );
 
-    await port.markReady(source.id, { chunkCount: limited.length, embeddingModel: model, degraded });
+    const info: ReadyInfo = {
+      chunkCount: limited.length,
+      embeddingModel: model,
+      degraded,
+      index,
+      ...(embeddingError ? { embeddingError } : {}),
+    };
+    await port.markReady(source.id, info);
 
-    return { sourceId: source.id, chunkCount: limited.length, embeddingModel: model, degraded };
+    return { sourceId: source.id, ...info };
   } catch (error) {
     if (error instanceof EmptySourceError) throw error;
 
