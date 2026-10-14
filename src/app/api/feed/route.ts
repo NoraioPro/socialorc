@@ -1,33 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PostStatus } from "@prisma/client";
-import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
+/**
+ * The workspace timeline.
+ *
+ * The feed used to be a "network": your own posts plus published posts from
+ * accepted friendships. Nothing ever created a friendship, so in practice it was
+ * your own posts only. Workspaces are the collaboration boundary now, so the
+ * feed is the team's timeline: every post in the caller's workspace, whoever
+ * wrote it, and nothing from any other workspace.
+ */
 export async function GET(request: NextRequest) {
-  const session = await getAuthSession();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) return NextResponse.json({ error: tenant.error }, { status: tenant.status });
 
   const limit = Math.min(Math.max(Number(request.nextUrl.searchParams.get("limit")) || 20, 1), 50);
   const offset = Math.max(Number(request.nextUrl.searchParams.get("offset")) || 0, 0);
   try {
-    // The timeline is a shared network: keep private workflow drafts private,
-    // while published posts from accepted connections join the viewer's feed.
-    const friendships = await prisma.friendship.findMany({
-      where: {
-        status: "ACCEPTED",
-        OR: [{ requesterId: session.user.id }, { addresseeId: session.user.id }],
-      },
-      select: { requesterId: true, addresseeId: true },
-    });
-    const friendIds = friendships.map(edge =>
-      edge.requesterId === session.user.id ? edge.addresseeId : edge.requesterId,
-    );
-    const where = {
-      OR: [
-        { userId: session.user.id },
-        ...(friendIds.length > 0 ? [{ userId: { in: friendIds }, status: PostStatus.PUBLISHED }] : []),
-      ],
-    };
+    const where = { workspaceId: tenant.workspaceId };
     const [posts, total, profile] = await Promise.all([
       prisma.post.findMany({
         where,
@@ -47,12 +38,12 @@ export async function GET(request: NextRequest) {
       }),
       prisma.post.count({ where }),
       prisma.user.findUnique({
-        where: { id: session.user.id },
+        where: { id: tenant.userId },
         select: { id: true, name: true, email: true, image: true, headline: true, bio: true, location: true, website: true, coverImageUrl: true, role: true },
       }),
     ]);
 
-    return NextResponse.json({ posts, total, profile, viewerId: session.user.id, limit, offset });
+    return NextResponse.json({ posts, total, profile, viewerId: tenant.userId, limit, offset });
   } catch (error) {
     console.error("Feed load failed:", error);
     return NextResponse.json({ error: "Could not load your timeline." }, { status: 500 });
