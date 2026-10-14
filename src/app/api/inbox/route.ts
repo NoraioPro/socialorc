@@ -1,158 +1,216 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireWorkspace } from "@/lib/tenancy/guard";
-import prisma from "@/lib/prisma";
+import { z } from "zod";
 import { Platform } from "@prisma/client";
-import { createUnifiedInbox, ConnectedAccount } from "@/lib/inbox";
-import { InboxFetchOptions, InboxItemType } from "@/types/inbox";
-import { decrypt } from "@/lib/encryption";
+import prisma from "@/lib/prisma";
+import { requireWorkspace } from "@/lib/tenancy/guard";
+import {
+  loadWorkspaceAccount,
+  sendEngagementComment,
+} from "@/lib/social/engagement-api";
+import {
+  applyInboxState,
+  collectInbox,
+  DEFAULT_INBOX_LIMITS,
+  filterInbox,
+  inboxCoverage,
+  type InboxSource,
+} from "@/lib/inbox/collect";
+import type { InboxResponse } from "@/types/inbox";
+
+/**
+ * The unified inbox: comments on the workspace's recent published posts, read
+ * live through the Engagement layer (src/lib/inbox/collect.ts). Every query is
+ * scoped to the caller's workspace; an account, post or read-state row of
+ * another workspace is never loaded.
+ */
+
+// Fan-out is bounded in collect.ts; this is the platform ceiling on top of it.
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+const PLATFORMS = new Set<string>(Object.values(Platform));
 
 export async function GET(req: NextRequest) {
-  try {
-    // Reading the inbox is a view permission; replying is a separate one below.
-    // The inbox is the workspace's: every connected account the team shares.
-    const permission = await requireWorkspace("engagement:view");
-    if (!permission.ok) {
-      return NextResponse.json({ error: permission.error }, { status: permission.status });
-    }
-
-    const socialAccounts = await prisma.socialAccount.findMany({
-      where: { workspaceId: permission.workspaceId, isActive: true },
-      select: {
-        platform: true,
-        accessToken: true,
-        platformUserId: true,
-      },
-    });
-
-    if (socialAccounts.length === 0) {
-      return NextResponse.json({
-        items: [],
-        totalCount: 0,
-        platforms: [],
-        message: "No connected accounts",
-      });
-    }
-
-    const connectedAccounts: ConnectedAccount[] = socialAccounts.map((account) => ({
-      platform: account.platform,
-      accessToken: decrypt(account.accessToken),
-      platformUserId: account.platformUserId,
-    }));
-
-    const platformsParam = req.nextUrl.searchParams.get("platforms");
-    const typesParam = req.nextUrl.searchParams.get("types");
-    const unreadOnly = req.nextUrl.searchParams.get("unreadOnly") === "true";
-    const limitParam = req.nextUrl.searchParams.get("limit");
-    const sortBy = req.nextUrl.searchParams.get("sortBy") as "newest" | "oldest" | null;
-
-    const options: InboxFetchOptions = {};
-
-    if (platformsParam) {
-      options.platforms = platformsParam.split(",").filter(Boolean) as Platform[];
-    }
-
-    if (typesParam) {
-      options.types = typesParam.split(",").filter(Boolean) as InboxItemType[];
-    }
-
-    if (unreadOnly) {
-      options.unreadOnly = true;
-    }
-
-    if (limitParam) {
-      options.limit = parseInt(limitParam, 10);
-    }
-
-    if (sortBy) {
-      options.sortBy = sortBy;
-    }
-
-    const inbox = createUnifiedInbox(connectedAccounts);
-    const result = await inbox.fetchAll(options);
-
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error("Error fetching inbox:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch inbox" },
-      { status: 500 }
-    );
+  // Reading the inbox is a view permission; acting on it is engagement:reply.
+  const guard = await requireWorkspace("engagement:view");
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
+  const { workspaceId } = guard;
+  const params = req.nextUrl.searchParams;
+
+  const platforms = (params.get("platforms") ?? "")
+    .split(",")
+    .filter((p): p is Platform => PLATFORMS.has(p));
+  const unreadOnly = params.get("unreadOnly") === "true";
+  const limitRaw = Number.parseInt(params.get("limit") ?? "", 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 200;
+
+  const accounts = await prisma.socialAccount.findMany({
+    where: {
+      workspaceId,
+      isActive: true,
+      ...(platforms.length > 0 ? { platform: { in: platforms } } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const coverage = inboxCoverage();
+  if (accounts.length === 0) {
+    return NextResponse.json({
+      items: [],
+      accounts: [],
+      coverage,
+      totalCount: 0,
+      unreadCount: 0,
+      generatedAt: new Date().toISOString(),
+    } satisfies InboxResponse);
+  }
+
+  // Newest published posts that the platform can be asked about. One query for
+  // all accounts, trimmed per account below; the take bounds it either way.
+  const posts = await prisma.post.findMany({
+    where: {
+      workspaceId,
+      status: "PUBLISHED",
+      platformPostId: { not: null },
+      socialAccountId: { in: accounts.map((a) => a.id) },
+    },
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    take: accounts.length * DEFAULT_INBOX_LIMITS.maxPostsPerAccount * 4,
+    select: {
+      id: true,
+      socialAccountId: true,
+      platformPostId: true,
+      platformPostUrl: true,
+      content: true,
+    },
+  });
+
+  const sources: InboxSource[] = accounts.map((account) => ({
+    account,
+    posts: posts
+      .filter((p) => p.socialAccountId === account.id)
+      .slice(0, DEFAULT_INBOX_LIMITS.maxPostsPerAccount)
+      .map((p) => ({
+        id: p.id,
+        platformPostId: p.platformPostId as string,
+        platformPostUrl: p.platformPostUrl,
+        content: p.content,
+      })),
+  }));
+
+  const collected = await collectInbox(sources);
+
+  const states =
+    collected.items.length === 0
+      ? []
+      : await prisma.inboxItemState.findMany({
+          where: {
+            workspaceId,
+            commentId: { in: [...new Set(collected.items.map((i) => i.commentId))] },
+          },
+          select: { platform: true, commentId: true, readAt: true, repliedAt: true },
+        });
+
+  const all = applyInboxState(collected.items, states);
+  const items = filterInbox(all, { unreadOnly, limit });
+
+  return NextResponse.json({
+    items,
+    accounts: collected.accounts,
+    coverage,
+    totalCount: all.length,
+    unreadCount: all.filter((i) => !i.isRead).length,
+    generatedAt: new Date().toISOString(),
+  } satisfies InboxResponse);
 }
 
+const itemRef = {
+  platform: z.nativeEnum(Platform),
+  commentId: z.string().min(1).max(512),
+};
+
+const patchSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("markRead"), ...itemRef }),
+  z.object({ action: z.literal("markUnread"), ...itemRef }),
+  z.object({
+    action: z.literal("reply"),
+    ...itemRef,
+    accountId: z.string().min(1),
+    platformPostId: z.string().min(1),
+    content: z.string().trim().min(1).max(10_000),
+  }),
+]);
+
 export async function PATCH(req: NextRequest) {
+  // Triage and replies both act for the workspace: replying publishes a comment
+  // on a real platform, and read state is shared by the whole team.
+  const guard = await requireWorkspace("engagement:reply");
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status });
+  }
+  const { workspaceId } = guard;
+
+  let raw: unknown;
   try {
-    // Replying publishes a comment as this workspace, on a real platform. The
-    // permission for it has existed since the engagement build; the inbox — the
-    // one place a reply is actually sent from — never checked it.
-    const permission = await requireWorkspace("engagement:reply");
-    if (!permission.ok) {
-      return NextResponse.json({ error: permission.error }, { status: permission.status });
-    }
-
-    const body = await req.json();
-    const { itemId, platform, action, content } = body;
-
-    if (!itemId || !platform) {
-      return NextResponse.json(
-        { error: "Missing required fields: itemId, platform" },
-        { status: 400 }
-      );
-    }
-
-    const socialAccount = await prisma.socialAccount.findFirst({
-      where: {
-        workspaceId: permission.workspaceId,
-        platform: platform as Platform,
-        isActive: true,
-      },
-      select: {
-        accessToken: true,
-        platformUserId: true,
-        platform: true,
-      },
-    });
-
-    if (!socialAccount) {
-      return NextResponse.json(
-        { error: "Account not connected for this platform" },
-        { status: 404 }
-      );
-    }
-
-    const connectedAccount: ConnectedAccount = {
-      platform: socialAccount.platform,
-      accessToken: decrypt(socialAccount.accessToken),
-      platformUserId: socialAccount.platformUserId,
-    };
-
-    const inbox = createUnifiedInbox([connectedAccount]);
-
-    if (action === "markAsRead") {
-      const success = await inbox.markAsRead(itemId, platform as Platform);
-      return NextResponse.json({ success });
-    }
-
-    if (action === "reply") {
-      if (!content) {
-        return NextResponse.json(
-          { error: "Missing content for reply" },
-          { status: 400 }
-        );
-      }
-      const result = await inbox.reply(itemId, platform as Platform, content);
-      return NextResponse.json(result);
-    }
-
+    raw = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const parsed = patchSchema.safeParse(raw);
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid action. Use 'markAsRead' or 'reply'" },
-      { status: 400 }
-    );
-  } catch (error) {
-    console.error("Error updating inbox item:", error);
-    return NextResponse.json(
-      { error: "Failed to update inbox item" },
-      { status: 500 }
+      { error: "Invalid request", details: parsed.error.issues },
+      { status: 400 },
     );
   }
+  const body = parsed.data;
+  const key = {
+    workspaceId_platform_commentId: {
+      workspaceId,
+      platform: body.platform,
+      commentId: body.commentId,
+    },
+  };
+
+  if (body.action === "markRead" || body.action === "markUnread") {
+    const readAt = body.action === "markRead" ? new Date() : null;
+    await prisma.inboxItemState.upsert({
+      where: key,
+      create: { workspaceId, platform: body.platform, commentId: body.commentId, readAt },
+      update: { readAt },
+    });
+    return NextResponse.json({ success: true, isRead: readAt !== null });
+  }
+
+  // reply: the account must be this workspace's, on the item's platform.
+  const account = await loadWorkspaceAccount(workspaceId, body.accountId);
+  if (!account || account.platform !== body.platform) {
+    return NextResponse.json({ error: "Social account not found" }, { status: 404 });
+  }
+
+  const sent = await sendEngagementComment(account, {
+    platformPostId: body.platformPostId,
+    text: body.content,
+    parentCommentId: body.commentId,
+  });
+  if (!sent.ok) {
+    return NextResponse.json(sent.body, { status: sent.status });
+  }
+
+  const now = new Date();
+  await prisma.inboxItemState.upsert({
+    where: key,
+    create: {
+      workspaceId,
+      platform: body.platform,
+      commentId: body.commentId,
+      readAt: now,
+      repliedAt: now,
+    },
+    update: { readAt: now, repliedAt: now },
+  });
+
+  return NextResponse.json({ success: true, commentId: sent.commentId }, { status: 201 });
 }

@@ -299,6 +299,66 @@ export async function handleEngagementResultFailure(
   return adapterFailureResponse(platform, message, code);
 }
 
+/** HTTP status for a failed adapter call: 401 when the account must reconnect. */
+export function engagementFailureStatus(body: ReturnType<typeof adapterFailureResponse>): number {
+  return body.error.code === "SOCIAL_AUTH_EXPIRED" ||
+    body.error.code === "SOCIAL_REAUTHORIZE_REQUIRED"
+    ? 401
+    : 400;
+}
+
+export interface SendCommentInput {
+  platformPostId: string;
+  text: string;
+  /** Present → a reply to that comment; absent → a top-level comment. */
+  parentCommentId?: string;
+}
+
+/**
+ * Post a comment or a reply as `account` — the one write path shared by the
+ * Engagement API and the unified inbox: token refresh, capability gate,
+ * reconnect bookkeeping and error mapping all happen here.
+ */
+export async function sendEngagementComment(
+  account: SocialAccount,
+  input: SendCommentInput,
+): Promise<
+  | { ok: true; status: 201; commentId?: string }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  const prepared = await prepareEngagementContext(account);
+  if (!prepared.ok) return prepared;
+
+  const { ctx } = prepared;
+  const operation = input.parentCommentId ? "replyToComment" : "createComment";
+  const supported = checkEngagementSupported(ctx.adapter, ctx.account.platform, operation);
+  if (!supported.ok) return { ok: false, status: supported.status, body: supported.body };
+
+  const result = input.parentCommentId
+    ? await ctx.adapter.replyToComment!(ctx.accessToken, {
+        commentId: input.parentCommentId,
+        text: input.text,
+        platformPostId: input.platformPostId,
+        additionalOptions: ctx.destinationOptions,
+      })
+    : await ctx.adapter.createComment!(ctx.accessToken, {
+        platformPostId: input.platformPostId,
+        text: input.text,
+        additionalOptions: ctx.destinationOptions,
+      });
+
+  if (!result.success) {
+    const failure = await handleEngagementResultFailure(
+      ctx.account.id,
+      ctx.account.platform,
+      result.error,
+    );
+    return { ok: false, status: engagementFailureStatus(failure), body: failure };
+  }
+
+  return { ok: true, status: 201, commentId: result.commentId };
+}
+
 const REACTION_KINDS: ReactionKind[] = [
   "like",
   "dislike",
