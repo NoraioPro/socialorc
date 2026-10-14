@@ -8,6 +8,8 @@ import {
   approveGuardWhere,
   editGuardWhere,
   publishClaimWhere,
+  rescheduleGuardWhere,
+  rescheduleJobWhere,
   retryGuardWhere,
   scheduleBlockMessage,
   scheduleBlockReason,
@@ -85,6 +87,21 @@ test("a retry needs a failed post that was approved", () => {
   });
 });
 
+test("a reschedule needs a post still scheduled and approved, and a job still waiting", () => {
+  assert.deepEqual(rescheduleGuardWhere("post_1", "ws_1"), {
+    id: "post_1",
+    workspaceId: "ws_1",
+    status: "SCHEDULED",
+    approvedAt: { not: null },
+  });
+  // Never a PROCESSING job (mid-send) or one the platform already accepted.
+  assert.deepEqual(rescheduleJobWhere("post_1"), {
+    postId: "post_1",
+    status: "PENDING",
+    pendingPublishId: null,
+  });
+});
+
 test("editing is refused for a post that is publishing or published", () => {
   assert.deepEqual(editGuardWhere("post_1", "ws_1"), {
     id: "post_1",
@@ -108,6 +125,8 @@ test("every status-changing route uses a guard, not a bare update by id", () => 
     ["src/app/api/posts/[id]/approve/route.ts", "approveGuardWhere"],
     ["src/app/api/posts/[id]/approve/route.ts", "submitGuardWhere"],
     ["src/app/api/posts/[id]/retry/route.ts", "retryGuardWhere"],
+    ["src/app/api/posts/[id]/reschedule/route.ts", "rescheduleGuardWhere"],
+    ["src/app/api/posts/[id]/reschedule/route.ts", "rescheduleJobWhere"],
     ["src/app/api/posts/[id]/route.ts", "editGuardWhere"],
     ["src/app/api/cron/publish/route.ts", "publishClaimWhere"],
   ];
