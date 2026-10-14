@@ -151,7 +151,7 @@ export default function InboxPage() {
     }
   }
 
-  const accounts = data?.accounts ?? [];
+  const accounts = useMemo(() => data?.accounts ?? [], [data]);
   const connectedPlatforms = useMemo(
     () => [...new Set(accounts.map((a) => a.platform))],
     [accounts],
