@@ -154,7 +154,7 @@ test("declared capability invariants hold for the current connector set", () => 
 
   // Video is declared only where the adapter genuinely uploads video.
   const videoPlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.video);
-  assert.deepEqual(videoPlatforms.sort(), [Platform.TIKTOK, Platform.YOUTUBE].sort());
+  assert.deepEqual(videoPlatforms.sort(), [Platform.LINKEDIN, Platform.TIKTOK, Platform.YOUTUBE].sort());
 
   // Image is declared only where the adapter genuinely sends an image.
   const imagePlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.image);

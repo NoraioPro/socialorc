@@ -394,21 +394,21 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     icon: "linkedin",
     color: "#0A66C2",
     maxTextLength: 3000,
-    // One image only: the adapter builds LinkedIn's `multiImage` content and
-    // `carousel` is false, so a second attachment is rejected rather than
-    // silently ignored. Video is NOT implemented in the adapter — it stays
-    // declared off so validation refuses it instead of sending a video URL as
-    // an image. Turn these back on only alongside a real implementation.
+    // One attachment: a single image (Images API) or a single MP4 video
+    // (Videos API: multipart upload + finalize, linkedin.ts). `carousel` is
+    // false, so a second attachment is rejected rather than silently ignored.
+    // 500 MB / MP4 are LinkedIn's feed-video limits (videos-api, checked
+    // 2026-10-14); the adapter also enforces the 75 KB minimum.
     maxMediaCount: 1,
     maxImageSizeMb: 5,
-    maxVideoSizeMb: 0,
-    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif"],
+    maxVideoSizeMb: 500,
+    supportedMediaTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
     supportsScheduling: false,
-    supportsVideo: false,
+    supportsVideo: true,
     capabilities: {
       text: true,
       image: true,
-      video: false,
+      video: true,
       carousel: false,
       mediaRequired: false,
       authMethod: "oauth",
@@ -433,6 +433,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     notes: [
       "Personal profile posting via Share on LinkedIn product",
       "Requires w_member_social scope",
+      "One image or one MP4 video (75 KB-500 MB, 3 s-30 min) per post; video goes through the Videos API",
       "Company Page posting requires w_organization_social scope",
       "Comment and reaction APIs require Community Management feed scopes (e.g. r_member_social_feed) that LinkedIn grants to approved partners only",
     ],

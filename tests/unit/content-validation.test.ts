@@ -143,7 +143,7 @@ test("X refuses media instead of publishing the text alone", async () => {
 
 test("video is refused on every platform that does not implement it", async () => {
   const video = ["https://cdn.example/clip.mp4"];
-  for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
+  for (const platform of [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
     const r = await post(platform, "caption", video);
     assert.equal(r.success, false, `${platform} must refuse video`);
     assert.equal(r.code, "UNSUPPORTED_MEDIA", `${platform} code`);
@@ -152,7 +152,7 @@ test("video is refused on every platform that does not implement it", async () =
 });
 
 test("video-capable platforms still accept a video", async () => {
-  for (const platform of [Platform.YOUTUBE, Platform.TIKTOK]) {
+  for (const platform of [Platform.YOUTUBE, Platform.TIKTOK, Platform.LINKEDIN]) {
     const r = await post(platform, "my clip", ["https://cdn.example/clip.mp4"]);
     assert.equal(r.success, true, `${platform}: ${r.error}`);
   }
