@@ -98,6 +98,10 @@ function serverEnv(extra = {}) {
     NEXTAUTH_SECRET: `durability-secret-${Date.now()}`,
     TOKEN_ENCRYPTION_KEY: ENCRYPTION_KEY,
     CRON_SECRET,
+    // Registration is invite-only after the first account; a reused database
+    // already has one, so open signup for this throwaway server as run.mjs does.
+    ALLOW_PUBLIC_SIGNUP: "true",
+    SIGNUP_ROLE: "ADMIN",
     MOCK_SOCIAL_ADAPTERS: "false", // real adapters, that is the point
     // Fake, but shaped like a real token: the adapter refuses a malformed one as
     // PLATFORM_NOT_CONFIGURED before any send, which would mask every failure
@@ -323,6 +327,14 @@ async function ensureUser() {
 async function injectPost(api, token, label, tokenMeta = {}) {
   const prisma = dbClient();
   const user = await prisma.user.findUnique({ where: { email } });
+  // Accounts belong to a workspace: posts and routes resolve them by the
+  // caller's workspace, so an unstamped account is invisible (404).
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+    select: { workspaceId: true },
+  });
+  if (!membership) throw new Error(`injectPost(${label}): ${email} has no workspace`);
   const encryptedToken = CryptoJS.AES.encrypt(token, ENCRYPTION_KEY).toString();
   const encryptedRefresh = tokenMeta.refreshToken
     ? CryptoJS.AES.encrypt(tokenMeta.refreshToken, ENCRYPTION_KEY).toString()
@@ -331,6 +343,7 @@ async function injectPost(api, token, label, tokenMeta = {}) {
     where: { platform_platformUserId: { platform: "TELEGRAM", platformUserId: `durability_${label}` } },
     create: {
       userId: user.id,
+      workspaceId: membership.workspaceId,
       platform: "TELEGRAM",
       platformUserId: `durability_${label}`,
       platformUsername: `durability_${label}`,
@@ -347,6 +360,7 @@ async function injectPost(api, token, label, tokenMeta = {}) {
       tokenExpiresAt: tokenMeta.expiresAt ?? null,
       isActive: true,
       userId: user.id,
+      workspaceId: membership.workspaceId,
       metadata: { chatId: TELEGRAM_TEST_CHAT_ID },
     },
   });
