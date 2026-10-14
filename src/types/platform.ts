@@ -186,6 +186,14 @@ export interface PostResult {
    */
   code?: string;
   rawResponse?: unknown;
+  /**
+   * The platform accepted the send but has not finished publishing it (TikTok
+   * processes a video after the upload). Only meaningful with `success: true`;
+   * `platformPostId` is then the handle to poll with `checkPublishStatus`, NOT
+   * a public post id, and the caller must not send again — the post is already
+   * on its way.
+   */
+  pending?: boolean;
 }
 
 /**
@@ -309,7 +317,19 @@ export interface PlatformAdapter {
   getAccountInfo(accessToken: string): Promise<AccountInfo>;
   
   createPost(accessToken: string, options: PostOptions): Promise<PostResult>;
-  
+
+  /**
+   * Follow up a `pending` createPost result. Returns success with the final
+   * post id/URL once published, success + `pending` while still processing, or
+   * a failure when the platform says the publish failed. Never re-sends.
+   * Implemented only by connectors whose publish is asynchronous (TikTok).
+   */
+  checkPublishStatus?(
+    accessToken: string,
+    pendingId: string,
+    options?: { additionalOptions?: Record<string, unknown> },
+  ): Promise<PostResult>;
+
   validateCredentials(): { valid: boolean; missing: string[] };
 
   listComments?(

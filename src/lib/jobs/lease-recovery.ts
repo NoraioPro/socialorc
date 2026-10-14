@@ -53,14 +53,20 @@ export interface LeaseRecoveryResult {
   abandoned: number;
   /** Posts pulled out of PUBLISHING, every one of them closed as FAILED. */
   released: number;
+  /**
+   * Stale jobs that were only POLLING a publish the platform had already
+   * accepted (`pendingPublishId`). Reading a status twice cannot duplicate a
+   * post, so these go straight back to PENDING and their post stays PUBLISHING.
+   */
+  resumed: number;
 }
 
 export interface LeaseRecoveryClient {
   scheduledJob: {
     findMany(args: {
       where: Record<string, unknown>;
-      select: { id: true; postId: true; attempts: true };
-    }): Promise<{ id: string; postId: string; attempts: number }[]>;
+      select: { id: true; postId: true; attempts: true; pendingPublishId: true };
+    }): Promise<{ id: string; postId: string; attempts: number; pendingPublishId?: string | null }[]>;
     updateMany(args: {
       where: Record<string, unknown>;
       data: Record<string, unknown>;
@@ -84,15 +90,31 @@ export async function recoverStaleProcessingJobs(
       status: "PROCESSING",
       startedAt: { lt: leaseCutoff(now) },
     },
-    select: { id: true, postId: true, attempts: true },
+    select: { id: true, postId: true, attempts: true, pendingPublishId: true },
   });
 
   if (stale.length === 0) {
-    return { deadRuns: 0, abandoned: 0, released: 0 };
+    return { deadRuns: 0, abandoned: 0, released: 0, resumed: 0 };
   }
 
-  const deadRuns = stale.filter((job) => job.attempts < maxAttempts);
-  const exhausted = stale.filter((job) => job.attempts >= maxAttempts);
+  // A run that died while only polling never sent anything: safe to resume.
+  const polling = stale.filter((job) => Boolean(job.pendingPublishId));
+  const resumed = polling.length
+    ? (
+        await client.scheduledJob.updateMany({
+          where: { id: { in: polling.map((job) => job.id) }, status: "PROCESSING" },
+          data: { status: "PENDING", startedAt: null },
+        })
+      ).count
+    : 0;
+
+  const sending = stale.filter((job) => !job.pendingPublishId);
+  if (sending.length === 0) {
+    return { deadRuns: 0, abandoned: 0, released: 0, resumed };
+  }
+
+  const deadRuns = sending.filter((job) => job.attempts < maxAttempts);
+  const exhausted = sending.filter((job) => job.attempts >= maxAttempts);
 
   // Both branches fail the job. Neither returns it to PENDING: the run that held
   // it is gone, and the attempt it was making has an unknown outcome.
@@ -128,7 +150,7 @@ export async function recoverStaleProcessingJobs(
   const released = (
     await client.post.updateMany({
       where: {
-        id: { in: stale.map((job) => job.postId) },
+        id: { in: sending.map((job) => job.postId) },
         status: "PUBLISHING",
       },
       data: {
@@ -138,5 +160,5 @@ export async function recoverStaleProcessingJobs(
     })
   ).count;
 
-  return { deadRuns: deadRunsClosed, abandoned: abandonedClosed, released };
+  return { deadRuns: deadRunsClosed, abandoned: abandonedClosed, released, resumed };
 }

@@ -16,10 +16,14 @@ export function PublishNowButton({ postId }: { postId: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the platform accepted the post but is still processing it (TikTok):
+  // it is not live yet, and saying "published" here would be untrue.
+  const [notice, setNotice] = useState<string | null>(null);
 
   const onPublish = async () => {
     setLoading(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/posts/${postId}/publish`, {
         method: "POST",
@@ -29,6 +33,7 @@ export function PublishNowButton({ postId }: { postId: string }) {
       if (!res.ok) {
         throw new Error(data.error || "Publishing failed");
       }
+      if (data.pending) setNotice(data.message || "Accepted — waiting for the platform to finish publishing.");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publishing failed");
@@ -44,6 +49,7 @@ export function PublishNowButton({ postId }: { postId: string }) {
         {loading ? "Publishing…" : "Publish now"}
       </Button>
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
     </div>
   );
 }

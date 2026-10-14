@@ -250,6 +250,66 @@ export async function runPublishE2E({ baseUrl, cronSecret, platform = "LINKEDIN"
     `processed ${again.body?.processed}, published ${again.body?.published}`,
   );
 
+  // 13. A platform that accepts the post but is still processing it (TikTok).
+  // The mock answers `pending` for content carrying "[mock:pending]". The worker
+  // must hold the post in PUBLISHING, poll on a later tick WITHOUT re-sending,
+  // and only then record it as published.
+  const slow = await req(jar, `${baseUrl}/api/posts`, {
+    method: "POST",
+    json: {
+      title: `E2E pending ${stamp}`,
+      content: `SocialOrc E2E ${stamp} [mock:pending] — accepted, still processing.`,
+      platform,
+      socialAccountId: account?.id,
+    },
+  });
+  const slowId = slow.body?.id;
+  await req(jar, `${baseUrl}/api/posts/${slowId}/approve`, { method: "POST", json: { action: "approve" } });
+  const slowDue = Date.now() + 6_000;
+  const slowSched = await req(jar, `${baseUrl}/api/posts/${slowId}/schedule`, {
+    method: "POST",
+    json: { scheduledFor: new Date(slowDue).toISOString() },
+  });
+  check("pending-path post scheduled", slowSched.status === 200, `status ${slowSched.status}`);
+  await sleep(Math.max(0, slowDue - Date.now()) + 2_000);
+
+  const accepted = await req(jar, `${baseUrl}/api/cron/publish`, { headers: { authorization: `Bearer ${cronSecret}` } });
+  check(
+    "a still-processing publish is held as pending, not published",
+    accepted.body?.processed === 1 && accepted.body?.pending === 1 && accepted.body?.published === 0,
+    `processed ${accepted.body?.processed}, pending ${accepted.body?.pending}, published ${accepted.body?.published}`,
+  );
+  const held = await req(jar, `${baseUrl}/api/posts/${slowId}`);
+  check(
+    "the pending post stays PUBLISHING with no platform post id",
+    held.body?.status === "PUBLISHING" && !held.body?.platformPostId,
+    `status ${held.body?.status}, id ${held.body?.platformPostId}`,
+  );
+
+  const tooSoon = await req(jar, `${baseUrl}/api/cron/publish`, { headers: { authorization: `Bearer ${cronSecret}` } });
+  check(
+    "the status poll is not due immediately",
+    tooSoon.body?.processed === 0,
+    `processed ${tooSoon.body?.processed}`,
+  );
+
+  const pollMs = Number(process.env.E2E_PENDING_POLL_INTERVAL_MS || 3_000);
+  await sleep(pollMs + 1_500);
+  const confirmed = await req(jar, `${baseUrl}/api/cron/publish`, { headers: { authorization: `Bearer ${cronSecret}` } });
+  check(
+    "the next tick confirms the publish",
+    confirmed.body?.processed === 1 && confirmed.body?.published === 1,
+    `processed ${confirmed.body?.processed}, published ${confirmed.body?.published}, pending ${confirmed.body?.pending}`,
+  );
+  const done = await req(jar, `${baseUrl}/api/posts/${slowId}`);
+  check(
+    "it was completed by a status check, not a second send",
+    done.body?.status === "PUBLISHED" &&
+      String(done.body?.platformPostId ?? "").startsWith("mock_post_confirmed_") &&
+      !!done.body?.platformPostUrl,
+    `status ${done.body?.status}, id ${done.body?.platformPostId}`,
+  );
+
   const failed = RESULTS.filter((r) => !r.ok);
   console.log(`\n${RESULTS.length - failed.length}/${RESULTS.length} checks passed`);
   return { ok: failed.length === 0, results: RESULTS };

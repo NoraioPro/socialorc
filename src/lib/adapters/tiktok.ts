@@ -21,6 +21,7 @@ import {
 import { codeChallengeFor, generateCodeVerifier } from "@/lib/social/pkce";
 import { tiktokCredentials, tiktokPkceMethod } from "@/lib/social/approval";
 import { classifyTikTokError, SocialError } from "@/lib/social/errors";
+import type { AdapterErrorCode } from "./errors";
 import { planTikTokChunks } from "@/lib/social/media";
 import { capabilitiesFor } from "@/lib/social/capabilities";
 import { appApprovalFor } from "@/lib/social/approval";
@@ -94,10 +95,63 @@ export interface TikTokCreatorInfo {
 export interface TikTokStatusResult {
   status: TikTokPublishStatus;
   failReason?: string;
+  /**
+   * `publicaly_available_post_id` (sic — TikTok's spelling), as decimal strings.
+   * Only present once the post is public AND has passed moderation; a SELF_ONLY
+   * post never gets one.
+   */
+  publicPostIds: string[];
+}
+
+/** How long createPost waits for TikTok to finish before handing off to the poller. */
+const INLINE_POLL_BUDGET_MS = 10_000;
+/** TikTok allows 30 status requests per minute per token; 3s keeps well under it. */
+const INLINE_POLL_INTERVAL_MS = 3_000;
+
+/**
+ * Read `publicaly_available_post_id` from the raw body. The ids are int64 and
+ * TikTok video ids are 19 digits — past 2^53, so JSON.parse would silently round
+ * them to a different (wrong) video id.
+ */
+export function extractTikTokPublicPostIds(rawBody: string): string[] {
+  const match = /"publicaly_available_post_id"\s*:\s*\[([^\]]*)\]/.exec(rawBody);
+  if (!match) return [];
+  return match[1]
+    .split(",")
+    .map((part) => part.trim().replace(/^"|"$/g, ""))
+    .filter((part) => /^\d+$/.test(part));
+}
+
+/** Map the provider-contract error onto the worker's retry vocabulary. */
+function adapterCodeFor(error: SocialError): AdapterErrorCode {
+  switch (error.code) {
+    case "SOCIAL_AUTH_EXPIRED":
+      return "AUTH_EXPIRED";
+    case "SOCIAL_AUTH_FAILED":
+    case "SOCIAL_REAUTHORIZE_REQUIRED":
+      return "AUTH_INVALID";
+    case "SOCIAL_PERMISSION_REQUIRED":
+    case "SOCIAL_APP_REVIEW_REQUIRED":
+      return "PERMISSION_DENIED";
+    case "SOCIAL_RATE_LIMITED":
+      return "RATE_LIMITED";
+    case "SOCIAL_MEDIA_INVALID":
+      return "MEDIA_INVALID";
+    case "SOCIAL_PROVIDER_UNAVAILABLE":
+      return "PLATFORM_UNAVAILABLE";
+    case "SOCIAL_ACCOUNT_NOT_FOUND":
+      return "NOT_FOUND";
+    default:
+      return "UNKNOWN";
+  }
 }
 
 export class TikTokAdapter extends BasePlatformAdapter {
   platform = Platform.TIKTOK;
+
+  /** Bounded so a publish request stays inside the route's function ceiling. */
+  inlinePollBudgetMs = INLINE_POLL_BUDGET_MS;
+  inlinePollIntervalMs = INLINE_POLL_INTERVAL_MS;
 
   /**
    * Validate TikTok OAuth credentials: both presence and format.
@@ -439,16 +493,120 @@ export class TikTokAdapter extends BasePlatformAdapter {
       body: JSON.stringify({ publish_id: publishId }),
     });
 
-    const data = (await response.json().catch(() => ({}))) as {
+    const rawBody = await response.text().catch(() => "");
+    let data: {
       data?: { status?: string; fail_reason?: string };
       error?: { code?: string; message?: string };
-    };
+    } = {};
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      data = {};
+    }
 
     if (!response.ok) throw classifyTikTokError(data, "status");
     if (data.error?.code && data.error.code !== "ok") throw classifyTikTokError(data, "status");
 
     const status = (data.data?.status ?? "PROCESSING_UPLOAD") as TikTokPublishStatus;
-    return { status, failReason: data.data?.fail_reason };
+    return {
+      status,
+      failReason: data.data?.fail_reason,
+      publicPostIds: extractTikTokPublicPostIds(rawBody),
+    };
+  }
+
+  /**
+   * Turn one status reading into a publish outcome.
+   *
+   * PUBLISH_COMPLETE is the only success. The public post id exists only for a
+   * public, moderated post; otherwise the publish id stays the reference (and
+   * there is no URL to link to — a SELF_ONLY video has no public page).
+   */
+  private outcomeFor(
+    publishId: string,
+    status: TikTokStatusResult,
+    username?: string,
+  ): PostResult {
+    switch (status.status) {
+      case "PUBLISH_COMPLETE": {
+        const publicId = status.publicPostIds[0];
+        return {
+          success: true,
+          platformPostId: publicId ?? publishId,
+          platformPostUrl:
+            publicId && username ? `https://www.tiktok.com/@${username}/video/${publicId}` : undefined,
+          rawResponse: { publishId, status: status.status, publicPostIds: status.publicPostIds },
+        };
+      }
+      case "FAILED":
+        return {
+          success: false,
+          error: `TikTok could not publish the video${status.failReason ? ` (${status.failReason})` : ""}.`,
+          code: "CONTENT_INVALID",
+          rawResponse: { publishId, status: status.status, failReason: status.failReason },
+        };
+      default:
+        // PROCESSING_UPLOAD / PROCESSING_DOWNLOAD — and SEND_TO_USER_INBOX, which
+        // a Direct Post should never reach; it waits on the creator either way.
+        return {
+          success: true,
+          pending: true,
+          platformPostId: publishId,
+          rawResponse: { publishId, status: status.status },
+        };
+    }
+  }
+
+  /**
+   * Follow up a publish that was still processing. Read-only: it polls TikTok's
+   * status endpoint and never uploads anything, so calling it again is safe.
+   */
+  async checkPublishStatus(
+    accessToken: string,
+    publishId: string,
+    options?: { additionalOptions?: Record<string, unknown> },
+  ): Promise<PostResult> {
+    try {
+      const status = await this.getPostStatus(accessToken, publishId);
+      return this.outcomeFor(publishId, status, usernameFrom(options?.additionalOptions));
+    } catch (error) {
+      if (error instanceof SocialError) {
+        return { success: false, error: error.message, code: adapterCodeFor(error) };
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error checking TikTok status",
+        code: "NETWORK",
+      };
+    }
+  }
+
+  /** Overridable so tests run the inline poll without real waiting. */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Poll for a short, bounded time right after the upload. */
+  private async awaitPublish(
+    accessToken: string,
+    publishId: string,
+    username: string | undefined,
+  ): Promise<PostResult> {
+    const deadline = Date.now() + this.inlinePollBudgetMs;
+    for (;;) {
+      let status: TikTokStatusResult;
+      try {
+        status = await this.getPostStatus(accessToken, publishId);
+      } catch {
+        // The upload already happened. A status read that fails says nothing
+        // about the post, so hand it to the poller rather than report a failure
+        // that would invite a second (duplicate) upload.
+        return { success: true, pending: true, platformPostId: publishId };
+      }
+      const outcome = this.outcomeFor(publishId, status, username);
+      if (!outcome.pending || Date.now() + this.inlinePollIntervalMs > deadline) return outcome;
+      await this.sleep(this.inlinePollIntervalMs);
+    }
   }
 
   /** Revoke the grant on TikTok's side (best effort, called on disconnect). */
@@ -589,10 +747,20 @@ export class TikTokAdapter extends BasePlatformAdapter {
 
       await this.uploadChunks(uploadUrl, bytes, plan.plan);
 
+      // The transfer finishing is not the post existing: TikTok still has to
+      // process the video and can reject it. Wait briefly for the verdict; if it
+      // is not in yet the result is `pending` and the worker keeps polling with
+      // the publish id — without uploading again.
+      const outcome = await this.awaitPublish(
+        accessToken,
+        publishId,
+        usernameFrom(options.additionalOptions),
+      );
+
       return {
-        success: true,
-        platformPostId: publishId,
+        ...outcome,
         rawResponse: {
+          ...(outcome.rawResponse as Record<string, unknown> | undefined),
           publishId,
           privacyLevel: privacy,
           bytes: bytes.byteLength,
@@ -600,13 +768,18 @@ export class TikTokAdapter extends BasePlatformAdapter {
           note:
             privacy === "SELF_ONLY"
               ? "Video transferred and posted as private (SELF_ONLY): TikTok only allows public posting for audited apps."
-              : "Video transferred to TikTok. Poll /post/publish/status/fetch/ for progress.",
+              : "Video transferred to TikTok.",
         },
       };
     } catch (error) {
       const social = error instanceof SocialError ? error : null;
       if (social) {
-        return { success: false, error: social.message, rawResponse: { code: social.code } };
+        return {
+          success: false,
+          error: social.message,
+          code: adapterCodeFor(social),
+          rawResponse: { code: social.code },
+        };
       }
       if (error instanceof AdapterError) {
         return { success: false, error: error.message, rawResponse: error.rawError };
@@ -622,6 +795,12 @@ export class TikTokAdapter extends BasePlatformAdapter {
   capabilitiesForScopes(scopes: string[], accountType?: string | null): CapabilityReport {
     return this.getCapabilities({ scopes, accountType });
   }
+}
+
+/** The account handle, passed by callers as `additionalOptions.accountUsername`. */
+function usernameFrom(options?: Record<string, unknown>): string | undefined {
+  const value = options?.accountUsername;
+  return typeof value === "string" && /^[A-Za-z0-9._]+$/.test(value) ? value : undefined;
 }
 
 export const tiktokAdapter = new TikTokAdapter();

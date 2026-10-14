@@ -66,6 +66,9 @@ function serverEnv() {
     TOKEN_ENCRYPTION_KEY: `e2e-only-encryption-key-${Date.now()}`,
     CRON_SECRET,
     MOCK_SOCIAL_ADAPTERS: "true",
+    // A pending (still-processing) publish is re-checked after this long; the
+    // default minute would make the pending-path check in publish.e2e slow.
+    PENDING_POLL_INTERVAL_MS: process.env.E2E_PENDING_POLL_INTERVAL_MS || "3000",
     // Registration became invite-only after this harness was written
     // (src/lib/signup-policy.ts), so `register` answered 403 and every check
     // after it failed on 401 — the run was "broken" for a policy reason, not a

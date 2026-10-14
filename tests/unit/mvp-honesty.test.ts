@@ -385,7 +385,7 @@ test("a tree with no stale job is read once and never written to", async () => {
     3,
   );
 
-  assert.deepEqual(result, { deadRuns: 0, abandoned: 0, released: 0 });
+  assert.deepEqual(result, { deadRuns: 0, abandoned: 0, released: 0, resumed: 0 });
   assert.equal(client.calls.length, 1);
   assert.equal(client.calls[0].kind, "findMany");
 });

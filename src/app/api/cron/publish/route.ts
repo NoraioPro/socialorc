@@ -15,6 +15,12 @@ import {
   type AdapterErrorCode,
 } from "@/lib/adapters/errors";
 import { publishClaimWhere } from "@/lib/posts/transitions";
+import {
+  PENDING_TIMEOUT_MESSAGE,
+  pendingExpired,
+  pendingPollJobData,
+} from "@/lib/jobs/pending-publish";
+import type { PostResult } from "@/types/platform";
 
 /**
  * Publishing worker (Vercel cron: every 5 minutes, see vercel.json).
@@ -76,6 +82,8 @@ export async function GET(req: NextRequest) {
     released: number;
     /** Due jobs left unclaimed because this invocation ran out of time budget. */
     deferred: number;
+    /** Sends the platform accepted but is still processing; polled next tick. */
+    pending: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   } = {
     processed: 0,
@@ -88,6 +96,7 @@ export async function GET(req: NextRequest) {
     abandoned: 0,
     released: 0,
     deferred: 0,
+    pending: 0,
     errors: [],
   };
 
@@ -112,7 +121,9 @@ export async function GET(req: NextRequest) {
       where: {
         status: JobStatus.PENDING,
         scheduledAt: { lte: now },
-        attempts: { lt: MAX_ATTEMPTS },
+        // A pending publish is a status poll, not a send: it is due regardless
+        // of the retry budget the send itself used.
+        OR: [{ attempts: { lt: MAX_ATTEMPTS } }, { pendingPublishId: { not: null } }],
       },
       orderBy: { scheduledAt: "asc" }, // oldest first, so nothing starves
       take: 10,
@@ -152,6 +163,11 @@ export async function GET(req: NextRequest) {
 
         const attempt = job.attempts + 1;
 
+        // Set when an earlier run handed the post to the platform and it was
+        // still processing. This run then only asks for the outcome — it must
+        // never send again, or a slow platform becomes a duplicate post.
+        const resumePublishId = job.pendingPublishId;
+
         const post = await prisma.post.findUnique({
           where: { id: job.postId },
           include: { socialAccount: true },
@@ -186,7 +202,8 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        if (post.status !== PostStatus.SCHEDULED) {
+        const expectedStatus = resumePublishId ? PostStatus.PUBLISHING : PostStatus.SCHEDULED;
+        if (post.status !== expectedStatus) {
           await prisma.scheduledJob.update({
             where: { id: job.id },
             data: {
@@ -252,10 +269,13 @@ export async function GET(req: NextRequest) {
         // above; guarding the write itself means an edit that landed in between
         // — which returns the post to DRAFT and clears `approvedAt` — cannot be
         // sent anyway.
-        const publishClaim = await prisma.post.updateMany({
-          where: publishClaimWhere(post.id),
-          data: { status: PostStatus.PUBLISHING },
-        });
+        // A resumed poll already holds the post in PUBLISHING (checked above).
+        const publishClaim = resumePublishId
+          ? { count: 1 }
+          : await prisma.post.updateMany({
+              where: publishClaimWhere(post.id),
+              data: { status: PostStatus.PUBLISHING },
+            });
 
         if (publishClaim.count === 0) {
           await prisma.scheduledJob.update({
@@ -282,6 +302,7 @@ export async function GET(req: NextRequest) {
           await handleFailure({
             postId: post.id,
             jobId: job.id,
+            pending: pendingOf(job),
             accountId: post.socialAccount.id,
             attempt,
             error: `Not published: ${resolution.message}. Missing: ${resolution.missing.join(", ")}`,
@@ -311,6 +332,7 @@ export async function GET(req: NextRequest) {
             await handleFailure({
               postId: post.id,
               jobId: job.id,
+              pending: pendingOf(job),
               // The account is what has to be reconnected, and `handleFailure`
               // only flags it when it is given this id: without it a dead token
               // was dead-lettered silently and the banner never appeared.
@@ -345,6 +367,7 @@ export async function GET(req: NextRequest) {
             await handleFailure({
               postId: post.id,
               jobId: job.id,
+              pending: pendingOf(job),
               attempt,
               error: `Token refresh failed: ${message}`,
               code: classifyAdapterError({ message }),
@@ -367,7 +390,13 @@ export async function GET(req: NextRequest) {
           // Addressing travels with the account, not with the process: a
           // Telegram account publishes into its own chat. Reaching for a global
           // env chat here is what made every tenant post into the owner's chat.
-          additionalOptions: destinationForAccount(post.socialAccount.metadata),
+          additionalOptions: {
+            ...destinationForAccount(post.socialAccount.metadata),
+            // Lets an adapter build a public URL (TikTok: /@handle/video/id).
+            ...(post.socialAccount.platformUsername
+              ? { accountUsername: post.socialAccount.platformUsername }
+              : {}),
+          },
           // Real MIME type and byte size so validation cannot be fooled by a URL
           // whose extension is missing or is a `data:` payload.
           media: mediaUrls.map((m) => ({
@@ -377,7 +406,22 @@ export async function GET(req: NextRequest) {
           })),
         };
 
-        let result = await adapter.createPost(accessToken, sendOptions);
+        // A resumed job only reads the outcome; everything else sends.
+        const send = (): Promise<PostResult> => {
+          if (!resumePublishId) return adapter.createPost(accessToken, sendOptions);
+          if (!adapter.checkPublishStatus) {
+            return Promise.resolve({
+              success: false,
+              error: "This connector cannot check the status of a pending publish.",
+              code: "UNKNOWN",
+            });
+          }
+          return adapter.checkPublishStatus(accessToken, resumePublishId, {
+            additionalOptions: sendOptions.additionalOptions,
+          });
+        };
+
+        let result = await send();
 
         /** Prefer the adapter's own code; fall back to classifying its message. */
         const failureCodeOf = (r: typeof result): AdapterErrorCode =>
@@ -409,12 +453,56 @@ export async function GET(req: NextRequest) {
               },
             });
             accessToken = refreshed.accessToken;
-            result = await adapter.createPost(accessToken, sendOptions);
+            result = await send();
             code = result.success ? null : failureCodeOf(result);
           } catch {
             // Keep the original AUTH_EXPIRED failure; the refresh error itself is
             // not more informative for the operator.
           }
+        }
+
+        // Accepted but still processing: re-arm the job as a status poll. The post
+        // stays PUBLISHING and nothing is sent again.
+        if (result.success && result.pending) {
+          if (result.platformPostId) {
+            const pendingSince = resumePublishId ? job.pendingSince : null;
+            const tickNow = new Date();
+            if (pendingExpired(pendingSince, tickNow)) {
+              await handleFailure({
+                postId: post.id,
+                jobId: job.id,
+                pending: { publishId: result.platformPostId, since: pendingSince },
+                accountId: post.socialAccount.id,
+                attempt,
+                error: "The platform is still processing this post",
+                code: "PLATFORM_UNAVAILABLE",
+                results,
+                now: tickNow,
+              });
+            } else {
+              await prisma.scheduledJob.update({
+                where: { id: job.id },
+                data: {
+                  ...pendingPollJobData({
+                    publishId: result.platformPostId,
+                    pendingSince,
+                    now: tickNow,
+                  }),
+                  // A status check is not a publish attempt; the send that
+                  // started this keeps the attempt it was counted as.
+                  attempts: resumePublishId ? job.attempts : attempt,
+                },
+              });
+              results.pending++;
+            }
+            continue;
+          }
+          result = {
+            success: false,
+            error: "The platform reported the post as in progress but returned no reference to follow it by.",
+            code: "UNKNOWN",
+          };
+          code = "UNKNOWN";
         }
 
         if (result.success) {
@@ -448,6 +536,7 @@ export async function GET(req: NextRequest) {
         await handleFailure({
           postId: post.id,
           jobId: job.id,
+          pending: pendingOf(job),
           accountId: post.socialAccount.id,
           attempt,
           error: result.error || "Unknown error",
@@ -462,6 +551,7 @@ export async function GET(req: NextRequest) {
         await handleFailure({
           postId: job.postId,
           jobId: job.id,
+          pending: pendingOf(job),
           attempt,
           error: errorMessage,
           code: classifyAdapterError({ message: errorMessage }),
@@ -486,6 +576,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function pendingOf(job: { pendingPublishId: string | null; pendingSince: Date | null }) {
+  return job.pendingPublishId ? { publishId: job.pendingPublishId, since: job.pendingSince } : null;
+}
+
 /**
  * Record a failed publish attempt and decide what happens next.
  *
@@ -502,16 +596,74 @@ async function handleFailure(opts: {
   attempt: number;
   error: string;
   code: AdapterErrorCode;
+  /** Set when the platform had already accepted the send (see pending-publish.ts). */
+  pending?: { publishId: string; since: Date | null } | null;
   results: {
     retried: number;
     failed: number;
     permanent: number;
+    pending: number;
     errors: { postId: string; error: string; code?: AdapterErrorCode }[];
   };
   now: Date;
 }) {
   const { postId, jobId, accountId, attempt, error, code, results, now } = opts;
   const retryable = isRetryable(code) || code === "UNKNOWN";
+
+  // The platform already has this post. A retry would SEND it again, so the
+  // only safe moves are: keep polling (transient trouble reading the status),
+  // or close it — as failed when the platform said so, otherwise as unknown.
+  if (opts.pending) {
+    const { publishId, since } = opts.pending;
+    if (retryable && !pendingExpired(since, now)) {
+      await prisma.scheduledJob.update({
+        where: { id: jobId },
+        data: {
+          ...pendingPollJobData({
+            publishId,
+            pendingSince: since,
+            now,
+            note: `Could not read the publish status (${code}): ${error}. Checking again.`,
+          }),
+          // The claim counted this poll as an attempt; it was not one.
+          attempts: Math.max(0, attempt - 1),
+        },
+      });
+      results.pending++;
+      return;
+    }
+
+    const platformRejected = code === "CONTENT_INVALID" || code === "MEDIA_INVALID";
+    const message = platformRejected
+      ? `${error} Not retried automatically (${code}).`
+      : retryable
+        ? PENDING_TIMEOUT_MESSAGE
+        : `${error} (${code}). The platform had already accepted this post, so whether it went live is unknown — check the platform before publishing again.`;
+
+    await prisma.$transaction([
+      prisma.post.update({
+        where: { id: postId },
+        data: { status: PostStatus.FAILED, errorMessage: message, lastRetryAt: now },
+      }),
+      prisma.scheduledJob.update({
+        where: { id: jobId },
+        data: { status: JobStatus.FAILED, completedAt: now, errorMessage: message },
+      }),
+      ...(accountId && requiresReconnect(code)
+        ? [
+            prisma.socialAccount.update({
+              where: { id: accountId },
+              data: { needsReconnect: true, lastError: `${error} (${code})` },
+            }),
+          ]
+        : []),
+    ]);
+    results.failed++;
+    results.permanent++;
+    results.errors.push({ postId, error: message, code });
+    return;
+  }
+
   const exhausted = !retryable || attempt >= MAX_ATTEMPTS;
   const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
 
