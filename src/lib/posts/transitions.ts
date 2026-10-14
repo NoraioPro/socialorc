@@ -81,6 +81,24 @@ export function submitGuardWhere(id: string, workspaceId: string) {
   };
 }
 
+/**
+ * Moving a scheduled post to another time: it must still be SCHEDULED and still
+ * carry its approval when the write lands (an edit in between returns it to
+ * DRAFT and clears `approvedAt`).
+ */
+export function rescheduleGuardWhere(id: string, workspaceId: string) {
+  return { id, workspaceId, status: "SCHEDULED" as PostStatus, approvedAt: { not: null } };
+}
+
+/**
+ * Only a job that is still waiting may be moved. One the worker has claimed
+ * (PROCESSING) is mid-send; one with a `pendingPublishId` was already accepted
+ * by the platform. Re-arming either could send the post twice.
+ */
+export function rescheduleJobWhere(postId: string) {
+  return { postId, status: "PENDING" as const, pendingPublishId: null };
+}
+
 /** A failed publish may be re-queued only if it was approved in the first place. */
 export function retryGuardWhere(id: string, workspaceId: string) {
   return { id, workspaceId, status: "FAILED" as PostStatus, approvedAt: { not: null } };

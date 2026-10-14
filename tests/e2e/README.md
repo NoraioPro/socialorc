@@ -47,3 +47,7 @@ that makes the gate disappear fails this suite (see `docs/AGENT-BRIEF.md` §1).
 
 - `run.mjs` — DB prep, server boot, readiness wait, teardown, exit code.
 - `publish.e2e.mjs` — the HTTP chain and every assertion (exports `runPublishE2E`).
+- `routes.e2e.mjs` — route contracts for the routes no other suite drives: happy path, 401,
+  403 for a role without the permission (invited CLIENT/EDITOR), cross-workspace 404 and input
+  validation (exports `runRoutesE2E`). Signups send a distinct `x-forwarded-for` so the per-IP
+  register limit is not exhausted by the suites that run before it.

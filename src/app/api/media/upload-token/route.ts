@@ -34,7 +34,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
 
-  const body = (await request.json()) as HandleUploadBody;
+  // Parsed outside the try below, so a non-JSON body used to escape as an
+  // unhandled 500. It is a malformed request.
+  const body = (await request.json().catch(() => null)) as HandleUploadBody | null;
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid upload request" }, { status: 400 });
+  }
 
   try {
     const jsonResponse = await handleUpload({

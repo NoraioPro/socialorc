@@ -11,6 +11,21 @@ import type { AccountInfo, OAuthTokens, PlatformAdapter } from "@/types/platform
  * (`/api/social/pending`) finishes a connection through exactly the same
  * ownership rule, sanitising and capability snapshot as the callback does.
  */
+/** The two calls this needs, so a test can stand in for the database. */
+export interface PersistAccountClient {
+  socialAccount: {
+    findUnique(args: {
+      where: { platform_platformUserId: { platform: Platform; platformUserId: string } };
+      select: { id: true; workspaceId: true };
+    }): Promise<{ id: string; workspaceId: string | null } | null>;
+    upsert(args: {
+      where: { platform_platformUserId: { platform: Platform; platformUserId: string } };
+      create: Record<string, unknown>;
+      update: Record<string, unknown>;
+    }): Promise<{ id: string }>;
+  };
+}
+
 export async function persistConnectedAccount(input: {
   platform: Platform;
   /** The caller's workspace, resolved by the route (never re-derived here). */
@@ -20,7 +35,7 @@ export async function persistConnectedAccount(input: {
   adapter: PlatformAdapter;
   tokens: OAuthTokens;
   info: AccountInfo;
-}): Promise<{ ok: true; accountId: string } | { ok: false; reason: "account_owned_elsewhere" }> {
+}, client: PersistAccountClient = prisma as unknown as PersistAccountClient): Promise<{ ok: true; accountId: string } | { ok: false; reason: "account_owned_elsewhere" }> {
   const { platform, workspaceId, userId, brainId, adapter, tokens, info } = input;
   const encrypted = encryptTokens(tokens);
 
@@ -81,7 +96,7 @@ export async function persistConnectedAccount(input: {
   // and the `update` branch rewrote `userId`/`brainId`: the account changed
   // hands with no warning to either side. Refuse, and leave it where it is.
   // A teammate in the same workspace may reconnect it.
-  const existingAccount = await prisma.socialAccount.findUnique({
+  const existingAccount = await client.socialAccount.findUnique({
     where: {
       platform_platformUserId: { platform, platformUserId: info.platformUserId },
     },
@@ -95,7 +110,7 @@ export async function persistConnectedAccount(input: {
     return { ok: false, reason: "account_owned_elsewhere" };
   }
 
-  const account = await prisma.socialAccount.upsert({
+  const account = await client.socialAccount.upsert({
     where: {
       platform_platformUserId: { platform, platformUserId: info.platformUserId },
     },

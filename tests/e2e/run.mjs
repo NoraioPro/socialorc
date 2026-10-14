@@ -23,6 +23,7 @@ import { runEngagementE2E } from "./engagement.e2e.mjs";
 import { runTenancyE2E } from "./tenancy.e2e.mjs";
 import { runInboxE2E } from "./inbox.e2e.mjs";
 import { runKnowledgeE2E } from "./knowledge.e2e.mjs";
+import { runRoutesE2E } from "./routes.e2e.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -231,8 +232,10 @@ async function main() {
     const tenancyResult = await runTenancyE2E({ baseUrl: BASE_URL });
     const inboxResult = await runInboxE2E({ baseUrl: BASE_URL });
     const knowledgeResult = await runKnowledgeE2E({ baseUrl: BASE_URL });
-    ok =
-      publishResult.ok && engagementResult.ok && tenancyResult.ok && inboxResult.ok && knowledgeResult.ok;
+    const routesResult = await runRoutesE2E({ baseUrl: BASE_URL });
+    ok = [publishResult, engagementResult, tenancyResult, inboxResult, knowledgeResult, routesResult].every(
+      (r) => r.ok,
+    );
     if (!ok) {
       console.log("\nFailed checks:");
       for (const r of [
@@ -241,6 +244,7 @@ async function main() {
         ...tenancyResult.results,
         ...inboxResult.results,
         ...knowledgeResult.results,
+        ...routesResult.results,
       ].filter((x) => !x.ok)) {
         console.log(`  - ${r.name}${r.detail ? ` (${r.detail})` : ""}`);
       }
@@ -256,7 +260,7 @@ async function main() {
 
   console.log(
     ok
-      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement + workspace isolation + inbox + brand knowledge)"
+      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement + workspace isolation + inbox + brand knowledge + route contracts)"
       : "\nE2E RESULT: FAIL",
   );
   process.exit(ok ? 0 : 1);
