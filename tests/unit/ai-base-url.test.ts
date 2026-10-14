@@ -112,14 +112,24 @@ describe("ai base url: DNS resolution", () => {
     assert.equal(problem, null);
   });
 
-  it("accepts a name that does not resolve (nothing private is reachable)", async () => {
+  it("refuses a name that does not resolve (it could be pointed somewhere private later)", async () => {
     const problem = await checkAiBaseUrl("https://nxdomain.example.com/v1", {
       allowPrivate: false,
       resolve: async () => {
         throw new Error("ENOTFOUND");
       },
     });
-    assert.equal(problem, null);
+    assert.match(problem ?? "", /does not resolve/);
+    const empty = await checkAiBaseUrl("https://empty.example.com/v1", {
+      allowPrivate: false,
+      resolve: async () => [],
+    });
+    assert.match(empty ?? "", /does not resolve/);
+  });
+
+  it("refuses literal NAT64 and 6to4 hosts", () => {
+    assert.match(aiBaseUrlProblem("https://[64:ff9b::a9fe:a9fe]/v1", strict) ?? "", /public host/);
+    assert.match(aiBaseUrlProblem("https://[2002:7f00:1::]/v1", strict) ?? "", /public host/);
   });
 
   it("skips resolution in development", async () => {

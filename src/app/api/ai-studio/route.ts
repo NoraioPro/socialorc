@@ -236,7 +236,9 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : "Failed to process request" 
+        // Never the raw message: a provider or network error can carry the base
+        // URL, internal addresses, or a fragment of the API key.
+        error: "Failed to process request",
       },
       { status: 500 }
     );
@@ -268,7 +270,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse<AIStudioStatu
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : "Failed to get status" 
+        error: "Failed to get status",
       },
       { status: 500 }
     );

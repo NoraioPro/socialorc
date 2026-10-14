@@ -1,5 +1,8 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { createPublicOnlyFetch, isNonPublicIp, type FetchLike } from "@/lib/net/safe-fetch";
+
+export { isNonPublicIp };
 
 /**
  * Is a customer-supplied AI `baseUrl` safe for the server to call?
@@ -17,6 +20,11 @@ import { lookup } from "node:dns/promises";
  *     resolves to one;
  *   - no `localhost`, `*.localhost`, `*.local`, `*.internal` names.
  *
+ * Saving is only the first check. DNS can change after it, and the provider SDK
+ * follows redirects, so every call also goes through `aiFetch`
+ * (src/lib/net/safe-fetch.ts): the address is judged where the socket opens,
+ * and a redirect is an error.
+ *
  * Local development keeps http and private hosts (a local Ollama or LM Studio is
  * the normal case there). Override either way with AI_BASE_URL_ALLOW_PRIVATE.
  */
@@ -29,49 +37,6 @@ export function allowPrivateAiBaseUrl(env: NodeJS.ProcessEnv = process.env): boo
 }
 
 const BLOCKED_NAME = /(^|\.)(localhost|local|internal|localdomain|home\.arpa)$/i;
-
-function ipv4Private(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
-  const [a, b] = parts;
-  return (
-    a === 0 || // "this" network
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) || // CGNAT
-    (a === 169 && b === 254) || // link-local, cloud metadata
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 192 && b === 0 && parts[2] === 0) ||
-    (a === 198 && (b === 18 || b === 19)) || // benchmarking
-    a >= 224 // multicast and reserved
-  );
-}
-
-/** True for any IP literal the server must not be pointed at. */
-export function isNonPublicIp(raw: string): boolean {
-  const ip = raw.replace(/^\[|\]$/g, "").toLowerCase();
-  const family = isIP(ip);
-  if (family === 4) return ipv4Private(ip);
-  if (family !== 6) return false;
-
-  if (ip === "::" || ip === "::1") return true;
-  // IPv4-mapped / -compatible (::ffff:10.0.0.1, ::ffff:a00:1) — judge the IPv4 inside.
-  const mapped = /^::(ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
-  if (mapped) return ipv4Private(mapped[2]);
-  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(ip);
-  if (hexMapped) {
-    const hi = parseInt(hexMapped[1], 16);
-    const lo = parseInt(hexMapped[2], 16);
-    return ipv4Private(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-  }
-  const first = parseInt(ip.split(":")[0] || "0", 16);
-  return (
-    (first & 0xfe00) === 0xfc00 || // fc00::/7 unique local
-    (first & 0xffc0) === 0xfe80 || // fe80::/10 link-local
-    (first & 0xff00) === 0xff00 // multicast
-  );
-}
 
 /**
  * Synchronous checks on the URL text alone. Returns a user-facing problem, or
@@ -104,8 +69,9 @@ export function aiBaseUrlProblem(value: string, opts: { allowPrivate: boolean })
 
 /**
  * The full check: the text, then (outside development) every address the host
- * resolves to. A name that does not resolve is accepted — it cannot reach a
- * private address today, and the provider call will fail visibly.
+ * resolves to. A name that does not resolve is refused: accepting it would let
+ * somebody save a name today and point it at a private address tomorrow, and
+ * there is no legitimate provider without DNS.
  */
 export async function checkAiBaseUrl(
   value: string,
@@ -124,10 +90,19 @@ export async function checkAiBaseUrl(
   try {
     addresses = await resolve(host);
   } catch {
-    return null;
+    return "The base URL's host does not resolve.";
   }
+  if (addresses.length === 0) return "The base URL's host does not resolve.";
   if (addresses.some(isNonPublicIp)) {
     return "The base URL's host resolves to a private, loopback or link-local address.";
   }
   return null;
 }
+
+/**
+ * The `fetch` every AI provider client must be built with.
+ *
+ * Public addresses only (unless private hosts are allowed, i.e. local
+ * development), checked at connect time on every request, and no redirects.
+ */
+export const aiFetch: FetchLike = createPublicOnlyFetch({ allowPrivate: () => allowPrivateAiBaseUrl() });
