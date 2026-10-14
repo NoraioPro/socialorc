@@ -20,6 +20,7 @@ import fs from "node:fs";
 
 import { runPublishE2E } from "./publish.e2e.mjs";
 import { runEngagementE2E } from "./engagement.e2e.mjs";
+import { runTenancyE2E } from "./tenancy.e2e.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
@@ -222,10 +223,15 @@ async function main() {
   try {
     const publishResult = await runPublishE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
     const engagementResult = await runEngagementE2E({ baseUrl: BASE_URL, cronSecret: CRON_SECRET });
-    ok = publishResult.ok && engagementResult.ok;
+    const tenancyResult = await runTenancyE2E({ baseUrl: BASE_URL });
+    ok = publishResult.ok && engagementResult.ok && tenancyResult.ok;
     if (!ok) {
       console.log("\nFailed checks:");
-      for (const r of [...publishResult.results, ...engagementResult.results].filter((x) => !x.ok)) {
+      for (const r of [
+        ...publishResult.results,
+        ...engagementResult.results,
+        ...tenancyResult.results,
+      ].filter((x) => !x.ok)) {
         console.log(`  - ${r.name}${r.detail ? ` (${r.detail})` : ""}`);
       }
       console.log("--- server log tail ---\n" + logTail.join("").split("\n").slice(-30).join("\n"));
@@ -240,7 +246,7 @@ async function main() {
 
   console.log(
     ok
-      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement)"
+      ? "\nE2E RESULT: PASS (mock adapter only, publish + engagement + workspace isolation)"
       : "\nE2E RESULT: FAIL",
   );
   process.exit(ok ? 0 : 1);
