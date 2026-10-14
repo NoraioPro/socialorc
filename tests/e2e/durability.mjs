@@ -253,10 +253,17 @@ async function stopServer(server) {
     // Wait until the port actually frees, or the next case races a dying server.
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
-      const res = spawnSync("sh", ["-c", `lsof -ti tcp:${PORT} 2>/dev/null`], { encoding: "utf8" });
-      const pids = (res.stdout ?? "").trim();
-      if (!pids) break;
-      for (const pid of pids.split(/\s+/)) kill(Number(pid));
+      // LISTEN only: plain `lsof -ti tcp:PORT` also lists this process, which
+      // holds keep-alive client sockets to the server, and SIGKILLed the suite
+      // itself on hosts that have lsof (exit 137 in CI).
+      const res = spawnSync("sh", ["-c", `lsof -ti tcp:${PORT} -sTCP:LISTEN 2>/dev/null`], { encoding: "utf8" });
+      const pids = (res.stdout ?? "")
+        .trim()
+        .split(/\s+/)
+        .map(Number)
+        .filter((pid) => pid && pid !== process.pid);
+      if (pids.length === 0) break;
+      for (const pid of pids) kill(pid);
       await sleep(500);
     }
   }
