@@ -52,8 +52,17 @@ test("refresh needs both a refresh token and a platform that supports refresh", 
 test("connector capability flags agree with the refresh contract", () => {
   // Telegram bot tokens are permanent: never refreshable, no expiry.
   assert.equal(PLATFORM_CONFIGS[Platform.TELEGRAM].capabilities.refreshableTokens, false);
-  // OAuth platforms all support refresh today.
-  for (const platform of [Platform.LINKEDIN, Platform.TWITTER, Platform.INSTAGRAM, Platform.FACEBOOK, Platform.TIKTOK, Platform.YOUTUBE]) {
+  // Meta connectors store a non-expiring Page token: nothing to refresh, and a
+  // revoked one needs a reconnect, which is what `false` tells the worker.
+  for (const platform of [Platform.INSTAGRAM, Platform.FACEBOOK]) {
+    assert.equal(
+      PLATFORM_CONFIGS[platform].capabilities.refreshableTokens,
+      false,
+      `${platform} stores a Page token and must not claim to refresh it`,
+    );
+  }
+  // The other OAuth platforms refresh with a refresh token.
+  for (const platform of [Platform.LINKEDIN, Platform.TWITTER, Platform.TIKTOK, Platform.YOUTUBE]) {
     assert.equal(
       PLATFORM_CONFIGS[platform].capabilities.refreshableTokens,
       true,

@@ -1,9 +1,10 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
-import { metaAppId, metaAppSecret } from "./meta-app";
+import { metaAppId } from "./meta-app";
 import {
   OAuthTokens,
   AccountInfo,
+  ConnectTarget,
   PostOptions,
   PostResult,
   ListCommentsOptions,
@@ -15,16 +16,46 @@ import {
 } from "@/types/platform";
 import { graphPagingCursor, mapGraphComment } from "./meta-graph-comments";
 import {
+  FACEBOOK_AUTH_URL,
+  GRAPH_API_URL,
+  exchangeCodeForLongLivedUserToken,
+  fetchManagedPages,
+  metaTokensDoNotRefresh,
+  type ManagedPage,
+} from "./meta-graph";
+import { encodeMetaPageCredential, parseMetaCredential } from "./meta-credential";
+import { formatGraphError, type AdapterErrorCode } from "./errors";
+import { inFlightKey, inFlightMediaStore } from "./in-flight-media";
+import {
   validateInstagramCredentials,
   type CredentialValidationResult,
 } from "./credentials";
 
-const FACEBOOK_AUTH_URL = "https://www.facebook.com/v25.0/dialog/oauth";
-const FACEBOOK_TOKEN_URL = "https://graph.facebook.com/v25.0/oauth/access_token";
-const GRAPH_API_URL = "https://graph.facebook.com/v25.0";
+const IG_PAGE_FIELDS =
+  "id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}";
+
+/** `GET /{container}?fields=status_code` values (content-publishing guide). */
+type ContainerStatus = "FINISHED" | "IN_PROGRESS" | "ERROR" | "EXPIRED" | "PUBLISHED";
+
+type Failure = { success: false; error: string; code?: AdapterErrorCode; rawResponse?: unknown };
 
 export class InstagramAdapter extends BasePlatformAdapter {
   platform = Platform.INSTAGRAM;
+
+  /**
+   * How long one publish attempt may wait for a container to reach FINISHED.
+   *
+   * The publish routes run under `maxDuration = 60` and the worker stops
+   * claiming new jobs 15s before that, so the last job of a run has ~15s left.
+   * Waiting longer risks the function being killed mid-publish, which is the
+   * one state the worker cannot reason about. Past this budget the attempt
+   * reports MEDIA_PROCESSING (retryable) and the next run resumes polling the
+   * same container — Meta recommends polling about once a minute for up to five
+   * minutes, which the cron cadence (every 5 min, 3 attempts) covers.
+   */
+  pollBudgetMs = 10_000;
+  pollIntervalMs = 2_000;
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /**
    * Validate Instagram/Meta OAuth credentials: both presence and format.
@@ -58,112 +89,104 @@ export class InstagramAdapter extends BasePlatformAdapter {
     return `${FACEBOOK_AUTH_URL}?${params.toString()}`;
   }
 
+  /** Returns the long-lived USER token; the callback turns it into a Page credential. */
   async exchangeCodeForTokens(code: string): Promise<OAuthTokens> {
-    const response = await fetch(FACEBOOK_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: metaAppId(),
-        client_secret: metaAppSecret(),
-        redirect_uri: this.getRedirectUri(),
-        code,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new AdapterError(
-        `Failed to exchange code for tokens: ${error}`,
-        "TOKEN_EXCHANGE_FAILED",
-        response.status,
-        error
-      );
-    }
-
-    const data = await response.json();
-
-    const longLivedResponse = await fetch(
-      `${GRAPH_API_URL}/oauth/access_token?` +
-        new URLSearchParams({
-          grant_type: "fb_exchange_token",
-          client_id: metaAppId(),
-          client_secret: metaAppSecret(),
-          fb_exchange_token: data.access_token,
-        })
-    );
-
-    if (longLivedResponse.ok) {
-      const longLivedData = await longLivedResponse.json();
-      return {
-        accessToken: longLivedData.access_token,
-        refreshToken: null,
-        expiresAt: longLivedData.expires_in
-          ? new Date(Date.now() + longLivedData.expires_in * 1000)
-          : null,
-        tokenType: longLivedData.token_type || "bearer",
-      };
-    }
-
-    return {
-      accessToken: data.access_token,
-      refreshToken: null,
-      expiresAt: data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000)
-        : null,
-      tokenType: data.token_type || "bearer",
-    };
+    return exchangeCodeForLongLivedUserToken(code, this.getRedirectUri());
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
-    const response = await fetch(
-      `${GRAPH_API_URL}/oauth/access_token?` +
-        new URLSearchParams({
-          grant_type: "fb_exchange_token",
-          client_id: metaAppId(),
-          client_secret: metaAppSecret(),
-          fb_exchange_token: refreshToken,
-        })
-    );
+  async refreshAccessToken(): Promise<OAuthTokens> {
+    return metaTokensDoNotRefresh("Instagram");
+  }
 
-    if (!response.ok) {
-      const error = await response.text();
+  /** Instagram professional accounts linked to a Page this grant manages. */
+  async listConnectTargets(userToken: string): Promise<ConnectTarget[]> {
+    const pages = await fetchManagedPages(userToken, IG_PAGE_FIELDS);
+    const seen = new Set<string>();
+    const targets: ConnectTarget[] = [];
+    for (const page of pages) {
+      const ig = page.instagram_business_account;
+      if (!ig?.id || !page.access_token || seen.has(ig.id)) continue;
+      seen.add(ig.id);
+      targets.push({
+        id: ig.id,
+        name: ig.name || ig.username || ig.id,
+        username: ig.username,
+        pictureUrl: ig.profile_picture_url,
+        detail: `Linked to the Facebook Page "${page.name}"`,
+      });
+    }
+    return targets;
+  }
+
+  /**
+   * Store the linked Page's token (no expiry — see meta-credential.ts) with the
+   * Instagram account id. The content-publishing guide lists the Facebook Page
+   * access token as the token for the Facebook Login flavour of this API.
+   */
+  async connectTarget(
+    userToken: string,
+    igUserId: string,
+  ): Promise<{ tokens: OAuthTokens; info: AccountInfo }> {
+    const pages = await fetchManagedPages(userToken, IG_PAGE_FIELDS);
+    const page = pages.find(
+      (p): p is ManagedPage & { access_token: string } =>
+        p.instagram_business_account?.id === igUserId && Boolean(p.access_token),
+    );
+    if (!page) {
       throw new AdapterError(
-        `Failed to refresh token: ${error}`,
-        "TOKEN_REFRESH_FAILED",
-        response.status,
-        error
+        "That Instagram account is not linked to a Facebook Page this login manages.",
+        "IG_ACCOUNT_NOT_MANAGED",
       );
     }
-
-    const data = await response.json();
-
+    const ig = page.instagram_business_account!;
     return {
-      accessToken: data.access_token,
-      refreshToken: data.access_token,
-      expiresAt: data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000)
-        : null,
-      tokenType: data.token_type || "bearer",
+      tokens: {
+        accessToken: encodeMetaPageCredential({ token: page.access_token, pageId: page.id, igUserId }),
+        refreshToken: null,
+        expiresAt: null,
+        tokenType: "page",
+      },
+      info: {
+        platformUserId: igUserId,
+        platformUsername: ig.username,
+        displayName: ig.name || ig.username,
+        profileImageUrl: ig.profile_picture_url,
+        metadata: {
+          accountType: "instagram_business",
+          pageId: page.id,
+          externalParentId: page.id,
+        },
+      },
     };
   }
 
   async getAccountInfo(accessToken: string): Promise<AccountInfo> {
-    const pagesResponse = await fetch(
-      `${GRAPH_API_URL}/me/accounts?access_token=${accessToken}`
-    );
-
-    if (!pagesResponse.ok) {
-      throw new AdapterError(
-        "Failed to get Facebook Pages",
-        "PAGES_FETCH_FAILED",
-        pagesResponse.status
+    const credential = parseMetaCredential(accessToken);
+    if (credential.kind === "page" && credential.igUserId) {
+      const igInfoResponse = await fetch(
+        `${GRAPH_API_URL}/${credential.igUserId}?` +
+          new URLSearchParams({
+            fields: "id,username,name,profile_picture_url",
+            access_token: credential.token,
+          }),
       );
+      const igInfo = await igInfoResponse.json().catch(() => ({}));
+      if (!igInfoResponse.ok) {
+        const formatted = formatGraphError(igInfo, "Failed to get Instagram account info");
+        throw new AdapterError(formatted.message, "IG_INFO_FAILED", igInfoResponse.status, igInfo);
+      }
+      return {
+        platformUserId: credential.igUserId,
+        platformUsername: igInfo.username,
+        displayName: igInfo.name || igInfo.username,
+        profileImageUrl: igInfo.profile_picture_url,
+        metadata: { accountType: "instagram_business", pageId: credential.pageId, externalParentId: credential.pageId },
+      };
     }
 
-    const pagesData = await pagesResponse.json();
-    const pages = pagesData.data || [];
+    // Legacy row (bare long-lived user token): first Page, as before.
+    const userToken = credential.token;
+    const pages = await fetchManagedPages(userToken, "id,name,access_token");
 
     if (pages.length === 0) {
       throw new AdapterError(
@@ -219,77 +242,122 @@ export class InstagramAdapter extends BasePlatformAdapter {
       metadata: {
         pageId,
         pageAccessToken,
-        facebookPages: pages.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })),
+        facebookPages: pages.map((p) => ({ id: p.id, name: p.name })),
       },
     };
   }
 
+  /** The Instagram account to act as and the Page token to act with. */
+  private async resolveAccount(accessToken: string): Promise<{ igUserId: string; pageToken: string }> {
+    const credential = parseMetaCredential(accessToken);
+    if (credential.kind === "page" && credential.igUserId) {
+      return { igUserId: credential.igUserId, pageToken: credential.token };
+    }
+    const info = await this.getAccountInfo(credential.token);
+    const pageToken = (info.metadata as Record<string, unknown>)?.pageAccessToken as string;
+    if (!pageToken) {
+      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
+    }
+    return { igUserId: info.platformUserId, pageToken };
+  }
+
+  /**
+   * Publish = create a container, wait until Meta has fetched and processed
+   * the media (`status_code` FINISHED), then `media_publish` it.
+   *
+   * Single image, single video (published as a Reel — the only video type the
+   * feed API publishes now), or a carousel of 2–10 images.
+   */
   async createPost(accessToken: string, options: PostOptions): Promise<PostResult> {
     const invalidContent = this.validatePostContent(options);
     if (invalidContent) {
       return { success: false, error: invalidContent.message, code: invalidContent.code };
     }
 
-    try {
-      const accountInfo = await this.getAccountInfo(accessToken);
-      const igUserId = accountInfo.platformUserId;
-      const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
-
-      if (!pageAccessToken) {
-        return { success: false, error: "Page access token not found" };
-      }
-
-      const containerParams: Record<string, string> = {
-        caption: options.text,
-        access_token: pageAccessToken,
+    const media = this.mediaDescriptors(options);
+    const kinds = media.map((m) => this.classifyMedia(m));
+    if (media.length > 1 && kinds.includes("video")) {
+      return {
+        success: false,
+        error:
+          "Instagram carousels with video are not supported by this connector yet (Reels cannot be carousel items). Publish the video on its own. Nothing was published.",
+        code: "UNSUPPORTED_MEDIA",
       };
+    }
 
-      if (options.mediaUrls && options.mediaUrls.length > 0) {
-        containerParams.image_url = options.mediaUrls[0];
-      } else {
-        return { success: false, error: "Instagram requires at least one image for posts" };
+    try {
+      const { igUserId, pageToken } = await this.resolveAccount(accessToken);
+
+      const key = options.idempotencyKey
+        ? inFlightKey(Platform.INSTAGRAM, "container", options.idempotencyKey)
+        : null;
+      const store = key ? await inFlightMediaStore() : null;
+
+      // Resume a container an earlier attempt created, so a slow video keeps
+      // its place in Meta's processing queue instead of being uploaded again.
+      let containerId = key && store ? await store.get(key) : null;
+      let status: ContainerStatus | Failure | null = null;
+
+      if (containerId) {
+        status = await this.waitForContainer(containerId, pageToken);
+        // An expired or failed leftover is discarded and the post starts over.
+        if (status === "EXPIRED" || status === "ERROR") {
+          await store?.done(key!, {});
+          containerId = null;
+          status = null;
+        }
       }
 
-      const containerResponse = await fetch(
-        `${GRAPH_API_URL}/${igUserId}/media`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(containerParams),
+      if (!containerId) {
+        const created = await this.createContainer(igUserId, pageToken, options.text, media, kinds);
+        if (!created.success) return created;
+        containerId = created.id;
+        if (key && store && options.idempotencyKey) {
+          await store.put(key, containerId, { postId: options.idempotencyKey, platform: Platform.INSTAGRAM });
         }
-      );
-
-      if (!containerResponse.ok) {
-        const error = await containerResponse.json();
-        return {
-          success: false,
-          error: error.error?.message || "Failed to create media container",
-          rawResponse: error,
-        };
+        status = await this.waitForContainer(containerId, pageToken);
       }
 
-      const containerData = await containerResponse.json();
-      const containerId = containerData.id;
+      if (typeof status === "object" && status !== null) return status;
 
-      const publishResponse = await fetch(
-        `${GRAPH_API_URL}/${igUserId}/media_publish`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            creation_id: containerId,
-            access_token: pageAccessToken,
-          }),
-        }
-      );
+      switch (status) {
+        case "FINISHED":
+          break;
+        case "IN_PROGRESS":
+          return {
+            success: false,
+            error: `Instagram is still processing the media (container ${containerId}); nothing was published yet. It will be re-checked on the next run.`,
+            code: "MEDIA_PROCESSING",
+          };
+        case "PUBLISHED":
+          // Only possible when a previous attempt published and then failed to
+          // record it. Publishing again would duplicate the post.
+          await store?.done(key!, {});
+          return {
+            success: false,
+            error:
+              "Instagram reports this post's media was already published by an earlier attempt that could not record it. Check the account before retrying; nothing new was published.",
+            code: "CONTENT_INVALID",
+          };
+        default:
+          await store?.done(key!, {});
+          return {
+            success: false,
+            error: `Instagram could not process the media (container status ${status ?? "unknown"}). Check the file meets Instagram's format requirements. Nothing was published.`,
+            code: "MEDIA_INVALID",
+          };
+      }
+
+      const publishResponse = await fetch(`${GRAPH_API_URL}/${igUserId}/media_publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ creation_id: containerId, access_token: pageToken }),
+      });
 
       if (!publishResponse.ok) {
-        const error = await publishResponse.json();
-        return {
-          success: false,
-          error: error.error?.message || "Failed to publish media",
-          rawResponse: error,
-        };
+        const error = await publishResponse.json().catch(() => ({}));
+        const formatted = formatGraphError(error, "Failed to publish media");
+        return { success: false, error: formatted.message, code: formatted.code, rawResponse: error };
       }
 
       const publishData = await publishResponse.json();
@@ -305,10 +373,12 @@ export class InstagramAdapter extends BasePlatformAdapter {
         };
       }
 
+      await store?.done(key!, { publishedId: mediaId }).catch(() => undefined);
+
       return {
         success: true,
         platformPostId: mediaId,
-        platformPostUrl: `https://www.instagram.com/p/${mediaId}/`,
+        platformPostUrl: await this.permalink(mediaId, pageToken),
         rawResponse: publishData,
       };
     } catch (error) {
@@ -322,13 +392,117 @@ export class InstagramAdapter extends BasePlatformAdapter {
     }
   }
 
-  private async resolvePageAccessToken(accessToken: string): Promise<string> {
-    const accountInfo = await this.getAccountInfo(accessToken);
-    const pageAccessToken = (accountInfo.metadata as Record<string, unknown>)?.pageAccessToken as string;
-    if (!pageAccessToken) {
-      throw new AdapterError("Page access token not found", "PAGE_TOKEN_MISSING");
+  private async postContainer(
+    igUserId: string,
+    params: Record<string, string>,
+  ): Promise<{ success: true; id: string } | Failure> {
+    const response = await fetch(`${GRAPH_API_URL}/${igUserId}/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.id) {
+      const formatted = formatGraphError(body, "Failed to create media container");
+      return { success: false, error: formatted.message, code: formatted.code, rawResponse: body };
     }
-    return pageAccessToken;
+    return { success: true, id: body.id as string };
+  }
+
+  private async createContainer(
+    igUserId: string,
+    pageToken: string,
+    caption: string,
+    media: { url: string }[],
+    kinds: ("image" | "video" | "unknown")[],
+  ): Promise<{ success: true; id: string } | Failure> {
+    if (media.length === 1 && kinds[0] === "video") {
+      return this.postContainer(igUserId, {
+        media_type: "REELS",
+        video_url: media[0].url,
+        caption,
+        share_to_feed: "true",
+        access_token: pageToken,
+      });
+    }
+
+    if (media.length === 1) {
+      return this.postContainer(igUserId, {
+        image_url: media[0].url,
+        caption,
+        access_token: pageToken,
+      });
+    }
+
+    // Carousel: one item container per image (no caption on items), then the
+    // parent. Item containers are cheap to orphan — unpublished ones expire.
+    const children: string[] = [];
+    for (const item of media) {
+      const child = await this.postContainer(igUserId, {
+        image_url: item.url,
+        is_carousel_item: "true",
+        access_token: pageToken,
+      });
+      if (!child.success) return child;
+      children.push(child.id);
+    }
+    return this.postContainer(igUserId, {
+      media_type: "CAROUSEL",
+      children: children.join(","),
+      caption,
+      access_token: pageToken,
+    });
+  }
+
+  /**
+   * Poll `status_code` until it leaves IN_PROGRESS or the budget runs out.
+   * Returns the last status seen, or a Failure when the status call itself
+   * failed (an expired token there is the same reconnect case as anywhere).
+   */
+  private async waitForContainer(containerId: string, pageToken: string): Promise<ContainerStatus | Failure> {
+    const startedAt = Date.now();
+    let slept = 0;
+    for (;;) {
+      const response = await fetch(
+        `${GRAPH_API_URL}/${containerId}?` +
+          new URLSearchParams({ fields: "status_code,status", access_token: pageToken }),
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const formatted = formatGraphError(body, "Failed to read media container status");
+        return { success: false, error: formatted.message, code: formatted.code, rawResponse: body };
+      }
+      const status = String(body.status_code ?? "IN_PROGRESS") as ContainerStatus;
+      if (status !== "IN_PROGRESS") return status;
+      // Budget = whichever is larger: wall time, or time spent waiting.
+      if (Math.max(Date.now() - startedAt, slept) + this.pollIntervalMs > this.pollBudgetMs) {
+        return "IN_PROGRESS";
+      }
+      await this.sleep(this.pollIntervalMs);
+      slept += this.pollIntervalMs;
+    }
+  }
+
+  /**
+   * The public URL. A media id is not the shortcode in `/p/<shortcode>/`, so
+   * the URL the old code built never resolved; ask for the permalink instead
+   * (best effort — the post is published either way).
+   */
+  private async permalink(mediaId: string, pageToken: string): Promise<string | undefined> {
+    try {
+      const response = await fetch(
+        `${GRAPH_API_URL}/${mediaId}?` + new URLSearchParams({ fields: "permalink", access_token: pageToken }),
+      );
+      if (!response.ok) return undefined;
+      const body = await response.json();
+      return typeof body.permalink === "string" ? body.permalink : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async resolvePageAccessToken(accessToken: string): Promise<string> {
+    return (await this.resolveAccount(accessToken)).pageToken;
   }
 
   async listComments(
@@ -352,10 +526,10 @@ export class InstagramAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Instagram API error: ${response.status}`,
+          error: formatGraphError(error, `Instagram API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -410,10 +584,10 @@ export class InstagramAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Instagram API error: ${response.status}`,
+          error: formatGraphError(error, `Instagram API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -447,10 +621,10 @@ export class InstagramAdapter extends BasePlatformAdapter {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Instagram API error: ${response.status}`,
+          error: formatGraphError(error, `Instagram API error: ${response.status}`).message,
           rawResponse: error,
         };
       }
@@ -480,10 +654,10 @@ export class InstagramAdapter extends BasePlatformAdapter {
       );
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         return {
           success: false,
-          error: error.error?.message || `Instagram API error: ${response.status}`,
+          error: formatGraphError(error, `Instagram API error: ${response.status}`).message,
           rawResponse: error,
         };
       }

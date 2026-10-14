@@ -5,6 +5,7 @@ import {
   AccountInfo,
   PostOptions,
   PostResult,
+  PostMediaDescriptor,
   ListCommentsOptions,
   ListCommentsResult,
   WriteCommentOptions,
@@ -18,13 +19,24 @@ import {
   type CredentialValidationResult,
 } from "./credentials";
 import { codeChallengeFor, generateCodeVerifier } from "@/lib/social/pkce";
+import { classifyAdapterError, type AdapterErrorCode } from "./errors";
+import { inFlightKey, inFlightMediaStore, type InFlightMediaStore } from "./in-flight-media";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
 const TWITTER_API_URL = "https://api.x.com/2";
 
+/** X recommends chunks of at most 5 MB (server maximum 8 MB). */
+const X_CHUNK_BYTES = 4 * 1024 * 1024;
+
+type UploadFailure = { success: false; error: string; code?: AdapterErrorCode; rawResponse?: unknown };
+
 export class TwitterAdapter extends BasePlatformAdapter {
   platform = Platform.TWITTER;
+
+  /** Same bound and reasoning as InstagramAdapter.pollBudgetMs (60s route ceiling). */
+  pollBudgetMs = 10_000;
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /**
    * Validate Twitter/X OAuth credentials: both presence and format.
@@ -69,7 +81,10 @@ export class TwitterAdapter extends BasePlatformAdapter {
       response_type: "code",
       client_id: process.env.TWITTER_CLIENT_ID || "",
       redirect_uri: this.getRedirectUri(),
-      scope: "tweet.read tweet.write users.read offline.access",
+      // media.write: required by the v2 media upload endpoints
+      // (https://docs.x.com/x-api/media/upload-media). Accounts connected
+      // before it was added must reconnect before attaching media.
+      scope: "tweet.read tweet.write users.read offline.access media.write",
       state,
       code_challenge: codeChallengeFor(verifier, codeChallengeMethod),
       code_challenge_method: codeChallengeMethod,
@@ -212,10 +227,33 @@ export class TwitterAdapter extends BasePlatformAdapter {
       return { success: false, error: invalidContent.message, code: invalidContent.code };
     }
 
+    const media = this.mediaDescriptors(options);
+    const kinds = media.map((m) => this.mediaKindFor(m));
+    // X: up to 4 images, or exactly one video or GIF — never mixed.
+    if (media.length > 1 && kinds.some((k) => k !== "image")) {
+      return {
+        success: false,
+        error: "X allows up to 4 images, or a single video or GIF, per post. Nothing was published.",
+        code: "UNSUPPORTED_MEDIA",
+      };
+    }
+
+    const key =
+      options.idempotencyKey && media.length > 0
+        ? inFlightKey(Platform.TWITTER, "media", options.idempotencyKey)
+        : null;
+    const store = key ? await inFlightMediaStore() : null;
+
     try {
       const tweetBody: Record<string, unknown> = {
         text: options.text,
       };
+
+      if (media.length > 0) {
+        const uploaded = await this.uploadAll(accessToken, media, kinds, key, store, options.idempotencyKey);
+        if (!uploaded.success) return uploaded;
+        tweetBody.media = { media_ids: uploaded.mediaIds };
+      }
 
       const response = await fetch(`${TWITTER_API_URL}/tweets`, {
         method: "POST",
@@ -237,6 +275,8 @@ export class TwitterAdapter extends BasePlatformAdapter {
 
       const data = await response.json();
 
+      if (key && store) await store.done(key, { publishedId: data.data.id }).catch(() => undefined);
+
       return {
         success: true,
         platformPostId: data.data.id,
@@ -251,6 +291,197 @@ export class TwitterAdapter extends BasePlatformAdapter {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error occurred",
       };
+    }
+  }
+
+  /** Image, GIF (its own upload category on X) or video. */
+  private mediaKindFor(descriptor: PostMediaDescriptor): "image" | "gif" | "video" {
+    const mime = descriptor.mimeType ?? BasePlatformAdapter.inferMimeType(descriptor.url);
+    if (mime === "image/gif") return "gif";
+    return mime?.startsWith("video/") ? "video" : "image";
+  }
+
+  /**
+   * Upload every attachment and return the media ids for `POST /2/tweets`.
+   *
+   * Images go through the one-shot `POST /2/media/upload`; video and GIF use
+   * the chunked initialize → append → finalize flow and may need processing.
+   * Processing is polled within `pollBudgetMs`; past that the attempt reports
+   * MEDIA_PROCESSING and, when the caller passed an idempotency key, the next
+   * attempt resumes the same media id instead of uploading again.
+   */
+  private async uploadAll(
+    accessToken: string,
+    media: PostMediaDescriptor[],
+    kinds: ("image" | "gif" | "video")[],
+    key: string | null,
+    store: InFlightMediaStore | null,
+    postId: string | undefined,
+  ): Promise<{ success: true; mediaIds: string[] } | UploadFailure> {
+    const asyncKind = kinds.length === 1 && kinds[0] !== "image";
+
+    if (asyncKind && key && store) {
+      const pending = await store.get(key);
+      if (pending) {
+        const state = await this.waitForProcessing(accessToken, pending);
+        if (state === "succeeded") return { success: true, mediaIds: [pending] };
+        if (typeof state === "object") return state;
+        if (state === "in_progress") return this.stillProcessing(pending);
+        // failed or gone: forget it and upload afresh below
+        await store.done(key, {});
+      }
+    }
+
+    const mediaIds: string[] = [];
+    for (let i = 0; i < media.length; i++) {
+      const bytes = await this.download(media[i]);
+      if (!bytes.success) return bytes;
+
+      if (kinds[i] === "image") {
+        const uploaded = await this.uploadImage(accessToken, bytes.blob);
+        if (!uploaded.success) return uploaded;
+        mediaIds.push(uploaded.id);
+        continue;
+      }
+
+      const uploaded = await this.uploadChunked(accessToken, bytes.blob, kinds[i] === "gif" ? "tweet_gif" : "tweet_video");
+      if (!uploaded.success) return uploaded;
+      if (key && store && postId) {
+        await store.put(key, uploaded.id, { postId, platform: Platform.TWITTER });
+      }
+      if (uploaded.processing) {
+        const state = await this.waitForProcessing(accessToken, uploaded.id);
+        if (typeof state === "object") return state;
+        if (state === "in_progress") return this.stillProcessing(uploaded.id);
+        if (state !== "succeeded") {
+          if (key && store) await store.done(key, {});
+          return {
+            success: false,
+            error: "X could not process the uploaded media. Check the file meets X's format limits. Nothing was published.",
+            code: "MEDIA_INVALID",
+          };
+        }
+      }
+      mediaIds.push(uploaded.id);
+    }
+    return { success: true, mediaIds };
+  }
+
+  private stillProcessing(mediaId: string): UploadFailure {
+    return {
+      success: false,
+      error: `X is still processing the media (${mediaId}); nothing was published yet. It will be re-checked on the next run.`,
+      code: "MEDIA_PROCESSING",
+    };
+  }
+
+  private async download(descriptor: PostMediaDescriptor): Promise<{ success: true; blob: Blob } | UploadFailure> {
+    const response = await fetch(descriptor.url);
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Could not read the attached media (${response.status}). Nothing was published.`,
+        code: "MEDIA_INVALID",
+      };
+    }
+    const type =
+      descriptor.mimeType ??
+      BasePlatformAdapter.inferMimeType(descriptor.url) ??
+      response.headers.get("content-type") ??
+      "application/octet-stream";
+    return { success: true, blob: new Blob([await response.arrayBuffer()], { type }) };
+  }
+
+  private async mediaFailure(response: Response, what: string): Promise<UploadFailure> {
+    const body = await response.json().catch(() => ({}));
+    const detail = body?.detail || body?.title || body?.errors?.[0]?.message || `HTTP ${response.status}`;
+    return {
+      success: false,
+      error: `X media ${what} failed: ${detail}`,
+      code: classifyAdapterError({ status: response.status, message: detail }),
+      rawResponse: body,
+    };
+  }
+
+  private async uploadImage(accessToken: string, blob: Blob): Promise<{ success: true; id: string } | UploadFailure> {
+    const form = new FormData();
+    form.append("media", blob);
+    form.append("media_category", "tweet_image");
+    const response = await fetch(`${TWITTER_API_URL}/media/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+    if (!response.ok) return this.mediaFailure(response, "upload");
+    const body = await response.json();
+    const id = body?.data?.id;
+    if (!id) return { success: false, error: "X returned no media id for the upload.", rawResponse: body };
+    return { success: true, id: String(id) };
+  }
+
+  private async uploadChunked(
+    accessToken: string,
+    blob: Blob,
+    category: "tweet_video" | "tweet_gif",
+  ): Promise<{ success: true; id: string; processing: boolean } | UploadFailure> {
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    const init = await fetch(`${TWITTER_API_URL}/media/upload/initialize`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ media_type: blob.type, total_bytes: blob.size, media_category: category }),
+    });
+    if (!init.ok) return this.mediaFailure(init, "initialize");
+    const initBody = await init.json();
+    const id = initBody?.data?.id ? String(initBody.data.id) : null;
+    if (!id) return { success: false, error: "X returned no media id for the upload.", rawResponse: initBody };
+
+    for (let offset = 0, segment = 0; offset < blob.size; offset += X_CHUNK_BYTES, segment++) {
+      const form = new FormData();
+      form.append("segment_index", String(segment));
+      form.append("media", blob.slice(offset, offset + X_CHUNK_BYTES));
+      const append = await fetch(`${TWITTER_API_URL}/media/upload/${id}/append`, {
+        method: "POST",
+        headers: auth,
+        body: form,
+      });
+      if (!append.ok) return this.mediaFailure(append, "append");
+    }
+
+    const finalize = await fetch(`${TWITTER_API_URL}/media/upload/${id}/finalize`, {
+      method: "POST",
+      headers: auth,
+    });
+    if (!finalize.ok) return this.mediaFailure(finalize, "finalize");
+    const finalBody = await finalize.json().catch(() => ({}));
+    const state = finalBody?.data?.processing_info?.state as string | undefined;
+    return { success: true, id, processing: Boolean(state && state !== "succeeded") };
+  }
+
+  /** Poll `GET /2/media/upload?command=STATUS` within the budget. */
+  private async waitForProcessing(
+    accessToken: string,
+    mediaId: string,
+  ): Promise<"succeeded" | "failed" | "in_progress" | UploadFailure> {
+    const startedAt = Date.now();
+    let slept = 0;
+    for (;;) {
+      const response = await fetch(
+        `${TWITTER_API_URL}/media/upload?` + new URLSearchParams({ command: "STATUS", media_id: mediaId }),
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      // Unknown or expired upload session: treat as failed so it is re-uploaded.
+      if (response.status === 404) return "failed";
+      if (!response.ok) return this.mediaFailure(response, "status");
+      const body = await response.json();
+      const info = body?.data?.processing_info as { state?: string; check_after_secs?: number } | undefined;
+      const state = info?.state ?? "succeeded";
+      if (state === "succeeded" || state === "failed") return state;
+      const waitMs = Math.max(1, info?.check_after_secs ?? 1) * 1000;
+      // Budget = whichever is larger: wall time, or time spent waiting.
+      if (Math.max(Date.now() - startedAt, slept) + waitMs > this.pollBudgetMs) return "in_progress";
+      await this.sleep(waitMs);
+      slept += waitMs;
     }
   }
 

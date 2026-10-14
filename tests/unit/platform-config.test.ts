@@ -145,22 +145,25 @@ test("declared capability invariants hold for the current connector set", () => 
   // X's hard 280-character ceiling is a product-level constraint, not a toggle.
   assert.equal(PLATFORM_CONFIGS[Platform.TWITTER].maxTextLength, 280);
 
-  // Carousel is declared for NO platform today: no adapter transmits more than
-  // one media item, so declaring it would advertise a feature that silently
-  // drops the extra files. Move a platform into this list only alongside a real
-  // carousel implementation.
+  // Carousel is declared only where the adapter transmits every item:
+  // Instagram (CAROUSEL container of image children) and X (up to 4
+  // media_ids). Declaring it anywhere else would advertise a feature that
+  // silently drops the extra files.
   const carouselPlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.carousel);
-  assert.deepEqual(carouselPlatforms, [], `carousel is not implemented yet: ${carouselPlatforms.join(", ")}`);
+  assert.deepEqual(carouselPlatforms.sort(), [Platform.INSTAGRAM, Platform.TWITTER].sort());
 
   // Video is declared only where the adapter genuinely uploads video.
   const videoPlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.video);
-  assert.deepEqual(videoPlatforms.sort(), [Platform.TIKTOK, Platform.YOUTUBE].sort());
+  assert.deepEqual(
+    videoPlatforms.sort(),
+    [Platform.INSTAGRAM, Platform.TIKTOK, Platform.TWITTER, Platform.YOUTUBE].sort(),
+  );
 
   // Image is declared only where the adapter genuinely sends an image.
   const imagePlatforms = allPlatforms.filter((p) => PLATFORM_CONFIGS[p].capabilities.image);
   assert.deepEqual(
     imagePlatforms.sort(),
-    [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.LINKEDIN, Platform.TELEGRAM].sort(),
+    [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.LINKEDIN, Platform.TELEGRAM, Platform.TWITTER].sort(),
   );
 
   // The legacy `supportsVideo` flag must agree with capabilities.video, or the UI

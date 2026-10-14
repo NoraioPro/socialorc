@@ -135,7 +135,8 @@ test("a video on a video-less platform is refused, and nothing is sent", async (
   }) as unknown as typeof fetch;
 
   try {
-    for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.INSTAGRAM, Platform.TELEGRAM]) {
+    // Instagram (Reels) and X (chunked upload) implement video; they are not here.
+    for (const platform of [Platform.LINKEDIN, Platform.FACEBOOK, Platform.TELEGRAM]) {
       const adapter = getAdapter(platform);
       const result = await adapter.createPost("token", {
         text: "caption",
@@ -155,14 +156,39 @@ test("a video on a video-less platform is refused, and nothing is sent", async (
 // --- Test 4: unsupported carousel never drops the extra images ---------------
 
 test("a carousel on a carousel-less platform is refused", async () => {
-  for (const platform of [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.LINKEDIN]) {
-    const adapter = getAdapter(platform);
-    const result = await adapter.createPost("token", {
-      text: "caption",
-      mediaUrls: ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"],
-    });
-    assert.equal(result.success, false, `${platform} must refuse a carousel`);
-    assert.equal(result.code, "UNSUPPORTED_MEDIA", `${platform} code`);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls++;
+    return new Response("{}", { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    // Instagram and X publish multi-image posts; they are not here.
+    for (const platform of [Platform.FACEBOOK, Platform.LINKEDIN]) {
+      const adapter = getAdapter(platform);
+      const result = await adapter.createPost("token", {
+        text: "caption",
+        mediaUrls: ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"],
+      });
+      assert.equal(result.success, false, `${platform} must refuse a carousel`);
+      assert.equal(result.code, "UNSUPPORTED_MEDIA", `${platform} code`);
+    }
+    // A carousel the adapters do not implement (Instagram with a video item,
+    // X mixing a video with an image) is refused the same way.
+    for (const platform of [Platform.INSTAGRAM, Platform.TWITTER]) {
+      const result = await getAdapter(platform).createPost("token", {
+        text: "caption",
+        media: [
+          { url: "https://cdn.example/a.jpg", mimeType: "image/jpeg", sizeBytes: 1024 },
+          { url: "https://cdn.example/b.mp4", mimeType: "video/mp4", sizeBytes: 1024 },
+        ],
+      });
+      assert.equal(result.success, false, `${platform} must refuse a mixed carousel`);
+      assert.equal(result.code, "UNSUPPORTED_MEDIA", `${platform} code`);
+    }
+    assert.equal(fetchCalls, 0, "a refused carousel must not reach any API");
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

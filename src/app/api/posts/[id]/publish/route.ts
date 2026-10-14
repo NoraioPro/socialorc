@@ -193,6 +193,9 @@ export async function POST(
 
   const sendOptions = {
     text: post.content,
+    // Resume an async upload (Instagram Reels, X video) left processing by an
+    // earlier attempt — see src/lib/adapters/in-flight-media.ts.
+    idempotencyKey: post.id,
     mediaUrls: media.map((m) => m.mediaAsset.url),
     // Real MIME type and byte size, so validation never has to guess from the
     // URL — guessing is what let `data:` URLs and unsupported types slip past.
