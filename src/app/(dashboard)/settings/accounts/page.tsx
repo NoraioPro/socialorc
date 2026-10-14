@@ -12,6 +12,7 @@ import { PLATFORM_CONFIGS } from "@/types/platform";
 import { isRole, parseRole, permissionsFor, ROLE_META, type Permission } from "@/lib/roles";
 import { accountNeedsReconnect, reconnectNotices, reconnectReason, reconnectSummary } from "@/lib/social/reconnect";
 import { ConnectTargetPicker } from "@/components/settings/connect-target-picker";
+import { TelegramConnectDialog } from "@/components/settings/telegram-connect-dialog";
 
 /** `?select=facebook` from the OAuth callback -> the platform whose Page/account to pick. */
 function selectablePlatform(value: string | null): Platform | null {
@@ -99,6 +100,8 @@ function SettingsContent() {
   const [managingPlatform, setManagingPlatform] = useState<Platform | null>(null);
   /** A Facebook/Instagram login covered several Pages/accounts: ask which one. */
   const [pickingPlatform, setPickingPlatform] = useState<Platform | null>(null);
+  /** A Telegram connect in progress: the state of the flow /api/social/connect started. */
+  const [telegramState, setTelegramState] = useState<string | null>(null);
   const isPopupCallback = searchParams.get("popup") === "1";
 
   /** Re-fetch just the connected-platform list, scoped to one brain (project). */
@@ -138,6 +141,9 @@ function SettingsContent() {
     if (error) { setMessage({ text: error, error: true }); setActive("integrations"); }
     else if (success) { setMessage({ text: `Connected ${success.replace("_connected", "")}.` }); setActive("integrations"); }
     else if (select) { setPickingPlatform(select); setActive("integrations"); }
+    // Reached through the Telegram connect route's GET (a direct navigation).
+    const tgState = searchParams.get("telegram_state");
+    if (tgState && /^[a-f0-9]{64}$/.test(tgState)) { setTelegramState(tgState); setActive("integrations"); }
   }, [searchParams, isPopupCallback]);
   useEffect(() => {
     // Sidebar links (e.g. every "Connect <platform>" entry) point straight at
@@ -187,6 +193,21 @@ function SettingsContent() {
    */
   async function connect(platform: Platform) {
     setBusy(platform); setMessage(null);
+    if (platform === Platform.TELEGRAM) {
+      // No OAuth window: Telegram is connected by posting a one-time code in
+      // the chat, verified in a dialog on this page.
+      try {
+        const res = await fetch(`/api/social/connect?platform=${platform}&brainId=${encodeURIComponent(brainId)}&popup=0`);
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.message || data.error || "Could not start connection.");
+        const target = new URL(data.url, window.location.href);
+        if (target.pathname === "/api/social/telegram/connect" && data.state) setTelegramState(data.state);
+        else window.location.assign(data.url); // mock adapters (development / e2e)
+      } catch (error) {
+        setMessage({ text: error instanceof Error ? error.message : "Could not connect.", error: true });
+      } finally { setBusy(null); }
+      return;
+    }
     const popup = window.open("about:blank", "socialorc-connect", "width=520,height=680");
     try {
       const res = await fetch(`/api/social/connect?platform=${platform}&brainId=${encodeURIComponent(brainId)}&popup=${popup ? "1" : "0"}`);
@@ -606,6 +627,15 @@ function SettingsContent() {
           </div>
         </div>;
       })()}
+      {telegramState && <TelegramConnectDialog
+        state={telegramState}
+        onConnected={(text) => {
+          setTelegramState(null); setMessage({ text });
+          router.replace("/settings/accounts?tab=integrations");
+          void loadAccounts(brainId);
+        }}
+        onClose={() => { setTelegramState(null); router.replace("/settings/accounts?tab=integrations"); }}
+      />}
       {pickingPlatform && <ConnectTargetPicker
         platform={pickingPlatform}
         onConnected={(text) => {
