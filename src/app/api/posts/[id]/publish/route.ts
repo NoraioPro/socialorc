@@ -3,6 +3,7 @@ import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
+import { destinationForAccount } from "@/lib/adapters/destination";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import { classifyAdapterError, requiresReconnect, type AdapterErrorCode } from "@/lib/adapters/errors";
@@ -209,6 +210,12 @@ export async function POST(
       mimeType: m.mediaAsset.mimeType,
       sizeBytes: m.mediaAsset.size,
     })),
+    // Same addressing the worker sends: Telegram publishes into the account's
+    // own chat, and without it every "Publish now" failed with MISSING_CHAT.
+    additionalOptions: {
+      ...destinationForAccount(account.metadata),
+      ...(account.platformUsername ? { accountUsername: account.platformUsername } : {}),
+    },
   };
 
   let result: Awaited<ReturnType<typeof adapter.createPost>>;
