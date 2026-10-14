@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { resolveAiConfigForUser } from "@/lib/ai-config";
 import {
   aiStudioGenerate,
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
     // Every action here spends the shared provider budget, so a session is not
     // enough on its own: the role must be allowed to create content. A read-only
     // CLIENT account can never reach a paid call.
-    const authz = await requirePermission("posts:create");
+    const authz = await requireWorkspace("posts:create");
     if (!authz.ok) {
       return NextResponse.json(
         { success: false, error: authz.error },
@@ -163,10 +164,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       if (limited) return limited as NextResponse<AIStudioResponse>;
 
       // Same as the posts generate route: prefer what the client sent, fall back
-      // to the Brand Brain this user actually filled in.
+      // to the Brand Brain this workspace actually filled in.
       const brandForPrompt =
         (brandContext as BrandContext | undefined) ??
-        (await loadBrandContext(authz.userId)) ??
+        (await loadBrandContext(authz.workspaceId)) ??
         undefined;
 
       const result = await aiStudioGenerate({

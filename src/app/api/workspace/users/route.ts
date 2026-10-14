@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { ROLE_VALUES } from "@/lib/invitations";
 
 /**
- * The workspace member list.
- *
- * There was no way to see who is in the workspace, which also meant there was no
- * way to change anyone's role: MANAGER and CLIENT existed in the database and
- * nowhere else. Multi-tenancy filtering (src/lib/workspace.ts) is still not
- * enforced anywhere in the app, so this lists every user — that is the current
- * truth about this deployment, not an oversight of this route.
+ * The workspace member list: the people in the caller's workspace, and nobody
+ * else's.
  */
 export async function GET() {
-  const guard = await requirePermission("users:manage");
+  const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
   const users = await prisma.user.findMany({
+    where: { workspaceMembers: { some: { workspaceId: guard.workspaceId } } },
     select: { id: true, name: true, email: true, role: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

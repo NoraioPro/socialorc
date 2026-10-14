@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { DEFAULT_BASE_URL, keyHint, resolveAiConfig, type AiKind } from "@/lib/ai-config";
@@ -88,10 +89,12 @@ async function resolveTarget(
     };
   }
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-  });
-  if (!member) {
+  // The workspace scope is the caller's own workspace, resolved server-side by
+  // the same resolver every other route uses; a workspaceId naming any other
+  // workspace is refused. This helper *returns* its verdict, it does not throw,
+  // so the failure is checked explicitly.
+  const permission = await requireWorkspace("users:manage");
+  if (permission.ok && permission.workspaceId !== workspaceId) {
     return {
       response: NextResponse.json(
         { error: "not_a_member", message: "You are not a member of that workspace." },
@@ -99,11 +102,6 @@ async function resolveTarget(
       ),
     };
   }
-
-  // This helper *returns* its verdict, it does not throw. An await whose result
-  // is never inspected would let any member replace the team's key, so the
-  // failure is checked explicitly.
-  const permission = await requirePermission("users:manage");
   if (!permission.ok) {
     return {
       response: NextResponse.json(

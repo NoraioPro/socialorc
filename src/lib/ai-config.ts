@@ -150,7 +150,9 @@ export async function resolveAiConfigForUser(
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
     select: { workspaceId: true },
-    orderBy: { createdAt: "asc" },
+    // Same "oldest membership" rule as the request resolver
+    // (src/lib/tenancy/guard.ts), so the key and the data agree on the tenant.
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
   return resolveAiConfig({ userId, workspaceId: membership?.workspaceId }, kind);

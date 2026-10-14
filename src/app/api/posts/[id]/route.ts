@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace, tenantCan } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { Platform } from "@prisma/client";
 import { z } from "zod";
 import {
   POST_SAFE_INCLUDE,
-  findOwnedSocialAccount,
-  unownedMediaAssetIds,
+  POST_SAFE_INCLUDE_WITH_AUTHOR,
+  findWorkspaceSocialAccount,
+  foreignMediaAssetIds,
 } from "@/lib/social/account-select";
 import { editGuardWhere } from "@/lib/posts/transitions";
 
@@ -26,16 +27,16 @@ type RouteContext = {
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const session = await requirePermission("dashboard:view");
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status });
+    const tenant = await requireWorkspace("dashboard:view");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const { id } = await context.params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: session.userId },
-      include: POST_SAFE_INCLUDE,
+      where: { id, workspaceId: tenant.workspaceId },
+      include: POST_SAFE_INCLUDE_WITH_AUTHOR,
     });
 
     if (!post) {
@@ -55,8 +56,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
     // Editing a post is authoring work: the same permission that lets you create
-    // one. A CLIENT (read-only) account cannot rewrite somebody's draft.
-    const guard = await requirePermission("posts:create");
+    // one. A CLIENT (read-only) account cannot rewrite somebody's draft. Posts
+    // are the workspace's, so a teammate may edit a colleague's draft; editing
+    // returns it to DRAFT and clears any approval either way.
+    const guard = await requireWorkspace("posts:create");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -73,7 +76,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const existingPost = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
     });
 
     if (!existingPost) {
@@ -91,9 +94,9 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     // A `socialAccountId` from the request body is a capability handle: writing
     // it unchecked let anyone point their own draft at another tenant's account
-    // and publish through it. Refuse unless the caller owns that account.
+    // and publish through it. Refuse unless it is in the caller's workspace.
     if (socialAccountId !== undefined && socialAccountId !== null) {
-      const owned = await findOwnedSocialAccount(guard.userId, socialAccountId);
+      const owned = await findWorkspaceSocialAccount(guard.workspaceId, socialAccountId);
       if (!owned) {
         return NextResponse.json(
           { error: "Social account not found" },
@@ -105,7 +108,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     // Same for media: attaching someone else's asset leaked its URL back to the
     // caller and let them publish a file they never uploaded.
     if (mediaAssetIds !== undefined) {
-      const unowned = await unownedMediaAssetIds(guard.userId, mediaAssetIds);
+      const unowned = await foreignMediaAssetIds(guard.workspaceId, mediaAssetIds);
       if (unowned.length > 0) {
         return NextResponse.json(
           { error: "One or more media assets were not found" },
@@ -137,7 +140,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     // clear 400; this closes the window between that read and this write, where
     // the worker can claim the post and start sending it.
     const edited = await prisma.post.updateMany({
-      where: editGuardWhere(id, guard.userId),
+      where: editGuardWhere(id, guard.workspaceId),
       data: updatePayload,
     });
 
@@ -186,20 +189,23 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     // the ability to delete their own drafts, and the delete buttons in the
     // dashboard are not role-gated, so they would just see a 403. Deleting your
     // own draft is authoring work — the same permission that lets you write it.
-    // `posts:delete` is required once a post has moved past draft.
-    const authoring = await requirePermission("posts:create");
-    let guard = authoring;
-    if (!authoring.ok) {
-      guard = await requirePermission("posts:delete");
-    }
+    // `posts:delete` is required once a post has moved past draft, and for
+    // deleting a teammate's draft.
+    const guard = await requireWorkspace("dashboard:view");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
+    if (!tenantCan(guard, "posts:create") && !tenantCan(guard, "posts:delete")) {
+      return NextResponse.json(
+        { error: `Your role (${guard.role}) is not allowed to posts:delete` },
+        { status: 403 }
+      );
     }
 
     const { id } = await context.params;
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
     });
 
     if (!post) {
@@ -216,18 +222,21 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     // DRAFT and PENDING_APPROVAL are still the author's own work-in-progress
     // (a rejection returns the post to DRAFT with a rejectionReason). Anything
     // further along is an admin action.
-    const isOwnDraft = post.status === "DRAFT" || post.status === "PENDING_APPROVAL";
-    if (!isOwnDraft) {
-      const strong = await requirePermission("posts:delete");
-      if (!strong.ok) {
-        return NextResponse.json(
-          { error: "Approved and scheduled posts can only be deleted by an admin" },
-          { status: strong.status }
-        );
-      }
+    const isOwnDraft =
+      post.userId === guard.userId &&
+      (post.status === "DRAFT" || post.status === "PENDING_APPROVAL");
+    if (!isOwnDraft && !tenantCan(guard, "posts:delete")) {
+      return NextResponse.json(
+        { error: "Approved and scheduled posts, and teammates' drafts, can only be deleted by an admin" },
+        { status: 403 }
+      );
     }
 
-    await prisma.post.delete({ where: { id } });
+    // Scoped by workspace in the write too, so a row that moved cannot be hit.
+    const deleted = await prisma.post.deleteMany({ where: { id, workspaceId: guard.workspaceId } });
+    if (deleted.count === 0) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -220,11 +220,17 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // The linked account must belong to the post's owner. `socialAccountId`
-        // was writable from the client and is a separate row, so a post could be
-        // pointed at another tenant's account; publishing it would decrypt and
-        // use *their* stored token. Permanent: retrying cannot fix ownership.
-        if (post.socialAccount.userId !== post.userId) {
+        // The linked account must belong to the post's workspace. Teammates
+        // share accounts, so the author need not be the one who connected it —
+        // but `socialAccountId` was writable from the client and is a separate
+        // row, so a post could be pointed at another tenant's account;
+        // publishing it would decrypt and use *their* stored token. A row with
+        // no tenant on either side cannot be proven and is refused too.
+        // Permanent: retrying cannot fix ownership.
+        if (
+          !post.workspaceId ||
+          post.socialAccount.workspaceId !== post.workspaceId
+        ) {
           await prisma.$transaction([
             prisma.post.update({
               where: { id: post.id },

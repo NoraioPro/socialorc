@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-import { DEFAULT_ROLE, selfSignupRole } from "@/lib/roles";
+import { DEFAULT_ROLE, parseRole, selfSignupRole } from "@/lib/roles";
 import { hashInvitationToken, invitationDecision } from "@/lib/invitations";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
 import { rateLimitSubjectFromHeaders } from "@/lib/rate-limit";
 import { signupDecision } from "@/lib/signup-policy";
-import { createWorkspaceForNewUser } from "@/lib/tenancy/workspace";
+import { createWorkspaceForNewUser, findWorkspaceForUser, joinWorkspace } from "@/lib/tenancy/workspace";
+import { workspaceRoleFor } from "@/lib/tenancy/workspace-role";
 
 const MIN_PASSWORD_LENGTH = 8;
+
+/** Thrown inside the signup transaction to roll it back. */
+class InvitationAlreadyUsedError extends Error {}
 
 export async function POST(req: NextRequest) {
   try {
@@ -74,11 +78,19 @@ export async function POST(req: NextRequest) {
     // address must match the invitation: one invitation admits one person.
     const inviteToken =
       typeof body?.inviteToken === "string" ? body.inviteToken.trim() : "";
-    let acceptedInvitation: { id: string; role: string } | null = null;
+    let acceptedInvitation: { id: string; role: string; workspaceId: string } | null = null;
     if (inviteToken) {
       const found = await prisma.invitation.findUnique({
         where: { tokenHash: hashInvitationToken(inviteToken) },
-        select: { id: true, email: true, role: true, expiresAt: true, acceptedAt: true },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          expiresAt: true,
+          acceptedAt: true,
+          workspaceId: true,
+          invitedBy: true,
+        },
       });
       const verdict = invitationDecision(found, email);
       if (!verdict.ok) {
@@ -86,7 +98,15 @@ export async function POST(req: NextRequest) {
         console.warn(`[register] refused invitation for ${email}: ${verdict.reason}`);
         return NextResponse.json({ error: "That invitation is not valid." }, { status: 403 });
       }
-      acceptedInvitation = { id: found!.id, role: found!.role };
+      // The workspace the invitee joins: the one recorded on the invitation,
+      // or (for an invitation written before that column existed) the inviter's.
+      const workspaceId =
+        found!.workspaceId ?? (await findWorkspaceForUser(found!.invitedBy))?.workspaceId ?? null;
+      if (!workspaceId) {
+        console.warn(`[register] refused invitation for ${email}: no workspace to join`);
+        return NextResponse.json({ error: "That invitation is not valid." }, { status: 403 });
+      }
+      acceptedInvitation = { id: found!.id, role: found!.role, workspaceId };
     }
 
     // Invite-only by default - see src/lib/signup-policy.ts. The first account
@@ -113,39 +133,48 @@ export async function POST(req: NextRequest) {
         ? DEFAULT_ROLE
         : selfSignupRole();
 
-    const user = await prisma.user.create({
-      data: {
-        name: typeof name === "string" && name.trim() ? name.trim() : email.split("@")[0],
-        email,
-        password: hashedPassword,
-        role,
-        timezone: "Europe/Oslo",
-      },
+    // The account, the invitation stamp and the membership commit together.
+    // Workspaces are the isolation boundary, so an account with no membership
+    // can do nothing at all — it must never exist. An invitee joins the
+    // inviter's workspace with the invited role; anyone else starts (and owns)
+    // a workspace of their own.
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          name: typeof name === "string" && name.trim() ? name.trim() : email.split("@")[0],
+          email,
+          password: hashedPassword,
+          role,
+          timezone: "Europe/Oslo",
+        },
+      });
+
+      if (acceptedInvitation) {
+        // Guarded on it still being unused: two signups racing on one token
+        // must not both succeed — the loser's whole transaction rolls back.
+        const stamped = await tx.invitation.updateMany({
+          where: { id: acceptedInvitation.id, acceptedAt: null },
+          data: { acceptedAt: new Date(), acceptedBy: created.id },
+        });
+        if (stamped.count === 0) throw new InvitationAlreadyUsedError();
+
+        await joinWorkspace(
+          {
+            userId: created.id,
+            workspaceId: acceptedInvitation.workspaceId,
+            role: workspaceRoleFor(parseRole(role)),
+          },
+          tx,
+        );
+      } else {
+        await createWorkspaceForNewUser(
+          { userId: created.id, name: created.name, email: created.email },
+          tx,
+        );
+      }
+
+      return created;
     });
-
-    // Stamp the invitation as used, guarded on it still being unused: two signups
-    // racing on one token must not both succeed.
-    if (acceptedInvitation) {
-      await prisma.invitation.updateMany({
-        where: { id: acceptedInvitation.id, acceptedAt: null },
-        data: { acceptedAt: new Date(), acceptedBy: user.id },
-      });
-    }
-
-    // Phase 0 (docs/SAAS-PLAN.md): a new account starts its own workspace and
-    // owns it, so the tenant keys on everything it later creates have something
-    // to point at. Best effort on purpose — nothing filters on the tenant yet,
-    // so a failure here must not fail a signup that otherwise succeeded; the
-    // backfill (Phase 0.4) covers whatever is left unstamped.
-    try {
-      await createWorkspaceForNewUser({
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-      });
-    } catch (error) {
-      console.error("[register] could not create the workspace for a new account", error);
-    }
 
     return NextResponse.json({
       id: user.id,
@@ -154,6 +183,9 @@ export async function POST(req: NextRequest) {
       role: user.role,
     });
   } catch (error) {
+    if (error instanceof InvitationAlreadyUsedError) {
+      return NextResponse.json({ error: "That invitation is not valid." }, { status: 403 });
+    }
     console.error("Registration error:", error);
     return NextResponse.json(
       { error: "Failed to register user" },

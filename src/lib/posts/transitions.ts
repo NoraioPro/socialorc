@@ -17,6 +17,11 @@ import type { PostStatus } from "@prisma/client";
  * `approvedAt` is part of the guard wherever the transition depends on approval:
  * the status alone is not proof, because editing clears the stamp.
  *
+ * Every guard is scoped by the caller's **workspace** (from `requireWorkspace()`
+ * in src/lib/tenancy/guard.ts), not by the author: teammates share posts, so a
+ * MANAGER approves an EDITOR's post, and a post in another workspace simply does
+ * not match — the write affects nothing and the route answers 409/404.
+ *
  * Pure and Prisma-free (the `PostStatus` import is a type only), so the guards
  * can be asserted in unit tests without a database.
  */
@@ -45,20 +50,20 @@ export function scheduleBlockMessage(status: string): string {
 }
 
 /** APPROVED **and** carrying its approval stamp. */
-export function scheduleGuardWhere(id: string, userId: string) {
-  return { id, userId, status: "APPROVED" as PostStatus, approvedAt: { not: null } };
+export function scheduleGuardWhere(id: string, workspaceId: string) {
+  return { id, workspaceId, status: "APPROVED" as PostStatus, approvedAt: { not: null } };
 }
 
 /** Only a scheduled post can be pulled back out of the queue. */
-export function unscheduleGuardWhere(id: string, userId: string) {
-  return { id, userId, status: "SCHEDULED" as PostStatus };
+export function unscheduleGuardWhere(id: string, workspaceId: string) {
+  return { id, workspaceId, status: "SCHEDULED" as PostStatus };
 }
 
 /** Approve/reject act on a post that is still awaiting a decision. */
-export function approveGuardWhere(id: string, userId: string) {
+export function approveGuardWhere(id: string, workspaceId: string) {
   return {
     id,
-    userId,
+    workspaceId,
     status: { in: ["DRAFT", "PENDING_APPROVAL"] as PostStatus[] },
   };
 }
@@ -68,22 +73,22 @@ export function approveGuardWhere(id: string, userId: string) {
  * route has always accepted: a second submit on a PENDING_APPROVAL post is a
  * no-op, not an error.
  */
-export function submitGuardWhere(id: string, userId: string) {
+export function submitGuardWhere(id: string, workspaceId: string) {
   return {
     id,
-    userId,
+    workspaceId,
     status: { in: ["DRAFT", "PENDING_APPROVAL"] as PostStatus[] },
   };
 }
 
 /** A failed publish may be re-queued only if it was approved in the first place. */
-export function retryGuardWhere(id: string, userId: string) {
-  return { id, userId, status: "FAILED" as PostStatus, approvedAt: { not: null } };
+export function retryGuardWhere(id: string, workspaceId: string) {
+  return { id, workspaceId, status: "FAILED" as PostStatus, approvedAt: { not: null } };
 }
 
 /** Editing is refused once the post is on its way out or already out. */
-export function editGuardWhere(id: string, userId: string) {
-  return { id, userId, status: { notIn: EDIT_BLOCKED_STATUSES } };
+export function editGuardWhere(id: string, workspaceId: string) {
+  return { id, workspaceId, status: { notIn: EDIT_BLOCKED_STATUSES } };
 }
 
 /**

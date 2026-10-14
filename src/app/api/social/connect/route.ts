@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
-import { resolveBrainForUser } from "@/lib/brains";
+import { resolveBrainForWorkspace } from "@/lib/brains";
 import crypto from "crypto";
 import { encodeStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     // Starting a connection is a write path that ends in a stored credential.
     // `accounts:connect` is the permission for it; it was defined and checked
     // nowhere, so every signed-in role could connect an account.
-    const guard = await requirePermission("accounts:connect");
+    const guard = await requireWorkspace("accounts:connect");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const brain = await resolveBrainForUser(guard.userId, searchParams.get("brainId"));
+    const brain = await resolveBrainForWorkspace(guard, searchParams.get("brainId"));
 
     const state = crypto.randomBytes(32).toString("hex");
 

@@ -8,7 +8,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { consumeRateLimit, peekRateLimit } from "@/lib/rate-limit-store";
-import { createWorkspaceForNewUser, workspaceIdForStamping } from "./tenancy/workspace";
+import { createWorkspaceForNewUser } from "./tenancy/workspace";
 import {
   DEFAULT_ROLE,
   can,
@@ -76,9 +76,11 @@ export const authOptions: NextAuthOptions = {
         console.error("[auth] could not set signup role for new OAuth user", error);
       }
 
-      // Phase 0 (docs/SAAS-PLAN.md): an OAuth sign-up gets its own workspace
-      // here, exactly like a password registration, so both entry points agree
-      // and neither leaves a new account without a tenant.
+      // An OAuth sign-up gets its own workspace here, exactly like a password
+      // registration, so both entry points agree. The adapter has already
+      // written the user, so this cannot share its transaction; if it fails,
+      // the jwt callback below retries on this same sign-in and refuses the
+      // sign-in if the account still has no workspace.
       try {
         await createWorkspaceForNewUser({
           userId: user.id,
@@ -252,12 +254,21 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, isNewUser }) {
+      if (user && isNewUser) {
+        // Every account must have a workspace before it can do anything: make
+        // sure the createUser event above did its job (idempotent if it did).
+        await createWorkspaceForNewUser({ userId: user.id, name: user.name, email: user.email });
+      }
       if (user) {
         token.sub = user.id;
         token.role = isRole(user.role) ? user.role : await roleForUser(user.id);
-      } else if (token.sub && !isRole(token.role)) {
-        // Sessions minted before roles existed: resolve once, then carry it.
+      } else if (token.sub) {
+        // Re-read on every session check rather than carrying the role minted at
+        // sign-in: an admin's role change must take effect on the member's next
+        // request, not whenever their token happens to be re-issued. Server-side
+        // gates read the database themselves (requirePermission below and
+        // src/lib/tenancy/guard.ts); this keeps the session the UI sees honest.
         token.role = await roleForUser(token.sub);
       }
       return token;
@@ -286,8 +297,10 @@ export async function getCurrentUser() {
 }
 
 /**
- * Session guard for API routes: returns the session or null. Route handlers
- * stay responsible for their own status codes (401 vs 403).
+ * Permission guard for routes that touch no workspace-owned rows (user
+ * management, invitations, AI keys). Routes that read or write workspace data use
+ * `requireWorkspace()` from src/lib/tenancy/guard.ts instead, which also resolves
+ * the tenant. Route handlers stay responsible for their own status codes.
  */
 export async function requirePermission(permission: Permission): Promise<
   | { ok: true; userId: string; role: Role }
@@ -299,9 +312,16 @@ export async function requirePermission(permission: Permission): Promise<
     return { ok: false, status: 401, error: "Unauthorized" };
   }
 
-  const role: Role = isRole(session.user.role)
-    ? session.user.role
-    : parseRole(session.user.role);
+  // The role comes from the database, not from the token: a demotion must bite
+  // on the very next request.
+  const row = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+  if (!row) {
+    return { ok: false, status: 401, error: "Unauthorized" };
+  }
+  const role: Role = parseRole(row.role);
 
   if (!can(role, permission)) {
     return {

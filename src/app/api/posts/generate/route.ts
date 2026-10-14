@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { resolveAiConfigForUser } from "@/lib/ai-config";
 import { 
   aiStudioGenerate, 
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     // Generating content spends the shared AI budget, so this needs the same
     // permission as writing a draft - not merely a session. A read-only CLIENT
     // account must never be able to trigger a paid provider call.
-    const authz = await requirePermission("posts:create");
+    const authz = await requireWorkspace("posts:create");
     // Whose key pays for this request. Never the platform's - see
     // src/lib/ai-config.ts, where that rule is enforced.
     if (!authz.ok) {
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
       // demo brand, which meant the same output whoever you were).
       const brandForPrompt =
         (brandContext as BrandContext | undefined) ??
-        (await loadBrandContext(authz.userId)) ??
+        (await loadBrandContext(authz.workspaceId)) ??
         undefined;
 
       try {

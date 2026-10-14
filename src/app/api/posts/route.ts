@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { PostStatus, Platform, Prisma } from "@prisma/client";
 import { z } from "zod";
-import { POST_SAFE_INCLUDE, unownedMediaAssetIds } from "@/lib/social/account-select";
+import {
+  POST_SAFE_INCLUDE,
+  POST_SAFE_INCLUDE_WITH_AUTHOR,
+  foreignMediaAssetIds,
+} from "@/lib/social/account-select";
 
 const createPostSchema = z.object({
   title: z.string().optional(),
@@ -18,9 +21,11 @@ const createPostSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // The workspace's posts, whoever wrote them: teammates share content, and
+    // the approvals page lists every pending post in the workspace from here.
+    const tenant = await requireWorkspace("dashboard:view");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const status = req.nextUrl.searchParams.get("status") as PostStatus | null;
@@ -32,10 +37,10 @@ export async function GET(req: NextRequest) {
     const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
     const where: {
-      userId: string;
+      workspaceId: string;
       status?: PostStatus;
       platform?: Platform;
-    } = { userId: session.user.id };
+    } = { workspaceId: tenant.workspaceId };
 
     if (status) where.status = status;
     if (platform) where.platform = platform;
@@ -43,7 +48,7 @@ export async function GET(req: NextRequest) {
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
         where,
-        include: POST_SAFE_INCLUDE,
+        include: POST_SAFE_INCLUDE_WITH_AUTHOR,
         orderBy: { createdAt: "desc" },
         take: safeLimit,
         skip: safeOffset,
@@ -70,7 +75,7 @@ export async function POST(req: NextRequest) {
   try {
     // Anyone signed in can read the workspace list, but only roles with
     // posts:create may add content (a CLIENT account is read-only).
-    const guard = await requirePermission("posts:create");
+    const guard = await requireWorkspace("posts:create");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -95,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     if (socialAccountId) {
       const account = await prisma.socialAccount.findFirst({
-        where: { id: socialAccountId, userId: guard.userId },
+        where: { id: socialAccountId, workspaceId: guard.workspaceId },
       });
       if (!account) {
         return NextResponse.json(
@@ -105,7 +110,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       const account = await prisma.socialAccount.findFirst({
-        where: { userId: guard.userId, platform, isActive: true },
+        where: { workspaceId: guard.workspaceId, platform, isActive: true },
         orderBy: { createdAt: "asc" },
       });
       resolvedAccountId = account?.id;
@@ -115,7 +120,7 @@ export async function POST(req: NextRequest) {
     // (and then read the URL of) another tenant's asset, and publish a file they
     // never uploaded.
     if (mediaAssetIds && mediaAssetIds.length > 0) {
-      const unowned = await unownedMediaAssetIds(guard.userId, mediaAssetIds);
+      const unowned = await foreignMediaAssetIds(guard.workspaceId, mediaAssetIds);
       if (unowned.length > 0) {
         return NextResponse.json(
           { error: "One or more media assets were not found" },
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
 
     const post = await prisma.post.create({
       data: {
-        workspaceId: await workspaceIdForWrite(guard.userId),
+        workspaceId: guard.workspaceId,
         userId: guard.userId,
         title,
         content,

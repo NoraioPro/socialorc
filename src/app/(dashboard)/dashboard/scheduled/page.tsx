@@ -1,5 +1,5 @@
 import { Header } from "@/components/dashboard/header";
-import { getAuthSession } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { DeletablePostGrid } from "@/components/posts/deletable-post-grid";
@@ -7,10 +7,10 @@ import { format } from "date-fns";
 import { canRetryFailedPublish } from "@/lib/failed-retry";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 
-async function getQueuePosts(userId: string) {
+async function getQueuePosts(workspaceId: string) {
   const [scheduled, failed] = await Promise.all([
     prisma.post.findMany({
-      where: { userId, status: PostStatus.SCHEDULED },
+      where: { workspaceId, status: PostStatus.SCHEDULED },
       include: {
         socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
@@ -21,7 +21,7 @@ async function getQueuePosts(userId: string) {
       orderBy: { scheduledFor: "asc" },
     }),
     prisma.post.findMany({
-      where: { userId, status: PostStatus.FAILED },
+      where: { workspaceId, status: PostStatus.FAILED },
       include: {
         socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
         mediaAssets: {
@@ -36,10 +36,10 @@ async function getQueuePosts(userId: string) {
 }
 
 export default async function ScheduledPage() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) return null;
+  const tenant = await requireWorkspace("dashboard:view");
+  if (!tenant.ok) return null;
 
-  const { scheduled, failed } = await getQueuePosts(session.user.id);
+  const { scheduled, failed } = await getQueuePosts(tenant.workspaceId);
   const retryableFailed = failed.filter((post) => canRetryFailedPublish(post));
 
   const groupedByDate = scheduled.reduce(

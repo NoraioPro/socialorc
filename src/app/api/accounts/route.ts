@@ -1,25 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { Platform, PostStatus, JobStatus } from "@prisma/client";
 import { getAdapterStatus, getAdapter } from "@/lib/adapters";
 import { decrypt } from "@/lib/encryption";
 import { PLATFORM_CONFIGS, type PlatformAdapter } from "@/types/platform";
-import { resolveBrainForUser } from "@/lib/brains";
+import { resolveBrainForWorkspace } from "@/lib/brains";
 import { getTokenStatus, formatExpiryTime } from "@/lib/adapters/tokens";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const tenant = await requireWorkspace("dashboard:view");
+    if (!tenant.ok) {
+      return NextResponse.json({ error: tenant.error }, { status: tenant.status });
     }
 
     const { searchParams } = new URL(req.url);
     const platform = searchParams.get("platform")?.toUpperCase() as Platform | undefined;
-    const brain = await resolveBrainForUser(session.user.id, searchParams.get("brainId"));
+    const brain = await resolveBrainForWorkspace(tenant, searchParams.get("brainId"));
 
-    const where: { brainId: string; platform?: Platform } = { brainId: brain.id };
+    const where: { brainId: string; workspaceId: string; platform?: Platform } = {
+      brainId: brain.id,
+      workspaceId: tenant.workspaceId,
+    };
     if (platform && Object.values(Platform).includes(platform)) {
       where.platform = platform;
     }
@@ -112,7 +115,7 @@ export async function DELETE(req: NextRequest) {
     // `accounts:connect` existed in the role matrix but was enforced nowhere —
     // so any signed-in account, including a read-only CLIENT, could disconnect
     // a workspace's connection.
-    const guard = await requirePermission("accounts:connect");
+    const guard = await requireWorkspace("accounts:connect");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -128,7 +131,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const account = await prisma.socialAccount.findFirst({
-      where: { id: accountId, userId: guard.userId },
+      where: { id: accountId, workspaceId: guard.workspaceId },
       include: { posts: { select: { id: true, status: true } } },
     });
 

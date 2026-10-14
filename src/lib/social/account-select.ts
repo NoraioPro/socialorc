@@ -43,24 +43,33 @@ export const POST_SAFE_INCLUDE: Prisma.PostInclude = {
   },
 };
 
+/** Post relations as they may be serialised to a client, plus who wrote it. */
+export const POST_SAFE_INCLUDE_WITH_AUTHOR: Prisma.PostInclude = {
+  ...POST_SAFE_INCLUDE,
+  user: { select: { id: true, name: true } },
+};
+
 /**
- * Ownership gates. A row id supplied by the client is never trusted: the caller
- * must own the account (or the media asset) before it can be referenced, or the
- * request is refused. Without this, `socialAccountId` on a post was a capability
- * handle — quoting someone else's id let you publish through their account.
+ * Tenancy gates. A row id supplied by the client is never trusted: the account
+ * (or the media asset) must belong to the caller's **workspace** before it can be
+ * referenced, or the request is refused. Without this, `socialAccountId` on a
+ * post was a capability handle — quoting another tenant's id let you publish
+ * through their account, and attaching their asset leaked its URL. Teammates in
+ * one workspace share accounts and media, so membership is the test, not
+ * authorship. `workspaceId` comes from `requireWorkspace()`, never the request.
  */
-export async function findOwnedSocialAccount(userId: string, socialAccountId: string) {
+export async function findWorkspaceSocialAccount(workspaceId: string, socialAccountId: string) {
   return prisma.socialAccount.findFirst({
-    where: { id: socialAccountId, userId },
+    where: { id: socialAccountId, workspaceId },
     select: { id: true },
   });
 }
 
-/** Returns the subset of `ids` that the user does NOT own (empty = all fine). */
-export async function unownedMediaAssetIds(userId: string, ids: string[]): Promise<string[]> {
+/** Returns the subset of `ids` that are NOT in the workspace (empty = all fine). */
+export async function foreignMediaAssetIds(workspaceId: string, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return [];
   const owned = await prisma.mediaAsset.findMany({
-    where: { id: { in: ids }, userId },
+    where: { id: { in: ids }, workspaceId },
     select: { id: true },
   });
   const ownedSet = new Set(owned.map((asset) => asset.id));

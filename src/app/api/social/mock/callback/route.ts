@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
-import { resolveBrainForUser } from "@/lib/brains";
+import { resolveBrainForWorkspace } from "@/lib/brains";
 import { isMockAdapterAllowed } from "@/lib/adapters";
 import { peekStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
@@ -25,9 +24,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const session = await getAuthSession();
-    if (!session?.user?.id) {
-      return NextResponse.redirect(new URL("/login?error=unauthorized", req.url));
+    // Same gate as the real connect flow: a member who may connect accounts,
+    // in a workspace the connection will belong to.
+    const tenant = await requireWorkspace("accounts:connect");
+    if (!tenant.ok) {
+      return NextResponse.redirect(
+        new URL(tenant.status === 401 ? "/login?error=unauthorized" : "/settings/accounts?error=not_allowed", req.url)
+      );
     }
 
     const { searchParams } = new URL(req.url);
@@ -48,11 +51,11 @@ export async function GET(req: NextRequest) {
     const requestedBrainId: string | null = stateData.brainId ?? null;
     const popup = Boolean(stateData.popup);
     const popupSuffix = popup ? "&popup=1" : "";
-    const brain = await resolveBrainForUser(session.user.id, requestedBrainId);
+    const brain = await resolveBrainForWorkspace(tenant, requestedBrainId);
 
     // Keep one demo account per platform and brain. A timestamp here created a
     // duplicate account every time someone clicked Connect or Reconnect.
-    const mockUserId = `mock_${session.user.id}_${brain.id}_${platform.toLowerCase()}`;
+    const mockUserId = `mock_${tenant.workspaceId}_${brain.id}_${platform.toLowerCase()}`;
     const mockTokens = {
       accessToken: `mock_access_token_${platform}_${Date.now()}`,
       refreshToken: `mock_refresh_token_${platform}_${Date.now()}`,
@@ -68,8 +71,8 @@ export async function GET(req: NextRequest) {
         },
       },
       create: {
-        workspaceId: await workspaceIdForWrite(session.user.id),
-        userId: session.user.id,
+        workspaceId: tenant.workspaceId,
+        userId: tenant.userId,
         brainId: brain.id,
         platform,
         platformUserId: mockUserId,

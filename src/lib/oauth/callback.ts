@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { tenantForUser } from "@/lib/tenancy/guard";
 import { getAdapter } from "@/lib/adapters";
 import { encryptTokens } from "@/lib/encryption";
 import { peekStateCookie, splitState, validateOAuthState, verifierFromStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
 import { resolveSessionUser, safeRedirectCode, sessionProblemRedirect } from "@/lib/social/session-user";
-import { resolveBrainForUser } from "@/lib/brains";
+import { resolveBrainForWorkspace } from "@/lib/brains";
 import { sanitizeAccountMetadata } from "@/lib/social/account-metadata";
 
 /**
@@ -83,7 +83,12 @@ export function createOAuthCallback(platform: Platform) {
       }
 
       const popup = Boolean(stateCheck.data.popup);
-      const brain = await resolveBrainForUser(user.userId, stateCheck.data.brainId);
+
+      // The connection belongs to the caller's workspace, resolved fresh (the
+      // role may have changed since the flow started).
+      const tenant = await tenantForUser(user.userId);
+      if (!tenant.ok) return failure("no_workspace", popup);
+      const brain = await resolveBrainForWorkspace(tenant, stateCheck.data.brainId);
 
       const adapter = getAdapter(platform);
       // Prefer the server-side verifier (PKCE for TikTok and any newer
@@ -117,7 +122,7 @@ export function createOAuthCallback(platform: Platform) {
       }
 
       const shared = {
-        workspaceId: await workspaceIdForWrite(user.userId),
+        workspaceId: tenant.workspaceId,
         userId: user.userId,
         brainId: brain.id,
         platformUserId: info.platformUserId,
@@ -144,22 +149,23 @@ export function createOAuthCallback(platform: Platform) {
         lastError: null,
       };
 
-      // An existing connection belongs to the user who authorised it. The
+      // An existing connection belongs to the workspace that authorised it. The
       // unique key is (platform, platformUserId) across the whole database, so a
       // second tenant connecting the *same* platform account — a co-admin of the
       // same Facebook Page, the same brand YouTube channel — matched that row
       // and the `update` branch rewrote `userId`/`brainId`: the account changed
       // hands with no warning to either side. Refuse, and leave it where it is.
+      // A teammate in the same workspace may reconnect it.
       const existingAccount = await prisma.socialAccount.findUnique({
         where: {
           platform_platformUserId: { platform, platformUserId: info.platformUserId },
         },
-        select: { id: true, userId: true },
+        select: { id: true, workspaceId: true },
       });
 
-      if (existingAccount && existingAccount.userId !== user.userId) {
+      if (existingAccount && existingAccount.workspaceId !== tenant.workspaceId) {
         console.error(
-          `${platform} OAuth callback refused: ${info.platformUserId} is already connected by another user`,
+          `${platform} OAuth callback refused: ${info.platformUserId} is already connected by another workspace`,
         );
         return failure("account_owned_elsewhere", popup);
       }
@@ -169,9 +175,9 @@ export function createOAuthCallback(platform: Platform) {
           platform_platformUserId: { platform, platformUserId: info.platformUserId },
         },
         create: { platform, ...shared },
-        // `userId` is deliberately not part of the update: ownership is decided
-        // on create and a later connect may never rewrite it.
-        update: { ...shared, userId: undefined },
+        // `userId`/`workspaceId` are deliberately not part of the update:
+        // ownership is decided on create and a later connect may never rewrite it.
+        update: { ...shared, userId: undefined, workspaceId: undefined },
       });
 
       const response = NextResponse.redirect(

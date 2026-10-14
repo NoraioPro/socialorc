@@ -1,33 +1,34 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
 const schema = z.object({ postId: z.string().min(1), type: z.enum(["LIKE", "CELEBRATE", "INSIGHTFUL", "SUPPORT"]) });
 
 export async function POST(request: Request) {
-  const session = await getAuthSession();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Reacting writes a row against a teammate's post: any member who may post
+  // into the feed may react to any post in their workspace, and to nothing else.
+  const tenant = await requireWorkspace("feed:post");
+  if (!tenant.ok) return NextResponse.json({ error: tenant.error }, { status: tenant.status });
 
-  // Reacting writes a row against somebody else's post.
-  const permission = await requirePermission("feed:post");
-  if (!permission.ok) {
-    return NextResponse.json({ error: permission.error }, { status: permission.status });
-  }
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid reaction." }, { status: 400 });
 
-  const post = await prisma.post.findFirst({ where: { id: parsed.data.postId, userId: session.user.id }, select: { id: true } });
+  const post = await prisma.post.findFirst({
+    where: { id: parsed.data.postId, workspaceId: tenant.workspaceId },
+    select: { id: true },
+  });
   if (!post) return NextResponse.json({ error: "Post not found." }, { status: 404 });
 
-  const existing = await prisma.feedReaction.findUnique({ where: { postId_userId: { postId: post.id, userId: session.user.id } } });
+  const key = { postId_userId: { postId: post.id, userId: tenant.userId } };
+  const existing = await prisma.feedReaction.findUnique({ where: key });
   if (existing?.type === parsed.data.type) {
     await prisma.feedReaction.delete({ where: { id: existing.id } });
   } else {
     await prisma.feedReaction.upsert({
-      where: { postId_userId: { postId: post.id, userId: session.user.id } },
+      where: key,
       update: { type: parsed.data.type },
-      create: { postId: post.id, userId: session.user.id, type: parsed.data.type },
+      create: { postId: post.id, userId: tenant.userId, type: parsed.data.type },
     });
   }
   const reactions = await prisma.feedReaction.findMany({ where: { postId: post.id }, select: { userId: true, type: true } });

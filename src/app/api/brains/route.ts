@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession, requirePermission } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getOrCreateDefaultBrain } from "@/lib/brains";
-import { workspaceIdForWrite } from "@/lib/tenancy/workspace";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
-/** List the signed-in user's brains (projects), creating the first one if none exist yet. */
+/** List the workspace's brains (projects), creating the first one if none exist yet. */
 export async function GET() {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const tenant = await requireWorkspace("brains:read");
+  if (!tenant.ok) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
   }
 
-  await getOrCreateDefaultBrain(session.user.id);
+  await getOrCreateDefaultBrain(tenant);
 
   const brains = await prisma.brain.findMany({
-    where: { userId: session.user.id },
+    where: { workspaceId: tenant.workspaceId },
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { socialAccounts: true } } },
   });
@@ -29,15 +28,10 @@ export async function GET() {
   });
 }
 
-/** Create a new brain (project) for the signed-in user. */
+/** Create a new brain (project) in the caller's workspace. */
 export async function POST(req: NextRequest) {
-  const session = await getAuthSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   // Creating a brain is a write into the workspace's configuration.
-  const permission = await requirePermission("brains:manage");
+  const permission = await requireWorkspace("brains:manage");
   if (!permission.ok) {
     return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
@@ -51,13 +45,10 @@ export async function POST(req: NextRequest) {
 
   const brain = await prisma.brain.create({
     data: {
-      userId: session.user.id,
+      userId: permission.userId,
       name,
       isDefault: false,
-      // The tenant is explicit, not left to the client-layer stamping in
-      // src/lib/tenancy/stamp.ts: these are the sites Phase 0.5's NOT NULL
-      // migration needs to already carry it.
-      workspaceId: await workspaceIdForWrite(session.user.id),
+      workspaceId: permission.workspaceId,
     },
   });
 

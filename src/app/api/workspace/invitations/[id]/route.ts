@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -8,7 +8,7 @@ interface RouteContext {
 
 /** Revoke a pending invitation. Accepted ones are history and stay. */
 export async function DELETE(_req: NextRequest, context: RouteContext) {
-  const guard = await requirePermission("users:manage");
+  const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
@@ -18,7 +18,10 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
   // Guarded by `acceptedAt: null`: revoking an invitation somebody is in the
   // middle of accepting must not delete the record the register route is about to
   // stamp as used.
-  const revoked = await prisma.invitation.deleteMany({ where: { id, acceptedAt: null } });
+  // Scoped to the caller's workspace: another workspace's invitation is not found.
+  const revoked = await prisma.invitation.deleteMany({
+    where: { id, workspaceId: guard.workspaceId, acceptedAt: null },
+  });
   if (revoked.count === 0) {
     return NextResponse.json({ error: "No pending invitation with that id" }, { status: 404 });
   }

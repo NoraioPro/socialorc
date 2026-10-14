@@ -126,13 +126,13 @@ describe("tenant resolution never invents a workspace", () => {
     // touch a write path got a *personal* one — and the backfill, which has to
     // gather the whole existing deployment into ONE workspace, would then see
     // that user as already placed and leave the deployment fragmented.
-    const creates = source.match(/prisma\.workspace\.upsert/g) ?? [];
+    const creates = source.match(/\.workspace\.(upsert|create)\(/g) ?? [];
     assert.equal(creates.length, 1, "only the signup helper may create a workspace");
   });
 
   it("keeps that one creation inside createWorkspaceForNewUser", () => {
     const creatorAt = source.indexOf("export async function createWorkspaceForNewUser");
-    const createAt = source.indexOf("prisma.workspace.upsert");
+    const createAt = source.indexOf("db.workspace.upsert");
     const nextExportAt = source.indexOf("\nexport ", creatorAt + 1);
 
     assert.notEqual(creatorAt, -1, "createWorkspaceForNewUser must exist");

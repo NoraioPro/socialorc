@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { z } from "zod";
@@ -16,7 +16,7 @@ export async function PATCH(
   try {
     // Scheduling work — the same permission that gates /schedule. This route
     // was session-only, so a read-only CLIENT account could re-queue a publish.
-    const guard = await requirePermission("posts:schedule");
+    const guard = await requireWorkspace("posts:schedule");
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
@@ -33,7 +33,7 @@ export async function PATCH(
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
       include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
     });
 

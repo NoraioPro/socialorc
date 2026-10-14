@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/tenancy/guard";
 import type { Permission } from "@/lib/roles";
 import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
@@ -22,16 +22,22 @@ export async function POST(
 
     // Submitting a draft for review is an editor action; approving or
     // rejecting it is a manager/admin action. Gate per action, not per route.
+    //
+    // Scope is the workspace, not the author: any member holding
+    // `posts:approve` may decide on any pending post in their workspace. That
+    // is the point of an approval step — before this, only the author could
+    // approve their own post, so an EDITOR's draft could never be approved by
+    // anyone. A post in another workspace is simply not found.
     const requiredPermission: Permission =
       action === "submit" ? "posts:submit" : "posts:approve";
 
-    const guard = await requirePermission(requiredPermission);
+    const guard = await requireWorkspace(requiredPermission);
     if (!guard.ok) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
     const post = await prisma.post.findFirst({
-      where: { id, userId: guard.userId },
+      where: { id, workspaceId: guard.workspaceId },
     });
 
     if (!post) {
@@ -47,7 +53,7 @@ export async function POST(
 
     if (action === "approve") {
       const claim = await prisma.post.updateMany({
-        where: approveGuardWhere(id, guard.userId),
+        where: approveGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.APPROVED,
           approvedAt: new Date(),
@@ -83,7 +89,7 @@ export async function POST(
       const reason = body.reason || "No reason provided";
 
       const claim = await prisma.post.updateMany({
-        where: approveGuardWhere(id, guard.userId),
+        where: approveGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.DRAFT,
           rejectionReason: reason,
@@ -117,7 +123,7 @@ export async function POST(
       });
     } else if (action === "submit") {
       const claim = await prisma.post.updateMany({
-        where: submitGuardWhere(id, guard.userId),
+        where: submitGuardWhere(id, guard.workspaceId),
         data: {
           status: PostStatus.PENDING_APPROVAL,
           rejectionReason: null,

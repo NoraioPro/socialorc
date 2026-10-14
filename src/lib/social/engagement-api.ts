@@ -120,9 +120,14 @@ export function checkEngagementSupported(
   return { ok: true };
 }
 
-export async function loadOwnedAccount(userId: string, accountId: string) {
+/**
+ * A connected account in the caller's workspace, or null. Teammates share the
+ * workspace's connections, so the workspace (from `requireWorkspace()`) is the
+ * scope; an account id from another workspace is simply not found.
+ */
+export async function loadWorkspaceAccount(workspaceId: string, accountId: string) {
   return prisma.socialAccount.findFirst({
-    where: { id: accountId, userId, isActive: true },
+    where: { id: accountId, workspaceId, isActive: true },
   });
 }
 
