@@ -29,6 +29,19 @@ export interface StoredTelegramReply {
   sentAt: Date;
 }
 
+/**
+ * A connect code (telegram-connect-code.ts) seen in a chat during a drain. The
+ * drain is the only reader of the shared update queue, so this is where a code
+ * posted in a chat is noticed without consuming anybody else's updates.
+ */
+export interface ConnectCodeSighting {
+  codeHash: string;
+  chatId: string;
+  chatType: string | null;
+  /** The sender, when Telegram names one (channel posts have none). */
+  authorId: string | null;
+}
+
 export interface TelegramReplyStore {
   /** The next getUpdates offset for this bot, or null if it has never been drained. */
   getOffset(botId: string): Promise<number | null>;
@@ -42,6 +55,11 @@ export interface TelegramReplyStore {
     replyToMessageId: number,
     page: { skip: number; take: number },
   ): Promise<StoredTelegramReply[]>;
+  /**
+   * Record where pending connect codes were posted. Only the FIRST sighting of
+   * a live, unused code counts; a later repost elsewhere changes nothing.
+   */
+  recordConnectCodes(sightings: ConnectCodeSighting[]): Promise<void>;
 }
 
 /** The bot id is the part of the token before the colon; it is not a secret. */
@@ -54,6 +72,9 @@ export function botIdFromToken(token: string): string {
 export class MemoryTelegramReplyStore implements TelegramReplyStore {
   readonly offsets = new Map<string, number>();
   readonly replies = new Map<number, StoredTelegramReply>();
+  /** codeHash → first sighting. Tests seed `liveCodes` to model issued codes. */
+  readonly codeSightings = new Map<string, ConnectCodeSighting>();
+  readonly liveCodes = new Set<string>();
 
   async getOffset(botId: string): Promise<number | null> {
     return this.offsets.get(botId) ?? null;
@@ -79,6 +100,13 @@ export class MemoryTelegramReplyStore implements TelegramReplyStore {
       .filter((r) => r.chatId === chatId && r.replyToMessageId === replyToMessageId)
       .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime() || a.messageId - b.messageId)
       .slice(page.skip, page.skip + page.take);
+  }
+
+  async recordConnectCodes(sightings: ConnectCodeSighting[]): Promise<void> {
+    for (const sighting of sightings) {
+      if (!this.liveCodes.has(sighting.codeHash) || this.codeSightings.has(sighting.codeHash)) continue;
+      this.codeSightings.set(sighting.codeHash, sighting);
+    }
   }
 }
 
@@ -160,5 +188,23 @@ export class PrismaTelegramReplyStore implements TelegramReplyStore {
       text: row.text,
       sentAt: row.sentAt,
     }));
+  }
+
+  async recordConnectCodes(sightings: ConnectCodeSighting[]): Promise<void> {
+    if (sightings.length === 0) return;
+    const prisma = await this.db();
+    const now = new Date();
+    for (const sighting of sightings) {
+      // Guarded write: first sighting of a live, unused code only.
+      await prisma.telegramConnectCode.updateMany({
+        where: { codeHash: sighting.codeHash, seenAt: null, usedAt: null, expiresAt: { gt: now } },
+        data: {
+          chatId: sighting.chatId,
+          chatType: sighting.chatType,
+          authorId: sighting.authorId,
+          seenAt: now,
+        },
+      });
+    }
   }
 }
