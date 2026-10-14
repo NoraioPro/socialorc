@@ -127,6 +127,7 @@ export function createOAuthCallback(platform: Platform) {
             encodePendingConnection(
               {
                 userId: user.userId,
+                workspaceId: tenant.workspaceId,
                 platform,
                 brainId: brain.id,
                 userToken: tokens.accessToken,
