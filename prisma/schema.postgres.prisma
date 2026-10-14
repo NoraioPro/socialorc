@@ -422,13 +422,47 @@ model ScheduledJob {
   completedAt DateTime?
   errorMessage String?
   attempts    Int           @default(0)
-  
+  /// Platform handle of a send the platform accepted but has not finished
+  /// publishing (TikTok publish_id). While set, the worker only POLLS for the
+  /// outcome — it never sends again, which is what keeps a slow platform from
+  /// turning into a duplicate post.
+  pendingPublishId String?
+  /// When the platform first accepted the send; bounds how long we keep polling.
+  pendingSince     DateTime?
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@index([status])
   @@index([scheduledAt])
   @@index([workspaceId])
+}
+
+/// Replies the shared Telegram bot received, keyed by the chat they were sent
+/// in. The bot's getUpdates queue serves every tenant and forgets what it has
+/// handed out, so it is drained into this table and each account reads only its
+/// own chat back (src/lib/adapters/telegram-replies.ts).
+model TelegramReply {
+  id               String   @id @default(cuid())
+  updateId         BigInt   @unique
+  chatId           String
+  messageId        Int
+  replyToMessageId Int
+  authorId         String?
+  authorName       String?
+  text             String
+  sentAt           DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([chatId, replyToMessageId])
+}
+
+/// Next getUpdates offset per bot. Only advanced after the batch it confirms
+/// has been written to TelegramReply.
+model TelegramUpdateCursor {
+  botId      String   @id
+  nextOffset BigInt
+  updatedAt  DateTime @updatedAt
 }
 
 enum JobStatus {
