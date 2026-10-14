@@ -104,8 +104,8 @@ function appFiles(dir: string): string[] {
 /** Direct access to a workspace-owned model, or a helper that reads one. */
 const TENANT_DATA = new RegExp(
   [
-    String.raw`\b(prisma|tx)\.(post|socialAccount|mediaAsset|brain|brandBrain|scheduledJob|postMedia|feedReaction|feedComment)\.`,
-    String.raw`\b(loadWorkspaceAccount|loadBrandContext|resolveBrainForWorkspace|getOrCreateDefaultBrain|findWorkspaceSocialAccount|foreignMediaAssetIds)\(`,
+    String.raw`\b(prisma|tx)\.(post|socialAccount|mediaAsset|brain|brandBrain|brainSource|brainChunk|scheduledJob|postMedia|feedReaction|feedComment)\.`,
+    String.raw`\b(loadWorkspaceAccount|loadBrandContext|resolveBrainForWorkspace|getOrCreateDefaultBrain|findWorkspaceSocialAccount|foreignMediaAssetIds|listKnowledgeSources|addKnowledgeSource|deleteKnowledgeSource|retrieveBrandKnowledge)\(`,
   ].join("|"),
 );
 
