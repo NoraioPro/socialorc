@@ -188,8 +188,8 @@ See `.env.example` for the complete list. Each platform section includes:
 1. Create app at [X Developer Portal](https://developer.x.com/)
 2. Enable OAuth 2.0 with PKCE
 3. Set callback URL: `{NEXTAUTH_URL}/api/social/twitter/callback`
-4. Scopes: `tweet.read`, `tweet.write`, `users.read`, `offline.access`
-5. **For media uploads**: Also configure OAuth 1.0a credentials
+4. Scopes: `tweet.read`, `tweet.write`, `users.read`, `offline.access`, `media.write`
+5. Media (up to 4 images, or one video/GIF) uploads through the v2 media endpoints with the same OAuth 2.0 token — no OAuth 1.0a credentials. Accounts connected before `media.write` was requested must reconnect to attach media.
 
 **Important**: Free tier = 50 tweets/day. Basic ($200/mo) = 50K tweets/mo.
 
@@ -201,15 +201,17 @@ See `.env.example` for the complete list. Each platform section includes:
    - Instagram Business or Creator account (not personal)
    - Account must be linked to a Facebook Page
    - App Review required for non-test users
-4. Permissions: `instagram_basic`, `instagram_content_publish`, `pages_read_engagement`, `pages_show_list`
+4. Permissions: `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments`, `pages_read_engagement`, `pages_show_list`
+5. Publishes a JPEG, a carousel of up to 10 JPEGs, or a video as a Reel. A Reel still processing after ~10 s is re-checked by the next worker run (the container is resumed, not re-uploaded).
 
 ### Facebook Pages
 
 1. Same Meta app as Instagram
 2. Add "Facebook Login" product
-3. Permissions: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_manage_metadata`
-4. **Note**: Posts to Pages only, not personal profiles
-5. **Note**: App Review + Business Verification required for Advanced Access
+3. Permissions: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_manage_metadata`, `pages_manage_engagement`
+4. **Note**: Posts to Pages only, not personal profiles. If the login manages several Pages (or Instagram accounts), Settings asks which one to connect.
+5. **Tokens**: the login's token is exchanged for a long-lived one and the chosen Page's own access token is stored — it does not expire, so no refresh is needed. Meta revoking it (password change, lost Page role, app removed) raises the reconnect banner.
+6. **Note**: App Review + Business Verification required for Advanced Access
 
 ### TikTok
 
