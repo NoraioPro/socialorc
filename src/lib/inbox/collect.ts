@@ -354,11 +354,12 @@ export function applyInboxState(items: InboxItem[], states: InboxStateRow[]): In
   return items.map((item) => {
     const state = byKey.get(`${item.platform}:${item.commentId}`);
     if (!state) return item;
-    const isReplied = item.isReplied || Boolean(state.repliedAt);
+    // Replying from the inbox also sets readAt, so "mark unread" afterwards
+    // still works: read is exactly readAt.
     return {
       ...item,
-      isReplied,
-      isRead: item.isRead || Boolean(state.readAt) || isReplied,
+      isReplied: item.isReplied || Boolean(state.repliedAt),
+      isRead: Boolean(state.readAt),
     };
   });
 }

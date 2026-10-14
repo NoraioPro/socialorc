@@ -271,10 +271,11 @@ test("stored read/replied state overlays live items; filters apply after", () =>
   assert.equal(filterInbox(merged, { limit: 1 }).length, 1);
 
   const replied = applyInboxState(items, [
+    // Replied, then marked unread again by a teammate.
     { platform: Platform.FACEBOOK, commentId: "c2", readAt: null, repliedAt: new Date() },
   ]);
   assert.equal(replied[1].isReplied, true);
-  assert.equal(replied[1].isRead, true, "replying implies read");
+  assert.equal(replied[1].isRead, false, "unread is whatever readAt says");
 });
 
 test("the inbox route is workspace-scoped and reuses the engagement write path", () => {
