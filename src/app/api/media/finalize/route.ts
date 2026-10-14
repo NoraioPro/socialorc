@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: permission.error }, { status: permission.status });
     }
 
-    const validation = finalizeSchema.safeParse(await req.json());
+    // A body that is not JSON is the client's mistake (400), not a server fault.
+    const validation = finalizeSchema.safeParse(await req.json().catch(() => null));
     if (!validation.success) {
       return NextResponse.json(
         { error: "Invalid upload metadata", details: validation.error.flatten() },
