@@ -222,7 +222,7 @@ export async function runInboxE2E({ baseUrl }) {
 
   const unread = await req(a, url("/api/inbox"), {
     method: "PATCH",
-    json: { action: "markUnread", platform: item.platform, commentId: item.commentId },
+    json: { action: "markUnread", platform: item.platform, commentId: item.commentId, accountId: item.accountId },
   });
   const afterUnread = await inbox(a, "?unreadOnly=true");
   check(
@@ -234,7 +234,12 @@ export async function runInboxE2E({ baseUrl }) {
   if (replyItem) {
     await req(a, url("/api/inbox"), {
       method: "PATCH",
-      json: { action: "markRead", platform: replyItem.platform, commentId: replyItem.commentId },
+      json: {
+        action: "markRead",
+        platform: replyItem.platform,
+        commentId: replyItem.commentId,
+        accountId: replyItem.accountId,
+      },
     });
   }
 
@@ -269,9 +274,21 @@ export async function runInboxE2E({ baseUrl }) {
   });
   check("B: replying through A's account is a 404", bReply.status === 404, `status ${bReply.status}`);
 
-  const bMark = await req(b, url("/api/inbox"), {
+  // Read state is keyed by account: B cannot name A's account at all, and the
+  // same comment id under B's own account is B's own row.
+  const bMarkForeign = await req(b, url("/api/inbox"), {
+    method: "PATCH",
+    json: { action: "markRead", platform: "FACEBOOK", commentId: item.commentId, accountId: fb.id },
+  });
+  check("B: marking through A's account is a 404", bMarkForeign.status === 404, `status ${bMarkForeign.status}`);
+  const bMarkNoAccount = await req(b, url("/api/inbox"), {
     method: "PATCH",
     json: { action: "markRead", platform: "FACEBOOK", commentId: item.commentId },
+  });
+  check("B: marking without an account is a 400", bMarkNoAccount.status === 400, `status ${bMarkNoAccount.status}`);
+  const bMark = await req(b, url("/api/inbox"), {
+    method: "PATCH",
+    json: { action: "markRead", platform: "FACEBOOK", commentId: item.commentId, accountId: bFb?.id },
   });
   const aAfterB = await inbox(a);
   const aItem = (aAfterB.body?.items ?? []).find((i) => i.commentId === item.commentId);

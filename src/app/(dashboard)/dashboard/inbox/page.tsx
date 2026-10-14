@@ -112,6 +112,7 @@ export default function InboxPage() {
         action: read ? "markRead" : "markUnread",
         platform: item.platform,
         commentId: item.commentId,
+        accountId: item.accountId,
       }),
     });
     if (!res.ok) {

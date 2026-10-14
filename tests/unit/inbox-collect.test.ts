@@ -260,9 +260,9 @@ test("stored read/replied state overlays live items; filters apply after", () =>
   const acc = account("a1", Platform.FACEBOOK);
   const items = commentsToItems(acc, post(1), [comment("c1", "pp1"), comment("c2", "pp1")], true);
   const merged = applyInboxState(items, [
-    { platform: Platform.FACEBOOK, commentId: "c1", readAt: new Date(), repliedAt: null },
-    // Same comment id on another platform must not leak across.
-    { platform: Platform.TWITTER, commentId: "c2", readAt: new Date(), repliedAt: new Date() },
+    { socialAccountId: "a1", commentId: "c1", readAt: new Date(), repliedAt: null },
+    // Same comment id on another account must not leak across.
+    { socialAccountId: "a2", commentId: "c2", readAt: new Date(), repliedAt: new Date() },
   ]);
   assert.equal(merged[0].isRead, true);
   assert.equal(merged[1].isRead, false);
@@ -272,10 +272,38 @@ test("stored read/replied state overlays live items; filters apply after", () =>
 
   const replied = applyInboxState(items, [
     // Replied, then marked unread again by a teammate.
-    { platform: Platform.FACEBOOK, commentId: "c2", readAt: null, repliedAt: new Date() },
+    { socialAccountId: "a1", commentId: "c2", readAt: null, repliedAt: new Date() },
   ]);
   assert.equal(replied[1].isReplied, true);
   assert.equal(replied[1].isRead, false, "unread is whatever readAt says");
+});
+
+test("two Telegram chats reusing a message id keep separate read state", () => {
+  const chatA = account("tg-a", Platform.TELEGRAM);
+  const chatB = account("tg-b", Platform.TELEGRAM);
+  const items = [
+    ...commentsToItems(chatA, post(1), [comment("42", "pp1")], true),
+    ...commentsToItems(chatB, post(2), [comment("42", "pp2")], true),
+  ];
+  const merged = applyInboxState(items, [
+    { socialAccountId: "tg-a", commentId: "42", readAt: new Date(), repliedAt: new Date() },
+  ]);
+  assert.equal(merged[0].isRead, true);
+  assert.equal(merged[0].isReplied, true);
+  assert.equal(merged[1].isRead, false, "chat B's message 42 is a different message");
+  assert.equal(merged[1].isReplied, false);
+});
+
+test("inbox read state is keyed by account + comment id, checked against the workspace", () => {
+  const source = readFileSync("src/app/api/inbox/route.ts", "utf8");
+  assert.match(source, /socialAccountId_commentId: \{ socialAccountId: account\.id, commentId: body\.commentId \}/);
+  assert.doesNotMatch(source, /workspaceId_platform_commentId/);
+  // The account is resolved (workspace + platform) before ANY write, read state included.
+  const lookup = source.indexOf("loadWorkspaceAccount(workspaceId, body.accountId)");
+  assert.ok(lookup > 0 && lookup < source.indexOf('body.action === "markRead"'));
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const model = schema.slice(schema.indexOf("model InboxItemState"));
+  assert.match(model.slice(0, model.indexOf("}")), /@@unique\(\[socialAccountId, commentId\]\)/);
 });
 
 test("the inbox route is workspace-scoped and reuses the engagement write path", () => {
