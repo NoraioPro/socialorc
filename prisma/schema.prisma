@@ -472,6 +472,25 @@ model TelegramUpdateCursor {
   updatedAt  DateTime @updatedAt
 }
 
+/// Triage state for one unified-inbox item. The comment itself stays on the
+/// platform and is re-read on every inbox load; only what the TEAM did with it
+/// (read it, replied to it from the inbox) is stored, per workspace. No relation
+/// to Workspace on purpose: the row carries no tenant content, and every query
+/// is keyed by workspaceId (src/app/api/inbox/route.ts).
+model InboxItemState {
+  id          String    @id @default(cuid())
+  workspaceId String
+  platform    Platform
+  /// The platform's comment id, as returned by the adapter's listComments.
+  commentId   String
+  readAt      DateTime?
+  repliedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, platform, commentId])
+}
+
 enum JobStatus {
   PENDING
   PROCESSING
