@@ -9,7 +9,17 @@ import {
   findWorkspaceSocialAccount,
   foreignMediaAssetIds,
 } from "@/lib/social/account-select";
-import { editGuardWhere } from "@/lib/posts/transitions";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+  deleteGuardWhere,
+  editGuardWhere,
+  POST_CONFLICT_MESSAGE,
+  POST_CONFLICT_STATUS,
+} from "@/lib/posts/transitions";
+import { discardInFlightMediaForPost } from "@/lib/adapters/in-flight-media";
+import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 
 const updatePostSchema = z.object({
   title: z.string().optional(),
@@ -65,7 +75,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const body = await req.json();
+    // A malformed body is a 400 (via the schema), not a 500.
+    const body = await req.json().catch(() => null);
     const validation = updatePostSchema.safeParse(body);
 
     if (!validation.success) {
@@ -95,6 +106,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     // A `socialAccountId` from the request body is a capability handle: writing
     // it unchecked let anyone point their own draft at another tenant's account
     // and publish through it. Refuse unless it is in the caller's workspace.
+    const effectivePlatform = restData.platform ?? existingPost.platform;
+    // When only the platform changes, the old link points at the wrong network:
+    // relink to the workspace's account for the new platform (as create does),
+    // or unlink if there is none — never keep a mismatched account.
+    let relinkAccountId: string | null | undefined;
     if (socialAccountId !== undefined && socialAccountId !== null) {
       const owned = await findWorkspaceSocialAccount(guard.workspaceId, socialAccountId);
       if (!owned) {
@@ -103,6 +119,27 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           { status: 404 }
         );
       }
+      if (accountPlatformMismatch(effectivePlatform, owned)) {
+        return NextResponse.json(
+          {
+            error: accountPlatformMismatchMessage(effectivePlatform, owned.platform),
+            code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (
+      socialAccountId === undefined &&
+      restData.platform !== undefined &&
+      restData.platform !== existingPost.platform &&
+      existingPost.socialAccountId
+    ) {
+      const replacement = await prisma.socialAccount.findFirst({
+        where: { workspaceId: guard.workspaceId, platform: effectivePlatform, isActive: true },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      relinkAccountId = replacement?.id ?? null;
     }
 
     // Same for media: attaching someone else's asset leaked its URL back to the
@@ -125,11 +162,17 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     };
 
     if (scheduledFor !== undefined) {
-      updatePayload.scheduledFor = scheduledFor ? new Date(scheduledFor) : null;
+      const at = scheduledFor ? parseInstant(scheduledFor) : null;
+      if (scheduledFor && !at) {
+        return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+      }
+      updatePayload.scheduledFor = at;
     }
 
     if (socialAccountId !== undefined) {
       updatePayload.socialAccountId = socialAccountId;
+    } else if (relinkAccountId !== undefined) {
+      updatePayload.socialAccountId = relinkAccountId;
     }
 
     if (platformContent !== undefined) {
@@ -163,6 +206,16 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           })),
         });
       }
+    }
+
+    // An async upload (Instagram Reel container, X video) still in flight was
+    // made from the old caption/media. Drop it so no later attempt resumes and
+    // publishes the pre-edit version.
+    const contentChanged =
+      (restData.content !== undefined && restData.content !== existingPost.content) ||
+      mediaAssetIds !== undefined;
+    if (contentChanged) {
+      await discardInFlightMediaForPost(prisma, id);
     }
 
     const updatedPost = await prisma.post.findUnique({
@@ -232,10 +285,18 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Scoped by workspace in the write too, so a row that moved cannot be hit.
-    const deleted = await prisma.post.deleteMany({ where: { id, workspaceId: guard.workspaceId } });
+    // Guarded write (workspace + status), so the worker claiming the post, or an
+    // approval landing, between the read above and here makes this a 409.
+    const deleted = await prisma.post.deleteMany({
+      where: deleteGuardWhere(id, guard.workspaceId, {
+        draftOnly: !tenantCan(guard, "posts:delete"),
+      }),
+    });
     if (deleted.count === 0) {
-      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: POST_CONFLICT_MESSAGE },
+        { status: POST_CONFLICT_STATUS }
+      );
     }
 
     return NextResponse.json({ success: true });

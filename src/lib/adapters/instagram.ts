@@ -25,7 +25,7 @@ import {
 } from "./meta-graph";
 import { encodeMetaPageCredential, parseMetaCredential } from "./meta-credential";
 import { formatGraphError, type AdapterErrorCode } from "./errors";
-import { inFlightKey, inFlightMediaStore } from "./in-flight-media";
+import { inFlightFingerprint, inFlightKey, inFlightMediaStore } from "./in-flight-media";
 import {
   validateInstagramCredentials,
   type CredentialValidationResult,
@@ -295,7 +295,10 @@ export class InstagramAdapter extends BasePlatformAdapter {
 
       // Resume a container an earlier attempt created, so a slow video keeps
       // its place in Meta's processing queue instead of being uploaded again.
-      let containerId = key && store ? await store.get(key) : null;
+      // Only an upload of *this* content: an edit since the last attempt changes
+      // the fingerprint, and the stale container is discarded, not published.
+      const fingerprint = inFlightFingerprint(options.text, media.map((m) => m.url));
+      let containerId = key && store ? await store.get(key, fingerprint) : null;
       let status: ContainerStatus | Failure | null = null;
 
       if (containerId) {
@@ -313,7 +316,11 @@ export class InstagramAdapter extends BasePlatformAdapter {
         if (!created.success) return created;
         containerId = created.id;
         if (key && store && options.idempotencyKey) {
-          await store.put(key, containerId, { postId: options.idempotencyKey, platform: Platform.INSTAGRAM });
+          await store.put(key, containerId, {
+            postId: options.idempotencyKey,
+            platform: Platform.INSTAGRAM,
+            fingerprint,
+          });
         }
         status = await this.waitForContainer(containerId, pageToken);
       }

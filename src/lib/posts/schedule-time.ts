@@ -44,3 +44,16 @@ export function scheduleInputMessage(reason: ScheduleInputProblem): string {
       return "Pick a time in the future.";
   }
 }
+
+/**
+ * Server side: a client-supplied timestamp, or null when it is not a real date.
+ * `new Date("garbage")` is an Invalid Date that slips past `<=` comparisons
+ * (every comparison with NaN is false) and then makes Prisma throw — a 500 for
+ * what is a bad request.
+ */
+export function parseInstant(value: string): Date | null {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+export const INVALID_DATE_MESSAGE = "Invalid date: send an ISO 8601 timestamp.";

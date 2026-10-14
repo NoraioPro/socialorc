@@ -1,10 +1,13 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { InstagramAdapter } from "../../src/lib/adapters/instagram";
 import { TwitterAdapter } from "../../src/lib/adapters/twitter";
 import { encodeMetaPageCredential } from "../../src/lib/adapters/meta-credential";
 import {
   createMemoryInFlightStore,
+  discardInFlightMediaForPost,
+  inFlightFingerprint,
   setInFlightMediaStore,
 } from "../../src/lib/adapters/in-flight-media";
 import { isRetryable } from "../../src/lib/adapters/errors";
@@ -50,6 +53,14 @@ function stub(handler: (url: string, init?: RequestInit) => Response | undefined
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+const REEL_FP = () => inFlightFingerprint(REEL.text, REEL.media.map((m) => m.url));
+
+/** Seed a leftover container as an earlier attempt for REEL would have stored it. */
+function remember(key: string, value: string, fingerprint = REEL_FP()) {
+  store.entries.set(key, value);
+  store.fingerprints.set(key, fingerprint);
+}
 
 const CREDENTIAL = encodeMetaPageCredential({ token: "page-token", pageId: "p1", igUserId: "ig1" });
 const REEL = {
@@ -123,8 +134,83 @@ test("the next attempt resumes the same container instead of uploading again", a
   assert.equal(publish?.form?.creation_id, "container-1");
 });
 
+test("an edited caption is never published from the old container", async () => {
+  const first = metaStub(["IN_PROGRESS"]);
+  await instagram().createPost(CREDENTIAL, REEL);
+  assert.equal(first.created(), 1);
+
+  const second = metaStub(["FINISHED"]);
+  const result = await instagram().createPost(CREDENTIAL, { ...REEL, text: "Edited caption" });
+  assert.equal(result.success, true, result.error);
+  assert.equal(second.created(), 1, "the edit must be uploaded as a new container");
+  const container = second.seen.find((s) => s.url.endsWith("/ig1/media"));
+  assert.equal(container?.form?.caption, "Edited caption");
+  const publish = second.seen.find((s) => s.url.includes("media_publish"));
+  assert.equal(publish?.form?.creation_id, "container-1", "the stub numbers containers per stub");
+  assert.notEqual(store.fingerprints.get("instagram:container:post-1"), REEL_FP());
+});
+
+test("swapped media is never published from the old container", async () => {
+  metaStub(["IN_PROGRESS"]);
+  await instagram().createPost(CREDENTIAL, REEL);
+
+  const second = metaStub(["FINISHED"]);
+  const swapped = {
+    ...REEL,
+    media: [{ url: "https://cdn.example.invalid/other.mp4", mimeType: "video/mp4", sizeBytes: 10 }],
+  };
+  const result = await instagram().createPost(CREDENTIAL, swapped);
+  assert.equal(result.success, true, result.error);
+  assert.equal(second.created(), 1);
+  const container = second.seen.find((s) => s.url.endsWith("/ig1/media"));
+  assert.equal(container?.form?.video_url, "https://cdn.example.invalid/other.mp4");
+});
+
+test("a leftover with no fingerprint is discarded, not resumed", async () => {
+  store.entries.set("instagram:container:post-1", "container-legacy");
+  const { created } = metaStub(["FINISHED"]);
+  const result = await instagram().createPost(CREDENTIAL, REEL);
+  assert.equal(result.success, true, result.error);
+  assert.equal(created(), 1);
+});
+
+test("the fingerprint covers caption and media URLs, in order", () => {
+  const a = inFlightFingerprint("t", ["u1", "u2"]);
+  assert.equal(a, inFlightFingerprint("t", ["u1", "u2"]));
+  assert.notEqual(a, inFlightFingerprint("t2", ["u1", "u2"]));
+  assert.notEqual(a, inFlightFingerprint("t", ["u2", "u1"]));
+  assert.notEqual(a, inFlightFingerprint("t", ["u1"]));
+});
+
+test("discardInFlightMediaForPost cancels only that post's processing rows", async () => {
+  const calls: unknown[] = [];
+  const at = new Date("2026-10-15T00:00:00Z");
+  const count = await discardInFlightMediaForPost(
+    {
+      publishingJob: {
+        updateMany: async (args) => {
+          calls.push(args);
+          return { count: 2 };
+        },
+      },
+    },
+    "post-1",
+    at,
+  );
+  assert.equal(count, 2);
+  assert.deepEqual(calls, [
+    { where: { postId: "post-1", status: "processing" }, data: { status: "cancelled", completedAt: at } },
+  ]);
+});
+
+test("PATCH drops in-flight uploads when content or media change", () => {
+  const src = readFileSync("src/app/api/posts/[id]/route.ts", "utf8");
+  assert.match(src, /restData\.content !== existingPost\.content/);
+  assert.match(src, /mediaAssetIds !== undefined;\s*if \(contentChanged\) \{\s*await discardInFlightMediaForPost\(prisma, id\)/);
+});
+
 test("a container already PUBLISHED is never published again", async () => {
-  store.entries.set("instagram:container:post-1", "container-1");
+  remember("instagram:container:post-1", "container-1");
   const { seen, created } = metaStub(["PUBLISHED"]);
   const result = await instagram().createPost(CREDENTIAL, REEL);
   assert.equal(result.success, false);
@@ -134,7 +220,7 @@ test("a container already PUBLISHED is never published again", async () => {
 });
 
 test("an expired leftover container is discarded and the post starts over", async () => {
-  store.entries.set("instagram:container:post-1", "container-old");
+  remember("instagram:container:post-1", "container-old");
   const { created } = metaStub(["EXPIRED", "FINISHED"]);
   const result = await instagram().createPost(CREDENTIAL, REEL);
   assert.equal(result.success, true, result.error);
@@ -227,6 +313,17 @@ test("X video still processing is retried later and resumed, not re-uploaded", a
   assert.equal(result.success, true, result.error);
   assert.equal(second.inits(), 0, "the upload is resumed, not repeated");
   assert.equal(store.entries.size, 0);
+});
+
+test("X: an edited post does not reuse the old video upload", async () => {
+  xStub(["in_progress"]);
+  await twitter().createPost("user-token", X_VIDEO);
+  assert.equal(store.entries.get("twitter:media:post-x"), "900");
+
+  const second = xStub(["succeeded"]);
+  const result = await twitter().createPost("user-token", { ...X_VIDEO, text: "edited clip" });
+  assert.equal(result.success, true, result.error);
+  assert.equal(second.inits(), 1, "the edited post uploads afresh");
 });
 
 test("X refuses a video mixed with images before any call", async () => {

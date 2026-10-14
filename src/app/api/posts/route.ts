@@ -8,6 +8,12 @@ import {
   POST_SAFE_INCLUDE_WITH_AUTHOR,
   foreignMediaAssetIds,
 } from "@/lib/social/account-select";
+import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
+} from "@/lib/posts/transitions";
+import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 
 const createPostSchema = z.object({
   title: z.string().optional(),
@@ -80,7 +86,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: guard.error }, { status: guard.status });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
     const validation = createPostSchema.safeParse(body);
 
     if (!validation.success) {
@@ -91,6 +97,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { title, content, platform, socialAccountId, scheduledFor, platformContent, mediaAssetIds } = validation.data;
+
+    const scheduledAt = scheduledFor ? parseInstant(scheduledFor) : null;
+    if (scheduledFor && !scheduledAt) {
+      return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+    }
 
     // A post with no account attached can never be scheduled or published - it
     // strands in DRAFT. The create form does not always carry the choice, and
@@ -106,6 +117,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: "Social account not found" },
           { status: 404 }
+        );
+      }
+      if (accountPlatformMismatch(platform, account)) {
+        return NextResponse.json(
+          {
+            error: accountPlatformMismatchMessage(platform, account.platform),
+            code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+          },
+          { status: 400 }
         );
       }
     } else {
@@ -137,7 +157,7 @@ export async function POST(req: NextRequest) {
         content,
         platform,
         socialAccountId: resolvedAccountId,
-        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+        scheduledFor: scheduledAt,
         platformContent: platformContent as Prisma.InputJsonValue | undefined,
         status: PostStatus.DRAFT,
         mediaAssets: mediaAssetIds

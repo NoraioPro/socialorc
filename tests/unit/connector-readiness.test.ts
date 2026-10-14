@@ -247,6 +247,47 @@ test("Facebook: an image post goes to the photos endpoint", async () => {
   }
 });
 
+test("Facebook: a photo post is recorded under its post id, not the photo id", async () => {
+  stubFetch((url: string) => {
+    if (url.includes("/me/accounts")) {
+      return json({ data: [{ id: "page-1", name: "My Page", access_token: "page-token" }] });
+    }
+    if (url.includes("/page-1/photos")) return json({ id: "photo-555", post_id: "page-1_200" });
+    return undefined;
+  });
+  try {
+    const result = await facebookAdapter.createPost("user-token", {
+      text: "With a picture",
+      mediaUrls: [MEDIA_URL],
+    } as unknown as PostOptions);
+    assert.equal(result.success, true);
+    assert.equal(result.platformPostId, "page-1_200");
+    assert.equal(result.platformPostUrl, "https://www.facebook.com/page-1_200");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("Facebook: a photo answer without post_id falls back to the photo id", async () => {
+  stubFetch((url: string) => {
+    if (url.includes("/me/accounts")) {
+      return json({ data: [{ id: "page-1", name: "My Page", access_token: "page-token" }] });
+    }
+    if (url.includes("/page-1/photos")) return json({ id: "photo-555" });
+    return undefined;
+  });
+  try {
+    const result = await facebookAdapter.createPost("user-token", {
+      text: "With a picture",
+      mediaUrls: [MEDIA_URL],
+    } as unknown as PostOptions);
+    assert.equal(result.success, true);
+    assert.equal(result.platformPostId, "photo-555");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("Facebook: a 200 with no post id is not a publish", async () => {
   stubFetch(facebookHandler(false));
   try {

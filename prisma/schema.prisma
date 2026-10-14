@@ -398,6 +398,9 @@ model PublishingJob {
   idempotencyKey  String?   @unique
   /** Platform-side id (TikTok publish_id, YouTube video id, …). */
   externalPostId  String?
+  /** Hash of the caption + media URLs an in-flight upload was made from
+   *  (src/lib/adapters/in-flight-media.ts): a resumed upload must match. */
+  contentFingerprint String?
   attemptCount    Int       @default(0)
   lastErrorCode   String?
   lastErrorMessage String?
@@ -481,6 +484,10 @@ model InboxItemState {
   id          String    @id @default(cuid())
   workspaceId String
   platform    Platform
+  /// The account the comment was read through. Comment ids are only unique per
+  /// account (Telegram message ids are per chat), so this — not the platform —
+  /// is what the state is keyed by.
+  socialAccountId String
   /// The platform's comment id, as returned by the adapter's listComments.
   commentId   String
   readAt      DateTime?
@@ -488,7 +495,8 @@ model InboxItemState {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@unique([workspaceId, platform, commentId])
+  @@unique([socialAccountId, commentId])
+  @@index([workspaceId])
 }
 
 /// One-time proof that the person connecting Telegram controls the chat.

@@ -342,17 +342,23 @@ export async function collectInbox(
 }
 
 export interface InboxStateRow {
-  platform: Platform;
+  socialAccountId: string;
   commentId: string;
   readAt: Date | null;
   repliedAt: Date | null;
 }
 
-/** Overlay the workspace's stored read/replied state onto live items. */
+/**
+ * Overlay the workspace's stored read/replied state onto live items.
+ *
+ * Keyed by account + comment id, not platform + comment id: a comment id is
+ * only unique within the account it was read through (Telegram message ids are
+ * per chat, so two connected chats reuse the same small integers).
+ */
 export function applyInboxState(items: InboxItem[], states: InboxStateRow[]): InboxItem[] {
-  const byKey = new Map(states.map((s) => [`${s.platform}:${s.commentId}`, s]));
+  const byKey = new Map(states.map((s) => [`${s.socialAccountId}:${s.commentId}`, s]));
   return items.map((item) => {
-    const state = byKey.get(`${item.platform}:${item.commentId}`);
+    const state = byKey.get(`${item.accountId}:${item.commentId}`);
     if (!state) return item;
     // Replying from the inbox also sets readAt, so "mark unread" afterwards
     // still works: read is exactly readAt.

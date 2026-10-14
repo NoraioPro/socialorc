@@ -117,3 +117,54 @@ export function editGuardWhere(id: string, workspaceId: string) {
 export function publishClaimWhere(id: string) {
   return { id, status: "SCHEDULED" as PostStatus, approvedAt: { not: null } };
 }
+
+/**
+ * The worker claims a due job (PENDING -> PROCESSING). `scheduledAt` is
+ * restated in the claim: the job was read as due a moment earlier, but a
+ * reschedule (or a retry's backoff) landing in between moves it into the
+ * future, and claiming it anyway would publish early.
+ */
+export function jobClaimWhere(jobId: string, now: Date) {
+  return { id: jobId, status: "PENDING" as const, scheduledAt: { lte: now } };
+}
+
+/**
+ * A post goes out through its linked account, and the adapter is chosen by the
+ * POST's platform. A post for INSTAGRAM linked to a TWITTER account would hand
+ * the X token to the Instagram adapter: the send fails with an auth-shaped
+ * error and the (perfectly healthy) account gets flagged for reconnect. So the
+ * two must agree on every write and again before every send. This is never a
+ * credential problem, so it must never set `needsReconnect`.
+ */
+export const ACCOUNT_PLATFORM_MISMATCH_CODE = "ACCOUNT_PLATFORM_MISMATCH";
+
+export function accountPlatformMismatch(
+  postPlatform: string,
+  account: { platform: string } | null | undefined,
+): boolean {
+  return Boolean(account) && account!.platform !== postPlatform;
+}
+
+export function accountPlatformMismatchMessage(postPlatform: string, accountPlatform: string): string {
+  return (
+    `This post is for ${postPlatform}, but the linked account is a ${accountPlatform} account. ` +
+    `Link a ${postPlatform} account to the post and try again.`
+  );
+}
+
+/**
+ * Deleting races the worker: a post read as SCHEDULED can be claimed
+ * (PUBLISHING) a moment later, and deleting it mid-send loses the record of a
+ * post that may go live. The write restates "not PUBLISHING". A caller without
+ * `posts:delete` (deleting their own draft) restates that it is still a draft,
+ * so an approval landing in between is not deleted out from under the approver.
+ */
+export function deleteGuardWhere(id: string, workspaceId: string, opts: { draftOnly: boolean }) {
+  return {
+    id,
+    workspaceId,
+    status: opts.draftOnly
+      ? { in: ["DRAFT", "PENDING_APPROVAL"] as PostStatus[] }
+      : { not: "PUBLISHING" as PostStatus },
+  };
+}

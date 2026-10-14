@@ -61,7 +61,7 @@ export const POST_SAFE_INCLUDE_WITH_AUTHOR: Prisma.PostInclude = {
 export async function findWorkspaceSocialAccount(workspaceId: string, socialAccountId: string) {
   return prisma.socialAccount.findFirst({
     where: { id: socialAccountId, workspaceId },
-    select: { id: true },
+    select: { id: true, platform: true },
   });
 }
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Platform } from "@prisma/client";
 
 /**
@@ -19,21 +20,44 @@ import type { Platform } from "@prisma/client";
  * pass no key get no memory — they still never double-publish, they just
  * re-upload on retry.
  *
+ * The post id alone does not identify *what* was uploaded: an edit between two
+ * attempts changes the caption or media, and resuming the old container would
+ * publish the stale version. So each entry carries a fingerprint of the content
+ * it was made from (`inFlightFingerprint`), and `get` discards an entry whose
+ * fingerprint does not match the content being published now. Editing a post
+ * also drops its entries outright (`discardInFlightMediaForPost`).
+ *
  * The default store uses the existing `PublishingJob` table (its unique
  * `idempotencyKey` is exactly this contract), loaded lazily so adapters stay
  * importable in unit tests without a database. Tests swap in a memory store.
  */
 
 export interface InFlightMediaStore {
-  /** The remembered upload id, or null when none is pending (or it went stale). */
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string, ctx: { postId: string; platform: Platform }): Promise<void>;
+  /**
+   * The remembered upload id, or null when none is pending, it went stale, or
+   * it was made from different content (`fingerprint` mismatch — the entry is
+   * discarded so the caller uploads afresh).
+   */
+  get(key: string, fingerprint: string): Promise<string | null>;
+  put(
+    key: string,
+    value: string,
+    ctx: { postId: string; platform: Platform; fingerprint: string },
+  ): Promise<void>;
   /** The upload was published (or abandoned): forget it. */
   done(key: string, ctx: { publishedId?: string }): Promise<void>;
 }
 
 /** Instagram containers expire after 24h; X upload sessions after ~24h. Stay inside that. */
 export const IN_FLIGHT_MAX_AGE_MS = 23 * 60 * 60_000;
+
+/**
+ * What an upload was made from: the caption and the media URLs, in order. Any
+ * edit to either yields a different fingerprint.
+ */
+export function inFlightFingerprint(text: string, mediaUrls: readonly string[]): string {
+  return createHash("sha256").update(JSON.stringify([text, mediaUrls])).digest("hex");
+}
 
 export function inFlightKey(platform: Platform, kind: string, postId: string): string {
   return `${platform.toLowerCase()}:${kind}:${postId}`;
@@ -51,31 +75,81 @@ export async function inFlightMediaStore(): Promise<InFlightMediaStore> {
   return prismaStore;
 }
 
-export function createMemoryInFlightStore(): InFlightMediaStore & { entries: Map<string, string> } {
+export function createMemoryInFlightStore(): InFlightMediaStore & {
+  entries: Map<string, string>;
+  fingerprints: Map<string, string>;
+} {
   const entries = new Map<string, string>();
+  const fingerprints = new Map<string, string>();
   return {
     entries,
-    async get(key) {
-      return entries.get(key) ?? null;
+    fingerprints,
+    async get(key, fingerprint) {
+      const value = entries.get(key);
+      if (value === undefined) return null;
+      if (fingerprints.get(key) !== fingerprint) {
+        entries.delete(key);
+        fingerprints.delete(key);
+        return null;
+      }
+      return value;
     },
-    async put(key, value) {
+    async put(key, value, ctx) {
       entries.set(key, value);
+      fingerprints.set(key, ctx.fingerprint);
     },
     async done(key) {
       entries.delete(key);
+      fingerprints.delete(key);
     },
   };
 }
 
+/** Minimal client so the edit-time discard is testable without a database. */
+export interface InFlightDiscardClient {
+  publishingJob: {
+    updateMany(args: {
+      where: { postId: string; status: string };
+      data: { status: string; completedAt: Date };
+    }): PromiseLike<{ count: number }>;
+  };
+}
+
+/**
+ * Forget every upload still in flight for a post. Called when an edit changes
+ * the content or media, so no later attempt can resume an upload of the old
+ * version. (The fingerprint check in `get` would catch it too; this keeps the
+ * rows honest instead of leaving them "processing".)
+ */
+export async function discardInFlightMediaForPost(
+  client: InFlightDiscardClient,
+  postId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  const { count } = await client.publishingJob.updateMany({
+    where: { postId, status: "processing" },
+    data: { status: "cancelled", completedAt: now },
+  });
+  return count;
+}
+
 const prismaStore: InFlightMediaStore = {
-  async get(key) {
+  async get(key, fingerprint) {
     const { default: prisma } = await import("@/lib/prisma");
     const row = await prisma.publishingJob.findUnique({
       where: { idempotencyKey: key },
-      select: { status: true, externalPostId: true, updatedAt: true },
+      select: { status: true, externalPostId: true, updatedAt: true, contentFingerprint: true },
     });
     if (!row || row.status !== "processing" || !row.externalPostId) return null;
     if (Date.now() - row.updatedAt.getTime() > IN_FLIGHT_MAX_AGE_MS) return null;
+    if (row.contentFingerprint !== fingerprint) {
+      // Made from content that has since been edited: never resume it.
+      await prisma.publishingJob.updateMany({
+        where: { idempotencyKey: key, status: "processing" },
+        data: { status: "cancelled", completedAt: new Date() },
+      });
+      return null;
+    }
     return row.externalPostId;
   },
 
@@ -99,10 +173,17 @@ const prismaStore: InFlightMediaStore = {
         publishMethod: "direct",
         status: "processing",
         externalPostId: value,
+        contentFingerprint: ctx.fingerprint,
         attemptCount: 1,
         startedAt: new Date(),
       },
-      update: { status: "processing", externalPostId: value, attemptCount: { increment: 1 } },
+      update: {
+        status: "processing",
+        externalPostId: value,
+        contentFingerprint: ctx.fingerprint,
+        completedAt: null,
+        attemptCount: { increment: 1 },
+      },
     });
   },
 

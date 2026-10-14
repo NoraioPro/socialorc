@@ -56,7 +56,10 @@ test("TikTok only reports success after the bytes were transferred", () => {
 
 test("Facebook refuses a 200 with no post id", () => {
   const src = source("facebook.ts");
-  assert.match(src, /const platformPostId = data\.id \|\| data\.post_id;/);
+  assert.match(
+    src,
+    /const platformPostId = isPhoto \? data\.post_id \|\| data\.id : data\.id \|\| data\.post_id;/,
+  );
   assert.match(src, /if \(!platformPostId\)/);
   assert.equal(
     /platformPostId: data\.id \|\| data\.post_id,/.test(src),

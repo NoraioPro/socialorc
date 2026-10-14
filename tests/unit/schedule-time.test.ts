@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { parseScheduleInput, scheduleInputMessage } from "../../src/lib/posts/schedule-time";
+import {
+  INVALID_DATE_MESSAGE,
+  parseInstant,
+  parseScheduleInput,
+  scheduleInputMessage,
+} from "../../src/lib/posts/schedule-time";
 
 /**
  * The timezone bug this fixes was invisible in a UTC test environment and wrong
@@ -51,4 +56,30 @@ test("the control sends the iso instant, never the raw input value", () => {
     /JSON\.stringify\(\{ scheduledFor \}\)/,
     "the raw datetime-local value must not be what the server receives"
   );
+});
+
+test("parseInstant: a real timestamp parses, garbage is null (not an Invalid Date)", () => {
+  assert.equal(parseInstant("2026-10-13T11:30:00.000Z")?.toISOString(), "2026-10-13T11:30:00.000Z");
+  assert.equal(parseInstant("not a date"), null);
+  assert.equal(parseInstant(""), null);
+  assert.match(INVALID_DATE_MESSAGE, /invalid date/i);
+});
+
+test("bad dates and bodies are 400s in the post routes, never 500s", () => {
+  const schedule = readFileSync("src/app/api/posts/[id]/schedule/route.ts", "utf8");
+  assert.match(schedule, /req\.json\(\)\.catch\(\(\) => null\)/);
+  assert.match(schedule, /parseInstant\(validation\.data\.scheduledFor\)/);
+  assert.match(
+    schedule,
+    /if \(!scheduledFor\) \{\s*return NextResponse\.json\(\{ error: INVALID_DATE_MESSAGE \}, \{ status: 400 \}\)/
+  );
+
+  const patch = readFileSync("src/app/api/posts/[id]/route.ts", "utf8");
+  assert.match(patch, /req\.json\(\)\.catch\(\(\) => null\)/);
+  assert.match(patch, /parseInstant\(scheduledFor\)/);
+  assert.doesNotMatch(patch, /new Date\(scheduledFor\)/);
+
+  const create = readFileSync("src/app/api/posts/route.ts", "utf8");
+  assert.match(create, /parseInstant\(scheduledFor\)/);
+  assert.doesNotMatch(create, /new Date\(scheduledFor\)/);
 });

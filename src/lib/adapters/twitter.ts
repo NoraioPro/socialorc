@@ -21,7 +21,12 @@ import {
 } from "./credentials";
 import { codeChallengeFor, generateCodeVerifier } from "@/lib/social/pkce";
 import { classifyAdapterError, type AdapterErrorCode } from "./errors";
-import { inFlightKey, inFlightMediaStore, type InFlightMediaStore } from "./in-flight-media";
+import {
+  inFlightFingerprint,
+  inFlightKey,
+  inFlightMediaStore,
+  type InFlightMediaStore,
+} from "./in-flight-media";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
@@ -244,6 +249,8 @@ export class TwitterAdapter extends BasePlatformAdapter {
         ? inFlightKey(Platform.TWITTER, "media", options.idempotencyKey)
         : null;
     const store = key ? await inFlightMediaStore() : null;
+    // What this attempt uploads; a remembered upload of other content is not resumed.
+    const fingerprint = inFlightFingerprint(options.text, media.map((m) => m.url));
 
     try {
       const tweetBody: Record<string, unknown> = {
@@ -251,7 +258,7 @@ export class TwitterAdapter extends BasePlatformAdapter {
       };
 
       if (media.length > 0) {
-        const uploaded = await this.uploadAll(accessToken, media, kinds, key, store, options.idempotencyKey);
+        const uploaded = await this.uploadAll(accessToken, media, kinds, key, store, options.idempotencyKey, fingerprint);
         if (!uploaded.success) return uploaded;
         tweetBody.media = { media_ids: uploaded.mediaIds };
       }
@@ -318,11 +325,12 @@ export class TwitterAdapter extends BasePlatformAdapter {
     key: string | null,
     store: InFlightMediaStore | null,
     postId: string | undefined,
+    fingerprint: string,
   ): Promise<{ success: true; mediaIds: string[] } | UploadFailure> {
     const asyncKind = kinds.length === 1 && kinds[0] !== "image";
 
     if (asyncKind && key && store) {
-      const pending = await store.get(key);
+      const pending = await store.get(key, fingerprint);
       if (pending) {
         const state = await this.waitForProcessing(accessToken, pending);
         if (state === "succeeded") return { success: true, mediaIds: [pending] };
@@ -348,7 +356,7 @@ export class TwitterAdapter extends BasePlatformAdapter {
       const uploaded = await this.uploadChunked(accessToken, bytes.blob, kinds[i] === "gif" ? "tweet_gif" : "tweet_video");
       if (!uploaded.success) return uploaded;
       if (key && store && postId) {
-        await store.put(key, uploaded.id, { postId, platform: Platform.TWITTER });
+        await store.put(key, uploaded.id, { postId, platform: Platform.TWITTER, fingerprint });
       }
       if (uploaded.processing) {
         const state = await this.waitForProcessing(accessToken, uploaded.id);

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
-import { PostStatus, JobStatus } from "@prisma/client";
+import { PostStatus } from "@prisma/client";
 import { z } from "zod";
+import { requeueJobData } from "@/lib/jobs/pending-publish";
+import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
 import {
+  ACCOUNT_PLATFORM_MISMATCH_CODE,
+  accountPlatformMismatch,
+  accountPlatformMismatchMessage,
   POST_CONFLICT_MESSAGE,
   POST_CONFLICT_STATUS,
   scheduleBlockMessage,
@@ -28,7 +33,8 @@ export async function POST(
     }
 
     const { id } = await params;
-    const body = await req.json();
+    // A malformed body is the caller's mistake: 400 (via the schema), not 500.
+    const body = await req.json().catch(() => null);
     const validation = scheduleSchema.safeParse(body);
 
     if (!validation.success) {
@@ -64,8 +70,22 @@ export async function POST(
       );
     }
 
-    const scheduledFor = new Date(validation.data.scheduledFor);
+    if (accountPlatformMismatch(post.platform, post.socialAccount)) {
+      return NextResponse.json(
+        {
+          error: accountPlatformMismatchMessage(post.platform, post.socialAccount.platform),
+          code: ACCOUNT_PLATFORM_MISMATCH_CODE,
+        },
+        { status: 400 }
+      );
+    }
+
+    const scheduledFor = parseInstant(validation.data.scheduledFor);
     const now = new Date();
+
+    if (!scheduledFor) {
+      return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+    }
 
     if (scheduledFor <= now) {
       return NextResponse.json(
@@ -90,20 +110,14 @@ export async function POST(
 
       if (claim.count === 0) return null;
 
+      // A fresh send: `requeueJobData` also clears any poll state a timed-out
+      // pending publish left behind, or the worker would treat this job as a
+      // poll and fail it ("Invalid post status: SCHEDULED").
+      const jobData = requeueJobData(scheduledFor);
       await tx.scheduledJob.upsert({
         where: { postId: id },
-        create: {
-          workspaceId: guard.workspaceId,
-          postId: id,
-          scheduledAt: scheduledFor,
-          status: JobStatus.PENDING,
-        },
-        update: {
-          scheduledAt: scheduledFor,
-          status: JobStatus.PENDING,
-          attempts: 0,
-          errorMessage: null,
-        },
+        create: { workspaceId: guard.workspaceId, postId: id, ...jobData },
+        update: jobData,
       });
 
       return tx.post.findUnique({

@@ -3,6 +3,7 @@ CREATE TABLE "InboxItemState" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "workspaceId" TEXT NOT NULL,
     "platform" TEXT NOT NULL,
+    "socialAccountId" TEXT NOT NULL,
     "commentId" TEXT NOT NULL,
     "readAt" DATETIME,
     "repliedAt" DATETIME,
@@ -11,4 +12,7 @@ CREATE TABLE "InboxItemState" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "InboxItemState_workspaceId_platform_commentId_key" ON "InboxItemState"("workspaceId", "platform", "commentId");
+CREATE INDEX "InboxItemState_workspaceId_idx" ON "InboxItemState"("workspaceId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "InboxItemState_socialAccountId_commentId_key" ON "InboxItemState"("socialAccountId", "commentId");

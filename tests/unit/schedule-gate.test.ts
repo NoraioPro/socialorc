@@ -6,7 +6,9 @@ import {
   POST_CONFLICT_MESSAGE,
   POST_CONFLICT_STATUS,
   approveGuardWhere,
+  deleteGuardWhere,
   editGuardWhere,
+  jobClaimWhere,
   publishClaimWhere,
   rescheduleGuardWhere,
   rescheduleJobWhere,
@@ -129,10 +131,44 @@ test("every status-changing route uses a guard, not a bare update by id", () => 
     ["src/app/api/posts/[id]/reschedule/route.ts", "rescheduleJobWhere"],
     ["src/app/api/posts/[id]/route.ts", "editGuardWhere"],
     ["src/app/api/cron/publish/route.ts", "publishClaimWhere"],
+    ["src/app/api/cron/publish/route.ts", "jobClaimWhere"],
+    ["src/app/api/posts/[id]/route.ts", "deleteGuardWhere"],
   ];
 
   for (const [file, helper] of expectations) {
     const source = readFileSync(file, "utf8");
     assert.match(source, new RegExp(`${helper}\\(`), `${file} must use ${helper}`);
   }
+});
+
+test("the worker's job claim rechecks that the job is still due", () => {
+  const now = new Date("2026-10-15T12:00:00.000Z");
+  assert.deepEqual(jobClaimWhere("job-1", now), {
+    id: "job-1",
+    status: "PENDING",
+    scheduledAt: { lte: now },
+  });
+});
+
+test("delete never removes a post the worker is publishing", () => {
+  assert.deepEqual(deleteGuardWhere("p1", "ws1", { draftOnly: false }), {
+    id: "p1",
+    workspaceId: "ws1",
+    status: { not: "PUBLISHING" },
+  });
+});
+
+test("a non-admin's delete only applies while the post is still a draft", () => {
+  assert.deepEqual(deleteGuardWhere("p1", "ws1", { draftOnly: true }), {
+    id: "p1",
+    workspaceId: "ws1",
+    status: { in: ["DRAFT", "PENDING_APPROVAL"] },
+  });
+});
+
+test("a delete that lost the race is a 409, not a silent 404", () => {
+  const src = readFileSync("src/app/api/posts/[id]/route.ts", "utf8");
+  const del = src.slice(src.indexOf("export async function DELETE"));
+  assert.match(del, /deleteGuardWhere\(id, guard\.workspaceId/);
+  assert.match(del, /deleted\.count === 0\) \{\s*return NextResponse\.json\(\s*\{ error: POST_CONFLICT_MESSAGE \},\s*\{ status: POST_CONFLICT_STATUS \}/);
 });

@@ -67,37 +67,47 @@ export async function GET(req: NextRequest) {
     } satisfies InboxResponse);
   }
 
-  // Newest published posts that the platform can be asked about. One query for
-  // all accounts, trimmed per account below; the take bounds it either way.
-  const posts = await prisma.post.findMany({
-    where: {
-      workspaceId,
-      status: "PUBLISHED",
-      platformPostId: { not: null },
-      socialAccountId: { in: accounts.map((a) => a.id) },
-    },
-    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-    take: accounts.length * DEFAULT_INBOX_LIMITS.maxPostsPerAccount * 4,
-    select: {
-      id: true,
-      socialAccountId: true,
-      platformPostId: true,
-      platformPostUrl: true,
-      content: true,
-    },
-  });
+  // Newest published posts per account. One global query ordered by recency
+  // let a busy account fill the whole window and starve quieter ones (they
+  // showed no comments at all), so each account gets its own bounded query.
+  // Only accounts collectInbox will actually read are queried (it skips the
+  // rest past maxAccounts), so this is at most maxAccounts small queries.
+  const readable = accounts.slice(0, DEFAULT_INBOX_LIMITS.maxAccounts);
+  const postsByAccount = new Map(
+    await Promise.all(
+      readable.map(
+        async (account) =>
+          [
+            account.id,
+            await prisma.post.findMany({
+              where: {
+                workspaceId,
+                status: "PUBLISHED",
+                platformPostId: { not: null },
+                socialAccountId: account.id,
+              },
+              orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+              take: DEFAULT_INBOX_LIMITS.maxPostsPerAccount,
+              select: {
+                id: true,
+                platformPostId: true,
+                platformPostUrl: true,
+                content: true,
+              },
+            }),
+          ] as const,
+      ),
+    ),
+  );
 
   const sources: InboxSource[] = accounts.map((account) => ({
     account,
-    posts: posts
-      .filter((p) => p.socialAccountId === account.id)
-      .slice(0, DEFAULT_INBOX_LIMITS.maxPostsPerAccount)
-      .map((p) => ({
-        id: p.id,
-        platformPostId: p.platformPostId as string,
-        platformPostUrl: p.platformPostUrl,
-        content: p.content,
-      })),
+    posts: (postsByAccount.get(account.id) ?? []).map((p) => ({
+      id: p.id,
+      platformPostId: p.platformPostId as string,
+      platformPostUrl: p.platformPostUrl,
+      content: p.content,
+    })),
   }));
 
   const collected = await collectInbox(sources);
@@ -108,9 +118,10 @@ export async function GET(req: NextRequest) {
       : await prisma.inboxItemState.findMany({
           where: {
             workspaceId,
+            socialAccountId: { in: accounts.map((a) => a.id) },
             commentId: { in: [...new Set(collected.items.map((i) => i.commentId))] },
           },
-          select: { platform: true, commentId: true, readAt: true, repliedAt: true },
+          select: { socialAccountId: true, commentId: true, readAt: true, repliedAt: true },
         });
 
   const all = applyInboxState(collected.items, states);
@@ -126,9 +137,13 @@ export async function GET(req: NextRequest) {
   } satisfies InboxResponse);
 }
 
+// An item is identified by the account it was read through plus its comment
+// id: comment ids are only unique per account (Telegram message ids are per
+// chat), so platform + comment id let two chats share one read state.
 const itemRef = {
   platform: z.nativeEnum(Platform),
   commentId: z.string().min(1).max(512),
+  accountId: z.string().min(1),
 };
 
 const patchSchema = z.discriminatedUnion("action", [
@@ -137,7 +152,6 @@ const patchSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("reply"),
     ...itemRef,
-    accountId: z.string().min(1),
     platformPostId: z.string().min(1),
     content: z.string().trim().min(1).max(10_000),
   }),
@@ -166,28 +180,32 @@ export async function PATCH(req: NextRequest) {
     );
   }
   const body = parsed.data;
+
+  // The account must be this workspace's, on the item's platform — for read
+  // state as much as for replies, since it is now part of the key.
+  const account = await loadWorkspaceAccount(workspaceId, body.accountId);
+  if (!account || account.platform !== body.platform) {
+    return NextResponse.json({ error: "Social account not found" }, { status: 404 });
+  }
+
   const key = {
-    workspaceId_platform_commentId: {
-      workspaceId,
-      platform: body.platform,
-      commentId: body.commentId,
-    },
+    socialAccountId_commentId: { socialAccountId: account.id, commentId: body.commentId },
+  };
+  const identity = {
+    workspaceId,
+    platform: body.platform,
+    socialAccountId: account.id,
+    commentId: body.commentId,
   };
 
   if (body.action === "markRead" || body.action === "markUnread") {
     const readAt = body.action === "markRead" ? new Date() : null;
     await prisma.inboxItemState.upsert({
       where: key,
-      create: { workspaceId, platform: body.platform, commentId: body.commentId, readAt },
+      create: { ...identity, readAt },
       update: { readAt },
     });
     return NextResponse.json({ success: true, isRead: readAt !== null });
-  }
-
-  // reply: the account must be this workspace's, on the item's platform.
-  const account = await loadWorkspaceAccount(workspaceId, body.accountId);
-  if (!account || account.platform !== body.platform) {
-    return NextResponse.json({ error: "Social account not found" }, { status: 404 });
   }
 
   const sent = await sendEngagementComment(account, {
@@ -202,13 +220,7 @@ export async function PATCH(req: NextRequest) {
   const now = new Date();
   await prisma.inboxItemState.upsert({
     where: key,
-    create: {
-      workspaceId,
-      platform: body.platform,
-      commentId: body.commentId,
-      readAt: now,
-      repliedAt: now,
-    },
+    create: { ...identity, readAt: now, repliedAt: now },
     update: { readAt: now, repliedAt: now },
   });
 
