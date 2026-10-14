@@ -163,7 +163,8 @@ function mockAdaptContent(
 async function aiAdaptContent(
   source: CascadeSource,
   targetPlatform: Platform,
-  aiConfig: AiConfig
+  aiConfig: AiConfig,
+  knowledgeContext = ""
 ): Promise<CascadeAdaptation> {
   const config = PLATFORM_CONFIGS[targetPlatform];
 
@@ -177,7 +178,9 @@ async function aiAdaptContent(
 Take the following ${source.platform} post and adapt it for ${targetPlatform}.
 
 ${ADAPTATION_PROMPTS[targetPlatform]}
-
+${knowledgeContext ? `
+${knowledgeContext}
+` : ""}
 Original content from ${source.platform}:
 """
 ${source.content}
@@ -232,12 +235,14 @@ Ensure the adaptation respects ${targetPlatform}'s character limit of ${config.m
  * @param source - The original post content and platform
  * @param targetPlatforms - Platforms to adapt the content for
  * @param forceMock - Force mock mode even if AI is available (for testing)
+ * @param knowledgeContext - Retrieved Brand Brain knowledge (src/lib/brand-knowledge.ts); "" for none
  */
 export async function cascadeContent(
   source: CascadeSource,
   targetPlatforms: Platform[],
   forceMock = false,
-  aiConfig: AiConfig | null = null
+  aiConfig: AiConfig | null = null,
+  knowledgeContext = ""
 ): Promise<CascadeResult> {
   // Production never cascades with synthetic text: an invented adaptation is
   // indistinguishable from a real one once it reaches the editor.
@@ -259,7 +264,7 @@ export async function cascadeContent(
     try {
       const adaptation = useMock
         ? mockAdaptContent(source, targetPlatform)
-        : await aiAdaptContent(source, targetPlatform, aiConfig as AiConfig);
+        : await aiAdaptContent(source, targetPlatform, aiConfig as AiConfig, knowledgeContext);
       adaptations.push(adaptation);
     } catch (error) {
       // In production a failed adaptation is reported, never replaced with an

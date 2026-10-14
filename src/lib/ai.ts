@@ -105,6 +105,11 @@ export interface AIStudioOptions {
    * platform key.
    */
   aiConfig?: AiConfig | null;
+  /**
+   * The retrieved Brand Brain knowledge section (src/lib/brand-knowledge.ts),
+   * already bounded. Empty or absent means no knowledge section in the prompt.
+   */
+  knowledgeContext?: string;
 }
 
 const PLATFORM_PROMPTS: Record<Platform, string> = {
@@ -284,9 +289,10 @@ export async function aiStudioGenerate(options: AIStudioOptions): Promise<{
     platforms,
     tone,
     additionalContext,
-    brandPrompt
+    brandPrompt,
+    options.knowledgeContext
   );
-  
+
   return {
     variants,
     usedMock: false,
@@ -303,14 +309,49 @@ async function generatePlatformVariantsWithBrand(
   platforms: Platform[],
   tone?: string,
   additionalContext?: string,
-  brandContextPrompt?: string
+  brandContextPrompt?: string,
+  knowledgeContext?: string
 ): Promise<GeneratedVariant[]> {
+  const systemPrompt = buildVariantSystemPrompt({
+    platforms,
+    tone,
+    additionalContext,
+    brandContextPrompt,
+    knowledgeContext,
+  });
+
+  const response = await getOpenAI(aiConfig).chat.completions.create({
+    model: aiConfig.model ?? DEFAULT_MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Original idea:\n\n${originalIdea}` },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.7,
+  });
+
+  return parseVariantResponse(response.choices[0]?.message?.content);
+}
+
+/**
+ * The system prompt for variant generation. Exported so the knowledge wiring is
+ * testable without a provider: no knowledge means no knowledge section.
+ */
+export function buildVariantSystemPrompt(input: {
+  platforms: Platform[];
+  tone?: string;
+  additionalContext?: string;
+  brandContextPrompt?: string;
+  knowledgeContext?: string;
+}): string {
+  const { platforms, tone, additionalContext, brandContextPrompt, knowledgeContext } = input;
   const platformInstructions = platforms
     .map((p) => PLATFORM_PROMPTS[p])
     .join("\n\n");
 
-  const systemPrompt = `You are a social media content expert. Your job is to transform a content idea into platform-optimized posts.
+  return `You are a social media content expert. Your job is to transform a content idea into platform-optimized posts.
 ${brandContextPrompt || ""}
+${knowledgeContext ? `${knowledgeContext}\n` : ""}
 For each platform, consider:
 - Character limits and formatting constraints
 - Platform-specific tone and style
@@ -329,18 +370,9 @@ Respond in JSON format with an array of objects, each containing:
 - hashtags: array of hashtags (without # symbol)
 
 Ensure content is properly tailored for each platform's audience and constraints while maintaining brand voice.`;
+}
 
-  const response = await getOpenAI(aiConfig).chat.completions.create({
-    model: aiConfig.model ?? DEFAULT_MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Original idea:\n\n${originalIdea}` },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
-  });
-
-  const content = response.choices[0]?.message?.content;
+function parseVariantResponse(content: string | null | undefined): GeneratedVariant[] {
   if (!content) {
     throw new Error("No response from AI");
   }

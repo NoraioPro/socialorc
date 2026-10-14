@@ -14,6 +14,8 @@ import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext, MOCK_BRAND_CONTEXT } from "@/types/brand-brain";
 import { loadBrandContext } from "@/lib/brand-context";
+import { retrieveBrandKnowledge } from "@/lib/brand-knowledge";
+import type { KnowledgeUsage } from "@/lib/brain/knowledge";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
 
 const brandContextSchema = z.object({
@@ -75,6 +77,8 @@ export interface AIStudioGenerateResponse {
   variants: GeneratedVariant[];
   usedMock: boolean;
   brandContextUsed: boolean;
+  /** Brand Brain knowledge that went into the prompt, and how it was ranked. */
+  knowledgeUsed: KnowledgeUsage | null;
   openAIAvailable: boolean;
 }
 
@@ -170,6 +174,17 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
         (await loadBrandContext(authz.workspaceId)) ??
         undefined;
 
+      // The workspace's knowledge sources most relevant to this idea, bounded.
+      // Only fetched when a real model will read it: mock output ignores it.
+      const knowledge =
+        aiConfig && !forceMock
+          ? await retrieveBrandKnowledge(
+              authz.workspaceId,
+              [idea, additionalContext].filter(Boolean).join("\n"),
+              aiConfig
+            )
+          : null;
+
       const result = await aiStudioGenerate({
         aiConfig,
         idea,
@@ -177,6 +192,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
         tone,
         additionalContext,
         brandContext: brandForPrompt,
+        knowledgeContext: knowledge?.section,
         forceMock,
       });
 
@@ -186,6 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
         variants: result.variants,
         usedMock: result.usedMock,
         brandContextUsed: result.brandContextUsed,
+        knowledgeUsed: result.usedMock ? null : knowledge?.usage ?? null,
         openAIAvailable: isOpenAIAvailable(aiConfig),
       });
     }
