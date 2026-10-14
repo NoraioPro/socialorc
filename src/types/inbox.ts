@@ -1,104 +1,88 @@
-import { Platform } from "@prisma/client";
+import type { Platform } from "@prisma/client";
 
 /**
- * Type of inbox item — matches spec for unified inbox (§60 M1.5).
+ * The unified inbox is built on the Engagement layer: it is the comments (and
+ * replies to comments) on the workspace's own recent published posts, read
+ * live through each adapter's `listComments`. Direct messages and mentions are
+ * NOT covered — no adapter can read them — so there is no type for them.
  */
-export type InboxItemType = "comment" | "mention" | "message" | "reply";
+export type InboxItemType = "comment" | "reply";
 
-/**
- * A unified inbox item from any connected social platform.
- * All fields are normalized; platform-specific extras go in metadata.
- */
 export interface InboxItem {
+  /** Unique within one inbox response: `${accountId}:${commentId}`. */
   id: string;
+  /** The platform's own comment id (what a reply targets). */
+  commentId: string;
+  /** The connected account (SocialAccount.id) this comment was read through. */
+  accountId: string;
   platform: Platform;
+  /** "reply" when the comment answers another comment, else "comment". */
   type: InboxItemType;
-  
-  /** The user/entity that sent/wrote this item. */
   author: {
     id: string;
-    username?: string;
-    displayName?: string;
-    profileImageUrl?: string;
+    name: string;
+    avatarUrl?: string;
   };
-  
-  /** The content/text of the message/comment/mention. */
   content: string;
-  
-  /** ISO timestamp of when this was created on the platform. */
+  /** ISO timestamp from the platform. */
   createdAt: string;
-  
-  /** If this is a comment/reply on one of our posts, reference it. */
-  postReference?: {
+  parentCommentId?: string;
+  permalink?: string;
+  /** The workspace post the comment was left on. */
+  post: {
+    id: string;
     platformPostId: string;
-    platformPostUrl?: string;
-    contentPreview?: string;
+    platformPostUrl?: string | null;
+    preview: string;
   };
-  
-  /** Whether this item has been read/handled. */
+  /** The account's platform lets this workspace reply to it from here. */
+  canReply: boolean;
+  /** Someone in the workspace marked it read (or replied from the inbox). */
   isRead: boolean;
-  
-  /** Whether a reply has been sent. */
+  /** Replied from the inbox, or the account's own reply is in the thread. */
   isReplied: boolean;
-  
-  /** Platform-specific metadata (JSON). */
-  metadata?: Record<string, unknown>;
 }
 
 /**
- * Options for fetching inbox items.
+ * What happened when the inbox tried to read one connected account. A failure
+ * here is shown next to that account; it never fails the whole inbox.
  */
-export interface InboxFetchOptions {
-  /** Filter by platform(s). */
-  platforms?: Platform[];
-  /** Filter by item type(s). */
-  types?: InboxItemType[];
-  /** Only unread items. */
-  unreadOnly?: boolean;
-  /** Maximum items to return. */
-  limit?: number;
-  /** Cursor for pagination. */
-  cursor?: string;
-  /** Sort order. */
-  sortBy?: "newest" | "oldest";
-}
+export type InboxAccountState =
+  | "ok"
+  | "no_posts"
+  | "unsupported"
+  | "needs_reconnect"
+  | "error"
+  | "timeout"
+  | "skipped";
 
-/**
- * Result of fetching inbox items.
- */
-export interface InboxFetchResult {
-  items: InboxItem[];
-  nextCursor?: string;
-  totalCount: number;
-  platforms: Platform[];
-}
-
-/**
- * Inbox adapter interface — each platform implements this to provide inbox items.
- */
-export interface InboxAdapter {
+export interface InboxAccountStatus {
+  accountId: string;
   platform: Platform;
-  
-  /**
-   * Fetch inbox items (comments, mentions, messages) from this platform.
-   * Returns mock data when MOCK_SOCIAL_ADAPTERS=true.
-   */
-  fetchInboxItems(
-    accessToken: string,
-    options?: Omit<InboxFetchOptions, "platforms">
-  ): Promise<InboxItem[]>;
-  
-  /**
-   * Mark an item as read on the platform.
-   */
-  markAsRead(accessToken: string, itemId: string): Promise<boolean>;
-  
-  /**
-   * Reply to an inbox item.
-   */
-  reply(
-    accessToken: string,
-    itemId: string,
-    content: string
-  ): Promise<{ success: boolean; replyId?: string; error?: string }>;
+  name: string;
+  state: InboxAccountState;
+  message?: string;
+  /** How many of the account's posts were actually read. */
+  postsChecked: number;
+  itemCount: number;
+  canReply: boolean;
+}
+
+export interface InboxCoverage {
+  /** What the inbox reads. */
+  sources: string[];
+  /** What it does not, stated plainly so the UI never implies otherwise. */
+  notCovered: string[];
+  maxPostsPerAccount: number;
+  commentsPerPost: number;
+}
+
+export interface InboxResponse {
+  items: InboxItem[];
+  accounts: InboxAccountStatus[];
+  coverage: InboxCoverage;
+  /** Items before filters/limit were applied. */
+  totalCount: number;
+  unreadCount: number;
+  generatedAt: string;
 }
