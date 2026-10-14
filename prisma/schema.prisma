@@ -398,6 +398,9 @@ model PublishingJob {
   idempotencyKey  String?   @unique
   /** Platform-side id (TikTok publish_id, YouTube video id, …). */
   externalPostId  String?
+  /** Hash of the caption + media URLs an in-flight upload was made from
+   *  (src/lib/adapters/in-flight-media.ts): a resumed upload must match. */
+  contentFingerprint String?
   attemptCount    Int       @default(0)
   lastErrorCode   String?
   lastErrorMessage String?

@@ -10,6 +10,7 @@ import {
   foreignMediaAssetIds,
 } from "@/lib/social/account-select";
 import { editGuardWhere } from "@/lib/posts/transitions";
+import { discardInFlightMediaForPost } from "@/lib/adapters/in-flight-media";
 
 const updatePostSchema = z.object({
   title: z.string().optional(),
@@ -163,6 +164,16 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           })),
         });
       }
+    }
+
+    // An async upload (Instagram Reel container, X video) still in flight was
+    // made from the old caption/media. Drop it so no later attempt resumes and
+    // publishes the pre-edit version.
+    const contentChanged =
+      (restData.content !== undefined && restData.content !== existingPost.content) ||
+      mediaAssetIds !== undefined;
+    if (contentChanged) {
+      await discardInFlightMediaForPost(prisma, id);
     }
 
     const updatedPost = await prisma.post.findUnique({
