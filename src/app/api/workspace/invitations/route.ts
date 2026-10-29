@@ -1,3 +1,4 @@
+import { teamsDisabledResponse, teamsEnabled } from "@/lib/features";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
@@ -13,6 +14,7 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** This workspace's pending invitations: not yet accepted and not yet expired. */
 export async function GET() {
+  if (!teamsEnabled()) return teamsDisabledResponse();
   const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
@@ -37,6 +39,7 @@ export async function GET() {
  * workspace on acceptance.
  */
 export async function POST(req: NextRequest) {
+  if (!teamsEnabled()) return teamsDisabledResponse();
   const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });

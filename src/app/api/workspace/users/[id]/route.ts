@@ -1,3 +1,4 @@
+import { teamsDisabledResponse, teamsEnabled } from "@/lib/features";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
@@ -24,6 +25,7 @@ interface RouteContext {
  * gate re-reads the role from the database (src/lib/tenancy/guard.ts).
  */
 export async function PATCH(req: NextRequest, context: RouteContext) {
+  if (!teamsEnabled()) return teamsDisabledResponse();
   const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });

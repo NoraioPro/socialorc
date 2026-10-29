@@ -22,8 +22,9 @@ import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { platformIcons } from "@/components/icons/platform-icons";
+import { teamsEnabled } from "@/lib/features";
 
-const mainNav = [
+const allNav = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
   { name: "Social Timeline", href: "/dashboard/feed", icon: Newspaper },
   { name: "Inbox", href: "/dashboard/inbox", icon: Inbox },
@@ -36,6 +37,8 @@ const mainNav = [
   { name: "Engagement", href: "/dashboard/engagement", icon: MessageSquare },
   { name: "AI Studio", href: "/dashboard/ai-studio", icon: Sparkles },
 ];
+// The workspace timeline is a team feature; hidden for the single-user MVP.
+const mainNav = allNav.filter((item) => teamsEnabled() || item.href !== "/dashboard/feed");
 
 export function Sidebar() {
   const pathname = usePathname();

@@ -1,3 +1,4 @@
+import { teamsDisabledResponse, teamsEnabled } from "@/lib/features";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
@@ -8,6 +9,7 @@ import { ROLE_VALUES } from "@/lib/invitations";
  * else's.
  */
 export async function GET() {
+  if (!teamsEnabled()) return teamsDisabledResponse();
   const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });

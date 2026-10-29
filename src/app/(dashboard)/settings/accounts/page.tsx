@@ -13,6 +13,7 @@ import { isRole, parseRole, permissionsFor, ROLE_META, type Permission } from "@
 import { accountNeedsReconnect, reconnectNotices, reconnectReason, reconnectSummary } from "@/lib/social/reconnect";
 import { ConnectTargetPicker } from "@/components/settings/connect-target-picker";
 import { TelegramConnectDialog } from "@/components/settings/telegram-connect-dialog";
+import { teamsEnabled } from "@/lib/features";
 
 /** `?select=facebook` from the OAuth callback -> the platform whose Page/account to pick. */
 function selectablePlatform(value: string | null): Platform | null {
@@ -58,7 +59,7 @@ const TEAM_ROLES = ["ADMIN", "MANAGER", "EDITOR", "CLIENT"] as const;
 type TeamRole = (typeof TEAM_ROLES)[number];
 type TeamMember = { id: string; name: string | null; email: string | null; role: string };
 type TeamInvite = { id: string; email: string; role: string; expiresAt: string };
-const sections = [
+const allSections = [
   { key: "workspace", target: "workspace", label: "Workspace", icon: Settings2 },
   { key: "team", target: "access", label: "Team", icon: UsersRound },
   { key: "permissions", target: "permissions", label: "Permissions", icon: LockKeyhole },
@@ -68,6 +69,9 @@ const sections = [
   { key: "brand", target: "brand", label: "Brand", icon: Palette },
   { key: "security", target: "security", label: "Security", icon: ShieldCheck },
 ];
+// The single-user MVP hides team management; the API refuses it too (see
+// src/lib/features.ts), so this is presentation, not the guard.
+const sections = allSections.filter(s => teamsEnabled() || (s.key !== "team" && s.key !== "permissions"));
 function Panel({ id, title, subtitle, icon, children, className = "" }: { id: string; title: string; subtitle: string; icon: ReactNode; children: ReactNode; className?: string }) {
   return <section id={id} className={`settings-panel ${className}`} aria-labelledby={`${id}-title`}>
     <div className="settings-panel-title"><span>{icon}</span><div><h2 id={`${id}-title`}>{title}</h2><p>{subtitle}</p></div></div>{children}

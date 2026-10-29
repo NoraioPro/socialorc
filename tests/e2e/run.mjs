@@ -70,6 +70,9 @@ function serverEnv() {
     TOKEN_ENCRYPTION_KEY: `e2e-only-encryption-key-${Date.now()}`,
     CRON_SECRET,
     MOCK_SOCIAL_ADAPTERS: "true",
+    // Team features are off by default (single-user MVP, src/lib/features.ts);
+    // the tenancy and roles suites exercise invitations and role changes.
+    NEXT_PUBLIC_TEAMS_ENABLED: "true",
     // A pending (still-processing) publish is re-checked after this long; the
     // default minute would make the pending-path check in publish.e2e slow.
     PENDING_POLL_INTERVAL_MS: process.env.E2E_PENDING_POLL_INTERVAL_MS || "3000",

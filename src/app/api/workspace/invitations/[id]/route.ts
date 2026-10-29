@@ -1,3 +1,4 @@
+import { teamsDisabledResponse, teamsEnabled } from "@/lib/features";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
@@ -8,6 +9,7 @@ interface RouteContext {
 
 /** Revoke a pending invitation. Accepted ones are history and stay. */
 export async function DELETE(_req: NextRequest, context: RouteContext) {
+  if (!teamsEnabled()) return teamsDisabledResponse();
   const guard = await requireWorkspace("users:manage");
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
