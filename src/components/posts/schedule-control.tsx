@@ -30,6 +30,11 @@ export function ScheduleControl({
   const [scheduledFor, setScheduledFor] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Once the server has accepted the schedule the post is SCHEDULED, but this
+  // card keeps its old APPROVED props until the parent refetches. Without this a
+  // second click in that window is refused ("must be approved ... Current
+  // status: SCHEDULED") and the error makes a post that is scheduled look failed.
+  const [scheduled, setScheduled] = useState(false);
 
   const canSchedule = status === PostStatus.APPROVED && Boolean(approvedAt);
   const parsed = useMemo(() => parseScheduleInput(scheduledFor), [scheduledFor]);
@@ -37,6 +42,14 @@ export function ScheduleControl({
 
   if (!canSchedule) {
     return null;
+  }
+
+  if (scheduled) {
+    return (
+      <p className="text-xs text-muted-foreground" role="status" data-testid="schedule-control-done">
+        Scheduled. It will be published at the time you chose.
+      </p>
+    );
   }
 
   async function handleSchedule() {
@@ -63,6 +76,7 @@ export function ScheduleControl({
       if (!res.ok) {
         throw new Error(data.error || `Schedule failed (${res.status})`);
       }
+      setScheduled(true);
       onScheduled?.(postId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to schedule");
