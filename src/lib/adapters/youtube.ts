@@ -1,6 +1,7 @@
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter, AdapterError } from "./base";
 import { fetchOwnMedia } from "@/lib/social/blob-upload";
+import { postRevocation } from "./revoke";
 import {
   OAuthTokens,
   AccountInfo,
@@ -23,6 +24,7 @@ import {
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3";
 // Uploading bytes (as opposed to reading/writing metadata) goes through a
 // separate host path. Posting the resumable-init request to YOUTUBE_API_URL
@@ -149,6 +151,25 @@ export class YouTubeAdapter extends BasePlatformAdapter {
       tokenType: data.token_type,
       scope: data.scope,
     };
+  }
+
+  /**
+   * Revoke the user's grant at Google (documented: POST /revoke with `token`;
+   * revoking an access token also revokes its refresh token). If the access
+   * token is already expired Google rejects it, so the refresh token is tried
+   * next. Success means one of them was accepted.
+   */
+  async revokeAccess(accessToken: string, refreshToken?: string | null): Promise<void> {
+    let lastError: unknown = new Error("No token to revoke.");
+    for (const token of [accessToken, refreshToken].filter((t): t is string => Boolean(t))) {
+      try {
+        await postRevocation({ url: GOOGLE_REVOKE_URL, token });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
   }
 
   async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {

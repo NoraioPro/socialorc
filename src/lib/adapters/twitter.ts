@@ -21,6 +21,7 @@ import {
 } from "./credentials";
 import { codeChallengeFor, generateCodeVerifier } from "@/lib/social/pkce";
 import { classifyAdapterError, type AdapterErrorCode } from "./errors";
+import { postRevocation } from "./revoke";
 import {
   inFlightFingerprint,
   inFlightKey,
@@ -30,6 +31,7 @@ import {
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
+const TWITTER_REVOKE_URL = "https://api.x.com/2/oauth2/revoke";
 const TWITTER_API_URL = "https://api.x.com/2";
 
 /** X recommends chunks of at most 5 MB (server maximum 8 MB). */
@@ -156,6 +158,23 @@ export class TwitterAdapter extends BasePlatformAdapter {
       tokenType: data.token_type,
       scope: data.scope,
     };
+  }
+
+  /**
+   * Revoke the user's tokens at X (documented: POST /2/oauth2/revoke, `token` in
+   * the form body, confidential clients authenticate with HTTP Basic). X does not
+   * document the response or whether revoking one token revokes its pair, so both
+   * the access and the refresh token are revoked, and success means every call
+   * returned 2xx.
+   */
+  async revokeAccess(accessToken: string, refreshToken?: string | null): Promise<void> {
+    const id = process.env.TWITTER_CLIENT_ID;
+    const secret = process.env.TWITTER_CLIENT_SECRET;
+    if (!id || !secret) throw new Error("X credentials are not configured.");
+    const headers = { Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}` };
+    for (const token of [accessToken, refreshToken].filter((t): t is string => Boolean(t))) {
+      await postRevocation({ url: TWITTER_REVOKE_URL, token, headers });
+    }
   }
 
   async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {

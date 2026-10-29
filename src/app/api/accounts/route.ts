@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { Platform, PostStatus, JobStatus } from "@prisma/client";
 import { getAdapterStatus, getAdapter } from "@/lib/adapters";
 import { decrypt } from "@/lib/encryption";
+import { attemptRemoteRevocation, type RemoteRevocation, type Revoker } from "@/lib/adapters/revoke";
 import { PLATFORM_CONFIGS, type PlatformAdapter } from "@/types/platform";
 import { resolveBrainForWorkspace } from "@/lib/brains";
 import { getTokenStatus, formatExpiryTime } from "@/lib/adapters/tokens";
@@ -142,51 +143,72 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Disconnecting has to stop future publishing, not just drop the row:
-    // otherwise the cron worker keeps a PENDING job whose account no longer
-    // exists and dead-letters a post the user believes they cancelled.
-    const postIds = account.posts.map((post) => post.id);
-    const cancelledJobs = postIds.length
-      ? await prisma.scheduledJob.deleteMany({
-          where: {
-            postId: { in: postIds },
-            status: { in: [JobStatus.PENDING, JobStatus.PROCESSING] },
-          },
-        })
-      : { count: 0 };
-
-    // Content is the user's, so it survives: scheduled posts return to APPROVED
-    // and can be pointed at another account instead of vanishing.
-    const releasedPosts = postIds.length
-      ? await prisma.post.updateMany({
-          where: { id: { in: postIds }, status: PostStatus.SCHEDULED },
-          data: { status: PostStatus.APPROVED, scheduledFor: null },
-        })
-      : { count: 0 };
-
-    // Best-effort revocation at the platform. A provider outage must not leave
-    // the user unable to disconnect, so this is logged rather than thrown.
-    let revokedAtPlatform = false;
+    // Read the tokens first, in memory only: once the row is gone they are the
+    // only copy, and the provider call below needs them.
+    let tokens: { accessToken: string | null; refreshToken: string | null } = {
+      accessToken: null,
+      refreshToken: null,
+    };
     try {
-      const adapter = getAdapter(account.platform) as PlatformAdapter & {
-        revokeAccess?: (accessToken: string) => Promise<void>;
+      tokens = {
+        accessToken: account.accessToken ? decrypt(account.accessToken) : null,
+        refreshToken: account.refreshToken ? decrypt(account.refreshToken) : null,
       };
-      if (typeof adapter.revokeAccess === "function") {
-        await adapter.revokeAccess(decrypt(account.accessToken));
-        revokedAtPlatform = true;
-      }
-    } catch (error) {
-      console.error(
-        `Disconnect: ${account.platform} revocation failed for account ${account.id}:`,
-        error instanceof Error ? error.message : error
-      );
+    } catch {
+      // Unreadable ciphertext: nothing to revoke remotely, the local disconnect still proceeds.
     }
 
-    await prisma.socialAccount.delete({ where: { id: accountId } });
+    // The disconnect takes effect inside SocialOrc first, in one transaction,
+    // and does not depend on the provider: pending jobs are cancelled (the worker
+    // would otherwise dead-letter a post the user believes they cancelled),
+    // scheduled posts return to APPROVED (the content is the user's, so it survives
+    // and can be pointed at another account) and the connection row, with its
+    // stored tokens, is deleted. From this point no publish, refresh or
+    // engagement call can use the account, whatever happens remotely.
+    const postIds = account.posts.map((post) => post.id);
+    const [cancelledJobs, releasedPosts] = await prisma.$transaction(async (tx) => {
+      const jobs = postIds.length
+        ? await tx.scheduledJob.deleteMany({
+            where: {
+              postId: { in: postIds },
+              status: { in: [JobStatus.PENDING, JobStatus.PROCESSING] },
+            },
+          })
+        : { count: 0 };
+      const released = postIds.length
+        ? await tx.post.updateMany({
+            where: { id: { in: postIds }, status: PostStatus.SCHEDULED },
+            data: { status: PostStatus.APPROVED, scheduledFor: null },
+          })
+        : { count: 0 };
+      await tx.socialAccount.delete({ where: { id: accountId } });
+      return [jobs, released] as const;
+    });
+
+    // Then revoke at the provider, best effort, and say honestly what happened.
+    // Only platforms with a documented revocation endpoint have one (TikTok, X,
+    // YouTube); LinkedIn does not, so its tokens simply expire at the provider.
+    let remoteRevocation: RemoteRevocation;
+    try {
+      const adapter = getAdapter(account.platform) as PlatformAdapter & {
+        revokeAccess?: Revoker;
+      };
+      remoteRevocation = await attemptRemoteRevocation(
+        typeof adapter.revokeAccess === "function" ? adapter.revokeAccess.bind(adapter) : undefined,
+        tokens,
+      );
+    } catch {
+      // No adapter (the platform's app credentials were removed from the
+      // deployment): the local disconnect already happened and nothing can be
+      // revoked remotely.
+      remoteRevocation = "failed";
+    }
 
     return NextResponse.json({
       success: true,
-      revokedAtPlatform,
+      remoteRevocation,
+      // Kept for existing callers: true only when the provider confirmed it.
+      revokedAtPlatform: remoteRevocation === "revoked",
       cancelledJobs: cancelledJobs.count,
       releasedPosts: releasedPosts.count,
     });

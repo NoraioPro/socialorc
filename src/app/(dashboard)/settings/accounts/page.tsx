@@ -310,8 +310,16 @@ function SettingsContent() {
     try {
       const res = await fetch(`/api/accounts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Could not disconnect this account. Please try again.");
+      const result = await res.json().catch(() => ({})) as { remoteRevocation?: "revoked" | "failed" | "not_supported" };
       setPlatforms(current => current.map(p => { const accounts = p.accounts.filter(a => a.id !== id); return { ...p, accounts, connected: accounts.some(a => a.isActive) }; }));
-      setMessage({ text: "Account disconnected." });
+      // SocialOrc has stopped using the connection either way. Say plainly whether
+      // the platform also confirmed the access was revoked.
+      setMessage({
+        text:
+          result.remoteRevocation === "revoked"
+            ? "Account disconnected, and its access was revoked on the platform."
+            : "Account disconnected. SocialOrc can no longer use it, but the platform did not confirm the access was revoked. To remove it completely, remove SocialOrc from the connected apps in that account's own settings.",
+      });
       setManagingPlatform(null);
     } catch (error) { setMessage({ text: error instanceof Error ? error.message : "Could not disconnect.", error: true }); }
     finally { setBusy(null); }
