@@ -9,10 +9,12 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { consumeRateLimit, peekRateLimit } from "@/lib/rate-limit-store";
 import { createWorkspaceForNewUser } from "./tenancy/workspace";
+import { isSoleWorkspaceMember } from "./tenancy/solo";
 import { mayLinkOAuthToExisting, oauthSignInDecision } from "./signup-policy";
 import {
   DEFAULT_ROLE,
   can,
+  effectiveRole,
   isRole,
   parseRole,
   permissionsFor,
@@ -26,7 +28,7 @@ async function roleForUser(userId: string): Promise<Role> {
     where: { id: userId },
     select: { role: true },
   });
-  return row?.role && isRole(row.role) ? row.role : parseRole(row?.role);
+  return effectiveRole(row?.role, await isSoleWorkspaceMember(userId));
 }
 
 // OAuth sign-in is offered only when its credentials exist: an unconfigured
@@ -366,7 +368,7 @@ export async function requirePermission(permission: Permission): Promise<
   if (!row) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
-  const role: Role = parseRole(row.role);
+  const role: Role = effectiveRole(row.role, await isSoleWorkspaceMember(session.user.id));
 
   if (!can(role, permission)) {
     return {

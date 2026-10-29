@@ -25,7 +25,8 @@
 
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { can, parseRole, type Permission, type Role } from "@/lib/roles";
+import { can, effectiveRole, type Permission, type Role } from "@/lib/roles";
+import { isSoleWorkspaceMember } from "./solo";
 
 export interface TenantContext {
   userId: string;
@@ -68,7 +69,8 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
   // Never an empty string: an empty tenant id silently disables a filter.
   if (!workspaceId) return { ok: false, status: 403, error: NO_WORKSPACE_MESSAGE };
 
-  return { ok: true, userId, role: parseRole(user.role), workspaceId };
+  const role = effectiveRole(user.role, await isSoleWorkspaceMember(userId));
+  return { ok: true, userId, role, workspaceId };
 }
 
 /**

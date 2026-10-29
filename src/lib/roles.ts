@@ -40,6 +40,15 @@ export function selfSignupRole(env: NodeJS.ProcessEnv = process.env): Role {
 }
 
 /**
+ * The role a request is actually authorised as: a user who is alone in their
+ * workspace has full rights there (see src/lib/tenancy/solo.ts), otherwise the
+ * stored role, validated.
+ */
+export function effectiveRole(storedRole: unknown, soleWorkspaceMember: boolean): Role {
+  return soleWorkspaceMember ? "ADMIN" : parseRole(storedRole);
+}
+
+/**
  * Role assumed for any value we could not validate. Least privilege: an
  * unreadable role must never silently grant approval rights.
  */
