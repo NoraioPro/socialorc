@@ -4,6 +4,7 @@ import { PostStatus, JobStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
 import { destinationForAccount } from "@/lib/adapters/destination";
 import { recoverStaleProcessingJobs, recoverStrandedPublishNow } from "@/lib/jobs/lease-recovery";
+import { isCleanupTick, purgeStaleTelegramData } from "@/lib/jobs/telegram-cleanup";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
@@ -129,6 +130,21 @@ export async function GET(req: NextRequest) {
       console.log(
         `[cron] lease recovery: deadRuns=${recovery.deadRuns} abandoned=${recovery.abandoned} released=${recovery.released}`
       );
+    }
+
+    // Hourly, bounded housekeeping for the shared Telegram bot's stored replies.
+    // A failure here must never stop publishing.
+    if (isCleanupTick(now)) {
+      try {
+        const cleaned = await purgeStaleTelegramData(prisma, now);
+        if (cleaned.repliesDeleted > 0 || cleaned.codesDeleted > 0) {
+          console.log(
+            `[cron] telegram cleanup: replies=${cleaned.repliesDeleted} codes=${cleaned.codesDeleted}`
+          );
+        }
+      } catch (error) {
+        console.error("[cron] telegram cleanup failed:", error instanceof Error ? error.message : error);
+      }
     }
 
     const dueJobs = await prisma.scheduledJob.findMany({

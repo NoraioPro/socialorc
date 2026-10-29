@@ -18,7 +18,19 @@
 export function destinationForAccount(metadata: unknown): Record<string, unknown> {
   const record = isRecord(metadata) ? metadata : {};
   const chatId = normaliseId(record.chatId);
-  return chatId === null ? {} : { chatId };
+  if (chatId === null) return {};
+  // What the Telegram adapter needs to re-verify the chat before sending (see
+  // telegram-destination.ts). Only present for connections made with the
+  // one-time-code flow; older rows simply skip the re-check.
+  const chatType = normaliseId(record.chatType);
+  const botId = normaliseId(record.botId);
+  const connectedBy = normaliseId(record.connectedBy);
+  return {
+    chatId,
+    ...(chatType ? { chatType } : {}),
+    ...(botId ? { botId } : {}),
+    ...(connectedBy ? { connectedBy } : {}),
+  };
 }
 
 /**

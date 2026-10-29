@@ -11,7 +11,6 @@ type Issued = {
   expiresAt: string;
   botUsername: string | null;
   links: { privateChat: string; group: string } | null;
-  suggestedChatId: string | null;
 };
 
 /**
@@ -53,7 +52,6 @@ export function TelegramConnectDialog({
         if (!res.ok) throw new Error(data.error || "Could not start connecting Telegram.");
         if (!cancelled) {
           setIssued(data);
-          setChatId(data.suggestedChatId ?? "");
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not start connecting Telegram.");

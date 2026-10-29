@@ -1,3 +1,8 @@
+import {
+  isDefiniteMembershipError,
+  verifyTelegramDestination,
+  type MemberLookup,
+} from "./telegram-destination";
 import { Platform } from "@prisma/client";
 import { BasePlatformAdapter } from "./base";
 import {
@@ -172,6 +177,24 @@ export class TelegramAdapter extends BasePlatformAdapter {
       return { success: false, error: MISSING_CHAT_ERROR, code: "NOT_FOUND" };
     }
 
+    // The chat was verified once, at connect time. Check again before sending that
+    // the bot is still in it and that whoever connected it still administers it.
+    // Only a definite answer blocks; a Telegram outage does not look like a
+    // revoked chat. PERMISSION_DENIED raises the account's reconnect banner.
+    const extra = options.additionalOptions ?? {};
+    const verdict = await verifyTelegramDestination(
+      {
+        chatId,
+        chatType: typeof extra.chatType === "string" ? extra.chatType : null,
+        botId: typeof extra.botId === "string" ? extra.botId : null,
+        connectedBy: typeof extra.connectedBy === "string" ? extra.connectedBy : null,
+      },
+      (userId) => this.lookupMember(accessToken, chatId, userId),
+    );
+    if (verdict.ok === false) {
+      return { success: false, error: verdict.reason, code: "PERMISSION_DENIED" };
+    }
+
     const mediaUrls = options.mediaUrls ?? [];
     const endpoint = mediaUrls.length > 0 ? "sendPhoto" : "sendMessage";
     const payload: Record<string, unknown> =
@@ -289,6 +312,36 @@ export class TelegramAdapter extends BasePlatformAdapter {
       return { ok: false, error: json.description ?? `HTTP ${res.status}` };
     }
     return { ok: true, status: json.result.status };
+  }
+
+  /** getChatMember with the detail the pre-send check needs; never throws. */
+  private async lookupMember(accessToken: string, chatId: string, userId: string): Promise<MemberLookup> {
+    try {
+      const res = await fetch(
+        `${TELEGRAM_API}/bot${accessToken}/getChatMember?chat_id=${encodeURIComponent(chatId)}&user_id=${encodeURIComponent(userId)}`,
+        { signal: AbortSignal.timeout(8_000) },
+      );
+      const json = (await res.json().catch(() => ({ ok: false }))) as {
+        ok: boolean;
+        description?: string;
+        result?: { status?: string; can_post_messages?: boolean; can_send_messages?: boolean };
+      };
+      if (!json.ok || !json.result?.status) {
+        const description = json.description ?? `HTTP ${res.status}`;
+        return { ok: false, definite: isDefiniteMembershipError(res.status, description), error: description };
+      }
+      return {
+        ok: true,
+        member: {
+          status: json.result.status,
+          canPostMessages: json.result.can_post_messages,
+          canSendMessages: json.result.can_send_messages,
+        },
+      };
+    } catch {
+      // Timeout or network failure: unknown, not a verdict.
+      return { ok: false, definite: false, error: "unreachable" };
+    }
   }
 
   private reactionEmoji(kind: ReactionKind): string {

@@ -144,7 +144,18 @@ export async function POST(req: NextRequest) {
 
     const brain = await resolveBrainForWorkspace(guard, state.data.brainId ?? null);
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
-    const metadata = { chatId, chatType: row.chatType, chatTitle: chat.title, tokenType: "bot", isBot: true, botId: info.platformUserId };
+    // `connectedBy` (the Telegram user who posted the code) lets the publish path
+    // re-check that they still administer the chat. Null for channels, where a
+    // post carries no author.
+    const metadata = {
+      chatId,
+      chatType: row.chatType,
+      chatTitle: chat.title,
+      tokenType: "bot",
+      isBot: true,
+      botId: info.platformUserId,
+      ...(row.authorId ? { connectedBy: row.authorId } : {}),
+    };
     const displayName = chat.title ?? info.displayName;
 
     const account = await prisma.socialAccount.upsert({

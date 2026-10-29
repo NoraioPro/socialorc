@@ -12,13 +12,12 @@ import { readTelegramState } from "@/lib/social/telegram-connect";
 /**
  * Step 1 of connecting a Telegram chat: issue a one-time code.
  *
- * POST { state } → { code, botUsername, expiresAt, links, suggestedChatId }
+ * POST { state } → { code, botUsername, expiresAt, links }
  *
  * The code is stored hashed, bound to this user in this workspace, and only
  * proves anything once it has been posted in the chat (see the verify step,
- * POST /api/social/telegram/connect). `suggestedChatId` is the deployment's
- * TELEGRAM_CHAT_ID, offered as a UI prefill only — it is never connected
- * without the same proof.
+ * POST /api/social/telegram/connect). No chat id is suggested: the deployment's
+ * TELEGRAM_CHAT_ID is the operator's own chat and must never be shown to a user.
  */
 export async function POST(req: NextRequest) {
   const guard = await requireWorkspace("accounts:connect");
@@ -70,7 +69,6 @@ export async function POST(req: NextRequest) {
             group: `https://t.me/${username}?startgroup=${code}`,
           }
         : null,
-      suggestedChatId: (process.env.TELEGRAM_CHAT_ID ?? "").trim() || null,
     });
   } catch (error) {
     console.error("Telegram connect code failed:", error instanceof Error ? error.message : error);
