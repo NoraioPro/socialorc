@@ -521,6 +521,74 @@ async function run() {
     check("post ends FAILED", post?.status === "FAILED", post?.status);
   });
 
+  // ── CASE E: a post linked to ANOTHER workspace's account must never send ──
+  // The API refuses to create such a link, so the rows are written straight to the
+  // database (what a bug or a tampered row would look like). Two posts keep the two
+  // guards independent: one is only ever seen by publish-now, and both are then
+  // handed to the worker, so a regression in either guard cannot hide behind the
+  // other having already consumed the post.
+  console.log(`\nCASE E — posts linked to another workspace's account`);
+  await withServer({ TELEGRAM_API_BASE: DEAD_API_BASE }, async () => {
+    const api = await ensureUser();
+    const viaWorker = await injectPost(api, "123456:irrelevant", "isolation-worker");
+    const viaNow = await injectPost(api, "123456:irrelevant", "isolation-now");
+
+    const prisma = dbClient();
+    const owner = await prisma.user.findUnique({ where: { email } });
+    const otherWorkspace = await prisma.workspace.create({
+      data: { name: "Isolation victim", slug: `isolation-victim-${Date.now()}` },
+    });
+    const foreign = await prisma.socialAccount.create({
+      data: {
+        userId: owner.id,
+        workspaceId: otherWorkspace.id,
+        platform: "TELEGRAM",
+        platformUserId: `durability_foreign_${Date.now()}`,
+        platformUsername: "foreign",
+        displayName: "Foreign workspace account",
+        accessToken: CryptoJS.AES.encrypt("foreign-token", ENCRYPTION_KEY).toString(),
+        isActive: true,
+        metadata: { chatId: TELEGRAM_TEST_CHAT_ID },
+      },
+    });
+    for (const postId of [viaWorker, viaNow]) {
+      await prisma.post.update({ where: { id: postId }, data: { socialAccountId: foreign.id } });
+      await prisma.scheduledJob.update({
+        where: { postId },
+        data: { status: "PENDING", attempts: 0, scheduledAt: new Date(Date.now() - 1000), completedAt: null, errorMessage: null },
+      });
+    }
+    await prisma.$disconnect();
+
+    // publish-now first, before the worker has touched either post.
+    const now = await api.call(`/api/posts/${viaNow}/publish`, { method: "POST" });
+    check("publish-now through another workspace's account is refused (404)", now.status === 404, `status ${now.status}`);
+    let state = await jobState(viaNow);
+    check("a refused publish-now leaves the post SCHEDULED", state.post?.status === "SCHEDULED", state.post?.status);
+
+    // Now the worker sees both due jobs.
+    const run = await api.call("/api/cron/publish", { cron: true });
+    check("the worker publishes nothing through the foreign account", run.json?.published === 0, JSON.stringify(run.json));
+    for (const [label, postId] of [["worker-only post", viaWorker], ["publish-now post", viaNow]]) {
+      state = await jobState(postId);
+      check(
+        `the worker closes the ${label} as an ownership mismatch`,
+        state.job?.status === "FAILED" && /ownership mismatch/i.test(state.job?.errorMessage ?? ""),
+        `${state.job?.status} ${state.job?.errorMessage}`,
+      );
+      check(`the ${label} ends FAILED, never PUBLISHED`, state.post?.status === "FAILED" && !state.post?.platformPostId, `${state.post?.status}`);
+    }
+
+    const check2 = dbClient();
+    const foreignAfter = await check2.socialAccount.findUnique({ where: { id: foreign.id } });
+    await check2.$disconnect();
+    check(
+      "the foreign account was neither used nor flagged",
+      foreignAfter?.lastSyncAt === null && foreignAfter?.needsReconnect === false && !foreignAfter?.lastError,
+      `lastSyncAt=${foreignAfter?.lastSyncAt} needsReconnect=${foreignAfter?.needsReconnect}`,
+    );
+  });
+
   console.log(`\n${failures.length ? "DURABILITY RESULT: FAIL" : "DURABILITY RESULT: PASS"} — ${passed} checks passed, ${failures.length} failed`);
   for (const f of failures) console.log(`   · ${f}`);
   process.exit(failures.length ? 1 : 0);

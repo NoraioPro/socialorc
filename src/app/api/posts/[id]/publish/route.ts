@@ -92,6 +92,9 @@ export async function POST(
   if (!account) {
     account = await prisma.socialAccount.findFirst({
       where: { workspaceId: guard.workspaceId, platform: post.platform, isActive: true },
+      // Deterministic when a workspace has two accounts on one platform: the
+      // oldest, which is also what post creation picks.
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     if (!account) {
       return NextResponse.json(

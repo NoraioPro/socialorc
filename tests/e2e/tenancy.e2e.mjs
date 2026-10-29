@@ -254,6 +254,25 @@ export async function runTenancyE2E({ baseUrl }) {
       json: { content: "publish through them", platform: "LINKEDIN", socialAccountId: account?.id },
     }),
   );
+  // PATCH is a second way to set `socialAccountId`: it must be refused the same
+  // way as create, and the intruder's own post must stay unlinked afterwards.
+  const ownDraft = await req(j, url("/api/posts"), {
+    method: "POST",
+    json: { content: "intruder's own draft", platform: "LINKEDIN" },
+  });
+  const ownDraftId = ownDraft.body?.post?.id ?? ownDraft.body?.id;
+  check("the other workspace creates its own draft", ownDraft.status < 300 && !!ownDraftId, `status ${ownDraft.status}`);
+  await notFound(
+    "re-pointing a post at another workspace's account (PATCH) is 404",
+    await req(j, url(`/api/posts/${ownDraftId}`), { method: "PATCH", json: { socialAccountId: account?.id } }),
+  );
+  const ownDraftAfter = await req(j, url(`/api/posts/${ownDraftId}`));
+  check(
+    "the refused PATCH left the post unlinked from the foreign account",
+    ownDraftAfter.body?.socialAccountId !== account?.id &&
+      ownDraftAfter.body?.post?.socialAccountId !== account?.id,
+    JSON.stringify(ownDraftAfter.body?.socialAccountId ?? ownDraftAfter.body?.post?.socialAccountId ?? null),
+  );
   await notFound(
     "cross-tenant engagement through the account is 404",
     await req(j, url(`/api/social/engagement/comments?accountId=${account?.id}&platformPostId=x`)),
