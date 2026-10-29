@@ -70,3 +70,48 @@ export function signupDecision(
       "addresses, or ALLOW_PUBLIC_SIGNUP=true to open it deliberately",
   };
 }
+
+/**
+ * Whether an OAuth sign-in may proceed.
+ *
+ * A sign-in for an identity that is already linked, or that belongs to an
+ * existing user, is a login, not a registration, and is always allowed here.
+ * Only a brand-new account is a registration, and it is held to the same
+ * `signupDecision` rules as the password form. Without this an invite-only
+ * deployment was open to anyone with a Google or Facebook account.
+ *
+ * A new identity with no address cannot be checked against the allowlist, so
+ * it is refused unless it is the very first account.
+ */
+export function oauthSignInDecision(input: {
+  email: string | null;
+  identityKnown: boolean;
+  userWithEmailExists: boolean;
+  existingUserCount: number;
+  env?: NodeJS.ProcessEnv;
+}): SignupDecision {
+  if (input.identityKnown || input.userWithEmailExists) {
+    return { allowed: true, reason: "existing account" };
+  }
+  if (!input.email) {
+    return input.existingUserCount === 0
+      ? { allowed: true, reason: "first account bootstraps the workspace owner" }
+      : { allowed: false, reason: "new OAuth identity without an email address" };
+  }
+  return signupDecision(input.email, input.existingUserCount, input.env);
+}
+
+/**
+ * Whether a verified Google identity may be attached to an existing account.
+ *
+ * Linking on email alone lets someone who pre-registered a password account for
+ * a victim's address inherit the victim's later Google login. Only link when
+ * the existing account has no password (nothing to pre-seed) or its email was
+ * verified.
+ */
+export function mayLinkOAuthToExisting(existing: {
+  password: string | null;
+  emailVerified: Date | null;
+}): boolean {
+  return !existing.password || existing.emailVerified !== null;
+}

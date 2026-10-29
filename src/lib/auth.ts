@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { consumeRateLimit, peekRateLimit } from "@/lib/rate-limit-store";
 import { createWorkspaceForNewUser } from "./tenancy/workspace";
+import { mayLinkOAuthToExisting, oauthSignInDecision } from "./signup-policy";
 import {
   DEFAULT_ROLE,
   can,
@@ -53,6 +54,9 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
   session: {
     strategy: "jwt",
+    // Tokens are not revocable, so keep the window short (the default is 30
+    // days). Roles and membership are re-read from the database per request.
+    maxAge: 7 * 24 * 60 * 60,
   },
   pages: {
     signIn: "/login",
@@ -192,39 +196,68 @@ export const authOptions: NextAuthOptions = {
      * Facebook is deliberately excluded: its Graph API returns an address with no
      * `email_verified` claim, so there is nothing to check it against.
      */
-    async signIn({ profile, account }) {
-      if (account?.provider !== "google" || !account.providerAccountId) {
-        return true;
-      }
+    async signIn({ user, profile, account }) {
+      // Password sign-ins were authenticated by authorize() above.
+      if (!account || account.provider === "credentials") return true;
 
       const claims = profile as
         | { email?: unknown; email_verified?: unknown }
         | undefined;
-      const email =
+      const rawEmail =
         typeof claims?.email === "string"
-          ? claims.email.trim().toLowerCase()
-          : null;
+          ? claims.email
+          : typeof user?.email === "string"
+            ? user.email
+            : null;
+      const email = rawEmail ? rawEmail.trim().toLowerCase() : null;
 
-      // No address, or Google is not vouching for it: leave it to NextAuth.
-      if (!email || claims?.email_verified !== true) {
+      const [existing, alreadyLinked, userCount] = await Promise.all([
+        email
+          ? prisma.user.findUnique({
+              where: { email },
+              select: { id: true, password: true, emailVerified: true },
+            })
+          : Promise.resolve(null),
+        account.providerAccountId
+          ? prisma.account.findFirst({
+              where: {
+                provider: account.provider,
+                providerAccountId: account.providerAccountId,
+              },
+              select: { id: true },
+            })
+          : Promise.resolve(null),
+        prisma.user.count(),
+      ]);
+
+      // A new account is a registration: hold it to the signup policy so an
+      // invite-only deployment is not open to anyone with a Google/Facebook login.
+      const decision = oauthSignInDecision({
+        email,
+        identityKnown: Boolean(alreadyLinked),
+        userWithEmailExists: Boolean(existing),
+        existingUserCount: userCount,
+      });
+      if (!decision.allowed) {
+        console.warn(`[auth] refused OAuth sign-up: ${decision.reason}`);
+        return false;
+      }
+
+      if (account.provider !== "google" || !account.providerAccountId) {
         return true;
       }
 
-      const [existing, alreadyLinked] = await Promise.all([
-        prisma.user.findUnique({ where: { email }, select: { id: true } }),
-        prisma.account.findFirst({
-          where: {
-            provider: account.provider,
-            providerAccountId: account.providerAccountId,
-          },
-          select: { id: true },
-        }),
-      ]);
-
-      // Nothing to reconcile: no such account to attach to, or this Google
-      // identity is already linked (NextAuth matches it and skips the check).
-      if (!existing || alreadyLinked) {
+      // Linking applies only to Google, whose claim that the address is verified
+      // we can check. Facebook returns no such claim, so it is never merged.
+      if (!email || claims?.email_verified !== true || !existing || alreadyLinked) {
         return true;
+      }
+
+      // Never attach a Google login to a password account whose owner never
+      // proved the address: that is how a pre-registered account is hijacked.
+      if (!mayLinkOAuthToExisting(existing)) {
+        console.warn("[auth] refused to link Google to an unverified password account");
+        return false;
       }
 
       await prisma.account.create({
@@ -256,13 +289,23 @@ export const authOptions: NextAuthOptions = {
     },
     async jwt({ token, user, isNewUser }) {
       if (user && isNewUser) {
+        // The adapter created this row with the schema default role (ADMIN) and
+        // the createUser event only logs if correcting it fails, which would leave
+        // a new OAuth user an admin. Correct it again here and let a failure abort
+        // the sign-in: fail closed, never open.
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: OAUTH_SIGNUP_ROLE },
+        });
         // Every account must have a workspace before it can do anything: make
         // sure the createUser event above did its job (idempotent if it did).
         await createWorkspaceForNewUser({ userId: user.id, name: user.name, email: user.email });
       }
       if (user) {
         token.sub = user.id;
-        token.role = isRole(user.role) ? user.role : await roleForUser(user.id);
+        // Always the stored role, never the adapter's `user.role`: for a new
+        // OAuth user that object still carries the pre-correction default.
+        token.role = await roleForUser(user.id);
       } else if (token.sub) {
         // Re-read on every session check rather than carrying the role minted at
         // sign-in: an admin's role change must take effect on the member's next
