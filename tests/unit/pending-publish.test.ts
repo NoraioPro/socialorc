@@ -107,7 +107,7 @@ test("lease recovery resumes a dead POLL instead of failing it", async () => {
 test("the worker never calls createPost for a job that is polling", () => {
   // Wiring check on the route source: the resumed path reads status only.
   const cron = readFileSync("src/app/api/cron/publish/route.ts", "utf8");
-  assert.match(cron, /if \(!resumePublishId\) return adapter\.createPost\(/);
+  assert.match(cron, /if \(!resumePublishId\) \{[^}]*adapter\.createPost\(/);
   assert.match(cron, /adapter\.checkPublishStatus\(accessToken, resumePublishId/);
   // Pending jobs stay due even after the send used its retry budget.
   assert.match(cron, /pendingPublishId: \{ not: null \}/);

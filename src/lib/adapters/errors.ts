@@ -69,6 +69,9 @@ const MESSAGE_RULES: { pattern: RegExp; code: AdapterErrorCode }[] = [
   // generic rule — only the AUTH_* codes raise the reconnect banner.
   { pattern: /session has expired|access token (has )?expired/i, code: "AUTH_EXPIRED" },
   { pattern: /error validating access token|session has been invalidated|invalid oauth (2\.0 )?access token/i, code: "AUTH_INVALID" },
+  // A refresh that fails like this will never succeed: the grant is gone and the
+  // account has to be reconnected, so it must not be retried as "unknown".
+  { pattern: /invalid_grant|refresh token (is |has been )?(invalid|revoked|expired)|token has been revoked/i, code: "AUTH_INVALID" },
   { pattern: /unauthorized|invalid[_ -]?token|invalid[_ -]?credentials|bad token/i, code: "AUTH_INVALID" },
   { pattern: /token (has )?expired|expired[_ -]?token|reauth(enticate)?/i, code: "AUTH_EXPIRED" },
   { pattern: /permission|forbidden|not authorized to|insufficient (scope|privilege)/i, code: "PERMISSION_DENIED" },
@@ -178,6 +181,26 @@ function parseGraphErrorTag(
 
 export function isRetryable(code: AdapterErrorCode): boolean {
   return RETRYABLE.includes(code);
+}
+
+/**
+ * Connection failures that prove the request never reached the platform, so a
+ * retry cannot create a second post.
+ */
+const NOT_DELIVERED = /econnrefused|enotfound|eai_again|getaddrinfo|invalid url|bad port|unknown scheme/i;
+
+/**
+ * True when a failure came back from the final "create the post" call and we
+ * cannot tell whether the platform accepted it: an unclassified error, or a
+ * connection that failed after (or without proof it failed before) delivery.
+ * Retrying that blindly can publish twice, so the worker closes it as FAILED
+ * ("check the platform") instead. Rate limits and 5xx responses are explicit
+ * rejections and stay retryable.
+ */
+export function isOutcomeAmbiguous(code: AdapterErrorCode, message?: string | null): boolean {
+  if (code === "UNKNOWN") return true;
+  if (code === "NETWORK") return !NOT_DELIVERED.test(message ?? "");
+  return false;
 }
 
 export function isPermanent(code: AdapterErrorCode): boolean {

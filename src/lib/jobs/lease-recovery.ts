@@ -162,3 +162,68 @@ export async function recoverStaleProcessingJobs(
 
   return { deadRuns: deadRunsClosed, abandoned: abandonedClosed, released, resumed };
 }
+
+export interface StrandedPublishClient {
+  post: {
+    findMany(args: {
+      where: Record<string, unknown>;
+      select: { id: true };
+      take: number;
+    }): Promise<{ id: string }[]>;
+    updateMany(args: {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }): Promise<{ count: number }>;
+  };
+  scheduledJob: {
+    findMany(args: {
+      where: Record<string, unknown>;
+      select: { postId: true };
+    }): Promise<{ postId: string }[]>;
+  };
+}
+
+/**
+ * Close posts stranded in PUBLISHING with no job behind them.
+ *
+ * Publish-now claims the post (PUBLISHING) without a ScheduledJob, so if the
+ * function is killed mid-send (platform timeout, deploy, crash) neither the
+ * job-based recovery above nor anything else will ever move it: the post is
+ * uneditable and undeletable. After the lease has expired it is closed as
+ * FAILED with the outcome recorded as unknown, exactly like a dead scheduled
+ * run, and never re-queued automatically.
+ *
+ * A post that still has a PENDING or PROCESSING job is left alone: the worker
+ * owns it (a polling job legitimately keeps its post PUBLISHING).
+ */
+export async function recoverStrandedPublishNow(
+  client: StrandedPublishClient,
+  now: Date,
+): Promise<number> {
+  const cutoff = leaseCutoff(now);
+  const candidates = await client.post.findMany({
+    where: { status: "PUBLISHING", updatedAt: { lt: cutoff } },
+    select: { id: true },
+    take: 50,
+  });
+  if (candidates.length === 0) return 0;
+
+  const owned = await client.scheduledJob.findMany({
+    where: {
+      postId: { in: candidates.map((post) => post.id) },
+      status: { in: ["PENDING", "PROCESSING"] },
+    },
+    select: { postId: true },
+  });
+  const ownedIds = new Set(owned.map((job) => job.postId));
+  const stranded = candidates.filter((post) => !ownedIds.has(post.id)).map((post) => post.id);
+  if (stranded.length === 0) return 0;
+
+  // Re-check status and age in the write so a publish that finished in between
+  // is never overwritten.
+  const closed = await client.post.updateMany({
+    where: { id: { in: stranded }, status: "PUBLISHING", updatedAt: { lt: cutoff } },
+    data: { status: "FAILED", errorMessage: LOST_RUN_MESSAGE },
+  });
+  return closed.count;
+}

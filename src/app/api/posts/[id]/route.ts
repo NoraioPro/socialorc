@@ -287,10 +287,18 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
 
     // Guarded write (workspace + status), so the worker claiming the post, or an
     // approval landing, between the read above and here makes this a 409.
-    const deleted = await prisma.post.deleteMany({
-      where: deleteGuardWhere(id, guard.workspaceId, {
-        draftOnly: !tenantCan(guard, "posts:delete"),
-      }),
+    // The job is removed in the same transaction: ScheduledJob has no foreign key
+    // to Post, so deleting only the post left an orphan job behind (audit D-01).
+    const deleted = await prisma.$transaction(async (tx) => {
+      const result = await tx.post.deleteMany({
+        where: deleteGuardWhere(id, guard.workspaceId, {
+          draftOnly: !tenantCan(guard, "posts:delete"),
+        }),
+      });
+      if (result.count > 0) {
+        await tx.scheduledJob.deleteMany({ where: { postId: id } });
+      }
+      return result;
     });
     if (deleted.count === 0) {
       return NextResponse.json(

@@ -3,13 +3,14 @@ import prisma from "@/lib/prisma";
 import { PostStatus, JobStatus } from "@prisma/client";
 import { resolvePublishAdapter } from "@/lib/adapters";
 import { destinationForAccount } from "@/lib/adapters/destination";
-import { recoverStaleProcessingJobs } from "@/lib/jobs/lease-recovery";
+import { recoverStaleProcessingJobs, recoverStrandedPublishNow } from "@/lib/jobs/lease-recovery";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { decryptTokens, encryptTokens } from "@/lib/encryption";
 import { needsTokenRefresh, canRefresh } from "@/lib/adapters/tokens";
 import {
   classifyAdapterError,
   describeAdapterError,
+  isOutcomeAmbiguous,
   isRetryable,
   requiresReconnect,
   type AdapterErrorCode,
@@ -118,6 +119,12 @@ export async function GET(req: NextRequest) {
     results.abandoned = recovery.abandoned;
     results.released = recovery.released;
 
+    // Publish-now has no job, so a function killed mid-send strands its post in
+    // PUBLISHING with nothing to recover it. Close those the same way.
+    const stranded = await recoverStrandedPublishNow(prisma, now);
+    results.released += stranded;
+    if (stranded > 0) console.log(`[cron] closed ${stranded} publish-now post(s) stranded in PUBLISHING`);
+
     if (recovery.deadRuns > 0 || recovery.abandoned > 0) {
       console.log(
         `[cron] lease recovery: deadRuns=${recovery.deadRuns} abandoned=${recovery.abandoned} released=${recovery.released}`
@@ -146,6 +153,9 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // Set once the final create-post call has been dispatched. A failure after
+      // that point is ambiguous: the platform may have accepted the post.
+      let sendStarted = false;
       try {
         // Atomic claim. The unconditional update this replaces let two
         // overlapping cron invocations (Vercel can overlap a 5-minute schedule)
@@ -408,6 +418,10 @@ export async function GET(req: NextRequest) {
               postId: post.id,
               jobId: job.id,
               pending: pendingOf(job),
+              // Flags the account for reconnect when the grant is dead
+              // (invalid_grant etc. classify as AUTH_INVALID); without the id the
+              // banner never appeared for refresh failures.
+              accountId: post.socialAccount.id,
               attempt,
               error: `Token refresh failed: ${message}`,
               code: classifyAdapterError({ message }),
@@ -452,7 +466,10 @@ export async function GET(req: NextRequest) {
 
         // A resumed job only reads the outcome; everything else sends.
         const send = (): Promise<PostResult> => {
-          if (!resumePublishId) return adapter.createPost(accessToken, sendOptions);
+          if (!resumePublishId) {
+            sendStarted = true;
+            return adapter.createPost(accessToken, sendOptions);
+          }
           if (!adapter.checkPublishStatus) {
             return Promise.resolve({
               success: false,
@@ -585,11 +602,12 @@ export async function GET(req: NextRequest) {
           attempt,
           error: result.error || "Unknown error",
           code: code ?? "UNKNOWN",
+          sent: sendStarted && !resumePublishId,
           results,
           now: new Date(),
         });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage = describeThrown(error);
         const attempt = job.attempts + 1;
 
         await handleFailure({
@@ -599,6 +617,7 @@ export async function GET(req: NextRequest) {
           attempt,
           error: errorMessage,
           code: classifyAdapterError({ message: errorMessage }),
+          sent: sendStarted,
           results,
           now: new Date(),
         });
@@ -633,6 +652,20 @@ function pendingOf(job: { pendingPublishId: string | null; pendingSince: Date | 
  * target) dead-letters immediately — retrying it only burns the schedule window
  * and hides the real cause. An unclassified failure is retried, conservatively.
  */
+/**
+ * Message for a thrown error. Node's fetch reports every connection failure as
+ * "fetch failed" and keeps the useful part (ECONNREFUSED, ECONNRESET...) on
+ * `cause`; surface it so a failure that provably never reached the platform can
+ * be told apart from one that might have.
+ */
+function describeThrown(error: unknown): string {
+  if (!(error instanceof Error)) return "Unknown error";
+  const cause = (error as { cause?: { code?: unknown; message?: unknown } }).cause;
+  const detail =
+    typeof cause?.code === "string" ? cause.code : typeof cause?.message === "string" ? cause.message : "";
+  return detail && !error.message.includes(detail) ? `${error.message} (${detail})` : error.message;
+}
+
 async function handleFailure(opts: {
   postId: string;
   jobId: string;
@@ -640,6 +673,11 @@ async function handleFailure(opts: {
   attempt: number;
   error: string;
   code: AdapterErrorCode;
+  /**
+   * The final create-post call was dispatched before this failure. An ambiguous
+   * failure then (see isOutcomeAmbiguous) is not retried automatically.
+   */
+  sent?: boolean;
   /** Set when the platform had already accepted the send (see pending-publish.ts). */
   pending?: { publishId: string; since: Date | null } | null;
   results: {
@@ -652,7 +690,8 @@ async function handleFailure(opts: {
   now: Date;
 }) {
   const { postId, jobId, accountId, attempt, error, code, results, now } = opts;
-  const retryable = isRetryable(code) || code === "UNKNOWN";
+  const ambiguous = Boolean(opts.sent) && isOutcomeAmbiguous(code, error);
+  const retryable = !ambiguous && (isRetryable(code) || code === "UNKNOWN");
 
   // The platform already has this post. A retry would SEND it again, so the
   // only safe moves are: keep polling (transient trouble reading the status),
@@ -718,7 +757,9 @@ async function handleFailure(opts: {
   const exhausted = !retryable || attempt >= MAX_ATTEMPTS;
   const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
 
-  const note = !retryable
+  const note = ambiguous
+    ? `Outcome unknown: the platform may already have published this post. Not retried automatically - check the platform, then use Retry if it is not there (${code}).`
+    : !retryable
     ? `${describeAdapterError(code)} Not retried (${code}).`
     : exhausted
       ? `Dead-lettered after ${attempt} attempts (${code}).`
