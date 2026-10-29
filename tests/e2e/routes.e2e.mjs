@@ -657,6 +657,28 @@ export async function runRoutesE2E({ baseUrl }) {
     400,
   );
 
+  // ------------------------------------------------------------- onboarding
+  expectStatus(
+    "onboarding: anonymous POST is 401",
+    await req(anon, url("/api/onboarding"), { method: "POST", json: { kind: "PERSONAL" } }),
+    401,
+  );
+  expectStatus(
+    "onboarding: an unknown kind is 400",
+    await req(owner.jar, url("/api/onboarding"), { method: "POST", json: { kind: "ENTERPRISE" } }),
+    400,
+  );
+  expectStatus(
+    "onboarding: TEAM is accepted here, where team features are enabled (200; refused when disabled, see unit tests)",
+    await req(owner.jar, url("/api/onboarding"), { method: "POST", json: { kind: "TEAM" } }),
+    200,
+  );
+  expectStatus(
+    "onboarding: Just me is accepted (200)",
+    await req(owner.jar, url("/api/onboarding"), { method: "POST", json: { kind: "PERSONAL" } }),
+    200,
+  );
+
   // ----------------------------------------------------------- ai/credentials
   expectStatus("ai/credentials: anonymous GET is 401", await req(anon, url("/api/ai/credentials")), 401);
   expectStatus(

@@ -93,6 +93,8 @@ model User {
   // Stored as TEXT because SQLite has no enum; parsed strictly on read.
   role          String    @default("ADMIN")
   timezone      String    @default("Europe/Oslo")
+  /// Set when the first-run question (just me / a team) has been answered.
+  onboardedAt   DateTime?
   headline      String?
   bio           String?
   location      String?
@@ -559,6 +561,8 @@ model Workspace {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  /// PERSONAL (just the owner) or TEAM; chosen at first run, see src/lib/onboarding.ts.
+  kind      String   @default("PERSONAL")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

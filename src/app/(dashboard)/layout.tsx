@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
+import prisma from "@/lib/prisma";
+import { needsOnboarding } from "@/lib/onboarding";
 import { Sidebar } from "@/components/dashboard/sidebar";
 
 export default async function DashboardLayout({
@@ -11,6 +13,15 @@ export default async function DashboardLayout({
 
   if (!session?.user) {
     redirect("/login");
+  }
+
+  // First run: ask whether this account is one person or a team before anything else.
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { onboardedAt: true },
+  });
+  if (user && needsOnboarding(user.onboardedAt)) {
+    redirect("/onboarding");
   }
 
   return (
