@@ -126,23 +126,17 @@ export class TelegramAdapter extends BasePlatformAdapter {
   }
 
   /**
-   * Bot tokens are the deployment's own credential; only the *chat* is
-   * per-account. See resolveChatId.
+   * There is no OAuth exchange: each customer pastes their own bot's token into
+   * the connect dialog, which stores it on their account. Nothing falls back to
+   * a deployment-wide token.
    */
   async exchangeCodeForTokens(): Promise<OAuthTokens> {
-    const token = process.env.TELEGRAM_BOT_TOKEN as string;
-    return {
-      accessToken: token,
-      refreshToken: null,
-      expiresAt: null,
-      tokenType: "Bot",
-      scope: "bot",
-    };
+    throw new Error("Telegram bots are connected with the customer's own bot token.");
   }
 
-  /** Bot tokens do not expire; a refresh is a no-op re-read of the env token. */
+  /** Bot tokens do not expire, so there is nothing to refresh. */
   async refreshAccessToken(): Promise<OAuthTokens> {
-    return this.exchangeCodeForTokens();
+    throw new Error("Telegram bot tokens do not expire and cannot be refreshed.");
   }
 
   async getAccountInfo(accessToken: string): Promise<AccountInfo> {
@@ -239,16 +233,15 @@ export class TelegramAdapter extends BasePlatformAdapter {
   /**
    * The chat a call acts in.
    *
-   * Telegram's bot token is a single process-wide credential (the normal SaaS
-   * shape: one SocialOrc-owned bot serving every tenant), but the chat it posts
-   * into belongs to ONE connected account. This used to fall back to
-   * `process.env.TELEGRAM_CHAT_ID` whenever the caller supplied nothing, which
-   * meant every tenant published into — and read and deleted engagement from —
-   * the deployment owner's private chat.
+   * Each customer brings their own bot, so the token is per account (the
+   * `accessToken` passed to every call, decrypted from that account's row) and
+   * the chat it posts into belongs to that same account. This used to fall back
+   * to `process.env.TELEGRAM_CHAT_ID` whenever the caller supplied nothing,
+   * which meant every tenant published into the deployment owner's private chat.
    *
-   * Env is now only the *default offered at connect time*. At publish and
-   * engagement time the account's own chat id is the only source, and its
-   * absence is a loud, permanent failure instead of a silent redirect.
+   * At publish and engagement time the account's own chat id is the only
+   * source, and its absence is a loud, permanent failure instead of a silent
+   * redirect.
    */
   private resolveChatId(additionalOptions?: Record<string, unknown>): string | null {
     const raw = additionalOptions?.chatId;
@@ -268,7 +261,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
     accessToken: string,
     chatId: string,
   ): Promise<
-    { ok: true; title: string | null; type: string | null } | { ok: false; error: string }
+    { ok: true; id: string; title: string | null; type: string | null } | { ok: false; error: string }
   > {
     const res = await fetch(
       `${TELEGRAM_API}/bot${accessToken}/getChat?chat_id=${encodeURIComponent(chatId)}`,
@@ -277,7 +270,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
     const json = (await res.json()) as {
       ok: boolean;
       description?: string;
-      result?: { title?: string; username?: string; first_name?: string; type?: string };
+      result?: { id?: number; title?: string; username?: string; first_name?: string; type?: string };
     };
 
     if (!json.ok || !json.result) {
@@ -286,6 +279,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
 
     return {
       ok: true,
+      id: String(json.result.id ?? chatId),
       title: json.result.title ?? json.result.username ?? json.result.first_name ?? null,
       type: json.result.type ?? null,
     };
@@ -315,7 +309,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
   }
 
   /** getChatMember with the detail the pre-send check needs; never throws. */
-  private async lookupMember(accessToken: string, chatId: string, userId: string): Promise<MemberLookup> {
+  async lookupMember(accessToken: string, chatId: string, userId: string): Promise<MemberLookup> {
     try {
       const res = await fetch(
         `${TELEGRAM_API}/bot${accessToken}/getChatMember?chat_id=${encodeURIComponent(chatId)}&user_id=${encodeURIComponent(userId)}`,

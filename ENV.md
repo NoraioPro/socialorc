@@ -101,8 +101,8 @@ deployment's own Blob store, so the token must belong to the store the app uploa
 ### Telegram
 | Variable | Where to Get |
 |----------|--------------|
-| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_CHAT_ID` | Unused. Do not set it: customers connect their own chat with a one-time code, and it is never shown to users or used to publish |
+| `TELEGRAM_BOT_TOKEN` | Unused. Do not set it: each customer creates their own bot with [@BotFather](https://t.me/BotFather) and pastes its token into Settings |
+| `TELEGRAM_CHAT_ID` | Unused. Do not set it: customers choose their own chat when they connect |
 
 ## Vercel Deployment Checklist
 

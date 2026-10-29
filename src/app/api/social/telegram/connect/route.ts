@@ -3,40 +3,37 @@ import prisma from "@/lib/prisma";
 import { encryptTokens } from "@/lib/encryption";
 import { Platform } from "@prisma/client";
 import { telegramAdapter } from "@/lib/adapters/telegram";
-import { isValidTelegramChatIdShape } from "@/lib/adapters/credentials";
-import { hashConnectCode, isConnectCodeShape, telegramAccountId } from "@/lib/adapters/telegram-connect-code";
+import {
+  isValidTelegramBotTokenShape,
+  isValidTelegramChatIdShape,
+} from "@/lib/adapters/credentials";
+import { telegramAccountId } from "@/lib/adapters/telegram-connect-code";
+import { verifyTelegramDestination } from "@/lib/adapters/telegram-destination";
 import { resolveBrainForWorkspace } from "@/lib/brains";
 import { requireWorkspace } from "@/lib/tenancy/guard";
-import {
-  TELEGRAM_ADMIN_STATUSES,
-  readTelegramState,
-  requiresAdminProof,
-  stateCookieName,
-} from "@/lib/social/telegram-connect";
+import { readTelegramState, stateCookieName } from "@/lib/social/telegram-connect";
 
 /**
- * Connecting a Telegram chat.
+ * Connecting a Telegram chat with the customer's OWN bot.
  *
- * Telegram has no OAuth, so this used to be a GET that stored whatever chat
- * the query string (or, failing that, TELEGRAM_CHAT_ID) named — nothing proved
- * the user controlled the chat, the env fallback ran without the state cookie,
- * and the account was keyed by the bot id, so the first workspace to connect
- * owned the deployment's Telegram. Now:
+ * Telegram has no OAuth. Each customer creates a bot with @BotFather and gives
+ * SocialOrc its token and the chat the bot should publish to. Nothing is shared:
+ * the token is validated against Telegram, encrypted onto the customer's own
+ * account row, and used for both immediate and scheduled publishing of that
+ * account's posts. No deployment-wide bot token is read anywhere.
  *
- *   GET  ?state=…            → no write; sends the browser to the settings
- *                               page's chat-verification dialog.
- *   POST /code { state }     → a one-time code, bound to this user+workspace.
- *   POST { state, code, chatId? }
- *                            → the code must have been posted in a chat the bot
- *                               can see (read from the bot's own drained update
- *                               queue, scoped per chat, so no tenant's updates
- *                               are consumed). That chat — and only that chat —
- *                               is connected, as its own account
- *                               (`<botId>:<chatId>`). In groups, the poster must
- *                               administer the chat.
+ *   GET  ?state=…                  no write; sends the browser to the settings
+ *                                  page's connect dialog.
+ *   POST { state, botToken, chat } validates the token (getMe), resolves the chat
+ *                                  (a numeric id, or @username for a public
+ *                                  channel or supergroup), checks the bot can
+ *                                  actually post there, then stores the account
+ *                                  (`<botId>:<chatId>`). The token is never
+ *                                  returned or logged.
  *
- * Both POSTs require the signed state cookie for this session on every path.
- * TELEGRAM_CHAT_ID is only ever a UI prefill.
+ * The POST requires the signed state cookie for this session and TELEGRAM, the
+ * same proof every other connect uses. Possession of a bot's token is the proof
+ * of control: the bot can only post where its owner has put it.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -57,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
   const body = (await req.json().catch(() => null)) as
-    | { state?: unknown; code?: unknown; chatId?: unknown }
+    | { state?: unknown; botToken?: unknown; chat?: unknown }
     | null;
 
   const state = readTelegramState(req, body?.state, guard.userId);
@@ -65,66 +62,57 @@ export async function POST(req: NextRequest) {
     return fail(400, "STATE_INVALID", "This connection request has expired. Start connecting Telegram again.");
   }
 
-  const code = typeof body?.code === "string" ? body.code.trim().toUpperCase() : "";
-  if (!isConnectCodeShape(code)) return fail(400, "CODE_INVALID", "That is not a connect code.");
-
-  const requestedChat = typeof body?.chatId === "string" ? body.chatId.trim() : "";
-  if (requestedChat !== "" && !isValidTelegramChatIdShape(requestedChat)) {
-    return fail(400, "CHAT_INVALID", "That chat id is not valid.");
+  const token = typeof body?.botToken === "string" ? body.botToken.trim() : "";
+  if (!isValidTelegramBotTokenShape(token)) {
+    return fail(400, "TOKEN_INVALID", "That does not look like a bot token. Copy the whole token from @BotFather.");
   }
 
-  const validation = telegramAdapter.validateCredentials();
-  if (!validation.valid) return fail(503, "NOT_CONFIGURED", "Telegram is not configured on this deployment.");
-  const token = process.env.TELEGRAM_BOT_TOKEN as string;
+  const chatArg = typeof body?.chat === "string" ? body.chat.trim() : "";
+  const isChannelHandle = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(chatArg);
+  if (!isValidTelegramChatIdShape(chatArg) && !isChannelHandle) {
+    return fail(400, "CHAT_INVALID", "Enter the chat id (for example -1001234567890) or the @username of a public channel.");
+  }
 
   try {
-    const codeHash = hashConnectCode(code);
-    const live = { codeHash, userId: guard.userId, workspaceId: guard.workspaceId, usedAt: null, expiresAt: { gt: new Date() } };
-
-    let row = await prisma.telegramConnectCode.findFirst({ where: live });
-    if (!row) return fail(410, "CODE_EXPIRED", "This code has expired or was already used. Get a new one.");
-
-    if (!row.seenAt) {
-      // Read the bot's queue into the per-chat store; the drain records where
-      // pending codes were posted without consuming any other tenant's updates.
-      const drained = await telegramAdapter.drainUpdates(token);
-      if (!drained.ok) {
-        console.error("Telegram connect: update drain failed:", drained.error);
-        return fail(502, "TELEGRAM_UNREACHABLE", "Could not read the bot's messages from Telegram. Try again.");
-      }
-      row = await prisma.telegramConnectCode.findFirst({ where: live });
-      if (!row) return fail(410, "CODE_EXPIRED", "This code has expired or was already used. Get a new one.");
+    let info;
+    try {
+      info = await telegramAdapter.getAccountInfo(token);
+    } catch {
+      return fail(400, "TOKEN_REJECTED", "Telegram rejected that bot token. Check it with @BotFather and try again.");
     }
 
-    if (!row.seenAt || !row.chatId) {
+    const chat = await telegramAdapter.getChat(token, chatArg);
+    if (!chat.ok) {
+      console.error("Telegram connect refused: chat unreachable -", chat.error);
       return fail(
         409,
-        "CODE_NOT_SEEN",
-        "The bot has not seen the code in any chat yet. Post it in the chat (the bot must be a member, or an admin of a channel) and try again.",
+        "CHAT_UNREACHABLE",
+        "Your bot cannot reach that chat. Open a private chat with the bot and send /start, or add the bot to the group or channel, then try again.",
+      );
+    }
+    const chatId = chat.id;
+    if (chatId === info.platformUserId) {
+      return fail(400, "CHAT_INVALID", "That is the bot's own id, not a chat. Use your own chat id or a group or channel id.");
+    }
+
+    // The bot must be able to post where it is being connected (a channel needs
+    // an admin bot with the post permission), so a wrong setup fails here with
+    // a reason instead of at publish time. Not being able to ask counts as a
+    // refusal: this is the one moment the connection is vetted.
+    const verdict = await verifyTelegramDestination(
+      { chatId, chatType: chat.type, botId: info.platformUserId, connectedBy: null },
+      (userId) => telegramAdapter.lookupMember(token, chatId, userId),
+    );
+    if (verdict.ok !== true) {
+      return fail(
+        409,
+        "BOT_CANNOT_POST",
+        verdict.ok === false
+          ? verdict.reason
+          : "Could not check your bot's permissions in that chat right now. Try again.",
       );
     }
 
-    const chatId = row.chatId;
-    if (requestedChat !== "" && requestedChat !== chatId) {
-      return fail(409, "CHAT_MISMATCH", "The code was posted in a different chat from the one you entered.");
-    }
-
-    // In a group anybody can post; whoever posted the code must run the chat.
-    if (requiresAdminProof(row.chatType)) {
-      if (!row.authorId) return fail(403, "NOT_CHAT_ADMIN", "Post the code yourself, as an admin of the group.");
-      const member = await telegramAdapter.getChatMemberStatus(token, chatId, row.authorId);
-      if (!member.ok || !TELEGRAM_ADMIN_STATUSES.has(member.status)) {
-        return fail(403, "NOT_CHAT_ADMIN", "Only an admin of the group can connect it. Post the code as an admin.");
-      }
-    }
-
-    const chat = await telegramAdapter.getChat(token, chatId);
-    if (!chat.ok) {
-      console.error("Telegram connect refused: chat unreachable -", chat.error);
-      return fail(409, "CHAT_UNREACHABLE", "The bot cannot reach that chat. Add it to the chat and try again.");
-    }
-
-    const info = await telegramAdapter.getAccountInfo(token);
     const platformUserId = telegramAccountId(info.platformUserId, chatId);
 
     const existing = await prisma.socialAccount.findUnique({
@@ -132,29 +120,21 @@ export async function POST(req: NextRequest) {
       select: { id: true, workspaceId: true },
     });
     if (existing && existing.workspaceId !== guard.workspaceId) {
-      return fail(409, "ACCOUNT_OWNED_ELSEWHERE", "That chat is already connected by another workspace.");
+      return fail(409, "ACCOUNT_OWNED_ELSEWHERE", "That bot and chat are already connected by another workspace.");
     }
-
-    // Single use, claimed atomically before anything is stored.
-    const claimed = await prisma.telegramConnectCode.updateMany({
-      where: { id: row.id, usedAt: null },
-      data: { usedAt: new Date() },
-    });
-    if (claimed.count !== 1) return fail(410, "CODE_EXPIRED", "This code was already used. Get a new one.");
 
     const brain = await resolveBrainForWorkspace(guard, state.data.brainId ?? null);
     const encrypted = encryptTokens({ accessToken: token, refreshToken: null });
-    // `connectedBy` (the Telegram user who posted the code) lets the publish path
-    // re-check that they still administer the chat. Null for channels, where a
-    // post carries no author.
+    // `tokenSource: "own"` marks a customer's own bot. Connections made before
+    // this existed carry no such marker and are the shared-bot ones.
     const metadata = {
       chatId,
-      chatType: row.chatType,
+      chatType: chat.type,
       chatTitle: chat.title,
       tokenType: "bot",
       isBot: true,
       botId: info.platformUserId,
-      ...(row.authorId ? { connectedBy: row.authorId } : {}),
+      tokenSource: "own",
     };
     const displayName = chat.title ?? info.displayName;
 
@@ -191,6 +171,7 @@ export async function POST(req: NextRequest) {
       accountId: account.id,
       chatId,
       chatTitle: chat.title,
+      botUsername: info.platformUsername ?? null,
       brainId: brain.id,
     });
     response.cookies.delete(stateCookieName(state.state));

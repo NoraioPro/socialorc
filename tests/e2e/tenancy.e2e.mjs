@@ -122,11 +122,9 @@ export async function runTenancyE2E({ baseUrl }) {
   );
   const tgNoState = await req(owner.jar, url("/api/social/telegram/connect"), {
     method: "POST",
-    json: { state: fakeState, code: "SOCABCDEFGHJKMNP", chatId: "-100123" },
+    json: { state: fakeState, botToken: "1234567:tenancy_placeholder_token_000000000", chat: "-100123" },
   });
   check("telegram connect POST without this session's state cookie is refused", tgNoState.status === 400 && tgNoState.body?.code === "STATE_INVALID", `status ${tgNoState.status}`);
-  const tgCodeNoState = await req(owner.jar, url("/api/social/telegram/connect/code"), { method: "POST", json: { state: fakeState } });
-  check("telegram code issue without this session's state cookie is refused", tgCodeNoState.status === 400, `status ${tgCodeNoState.status}`);
   const afterTg = await req(owner.jar, url("/api/accounts"));
   check(
     "no Telegram account was created by any of that",

@@ -640,17 +640,12 @@ export async function runRoutesE2E({ baseUrl }) {
   );
   expectStatus(
     "social/telegram/connect: anonymous POST is 401",
-    await req(anon, url("/api/social/telegram/connect"), { method: "POST", json: { code: "ABCD1234" } }),
+    await req(anon, url("/api/social/telegram/connect"), { method: "POST", json: { botToken: "x" } }),
     401,
   );
   expectStatus(
     "social/telegram/connect: CLIENT POST is 403",
-    await req(client.jar, url("/api/social/telegram/connect"), { method: "POST", json: { code: "ABCD1234" } }),
-    403,
-  );
-  expectStatus(
-    "social/telegram/connect/code: CLIENT cannot issue a code (403)",
-    await req(client.jar, url("/api/social/telegram/connect/code"), { method: "POST", json: {} }),
+    await req(client.jar, url("/api/social/telegram/connect"), { method: "POST", json: { botToken: "x" } }),
     403,
   );
   expectStatus(

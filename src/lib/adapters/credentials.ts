@@ -72,42 +72,14 @@ export function isValidOAuthClientSecretShape(secret: string): boolean {
 }
 
 /**
- * Validate credentials for Telegram adapter.
+ * Telegram needs no deployment credential.
  *
- * The bot token is the deployment's *application* credential, so it is required
- * here. The chat id is not: since the per-tenant fix the chat belongs to each
- * connected account and lives on its `SocialAccount` row. The env value is only
- * the default a connect flow may offer, so it is shape-checked when present and
- * never reported as missing.
+ * Every customer connects their own bot (created with BotFather) and its token
+ * is stored, encrypted, on their own account row, so the platform is always
+ * available to connect. A `TELEGRAM_BOT_TOKEN` in the environment is never read.
  */
 export function validateTelegramCredentials(): CredentialValidationResult {
-  const missing: string[] = [];
-  const invalid: { key: string; reason: string }[] = [];
-
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-
-  if (!botToken) {
-    missing.push("TELEGRAM_BOT_TOKEN");
-  } else if (!isValidTelegramBotTokenShape(botToken)) {
-    invalid.push({
-      key: "TELEGRAM_BOT_TOKEN",
-      reason: "Invalid format. Expected: {bot_id}:{35-char-token} (e.g., 123456789:ABCdefGHI...)",
-    });
-  }
-
-  if (chatId && !isValidTelegramChatIdShape(chatId)) {
-    invalid.push({
-      key: "TELEGRAM_CHAT_ID",
-      reason: "Invalid format. Expected numeric chat ID (e.g., 123456789 or -1001234567890)",
-    });
-  }
-
-  return {
-    valid: missing.length === 0 && invalid.length === 0,
-    missing,
-    invalid,
-  };
+  return { valid: true, missing: [], invalid: [] };
 }
 
 /**

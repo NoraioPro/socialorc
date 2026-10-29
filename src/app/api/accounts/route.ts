@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
         lastSyncAt: true,
         lastError: true,
         needsReconnect: true,
+        metadata: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -74,6 +75,12 @@ export async function GET(req: NextRequest) {
         lastSyncAt: account.lastSyncAt?.toISOString() ?? null,
         lastError: account.lastError,
         needsReconnect: account.needsReconnect,
+        // A Telegram connection made before customers brought their own bot has
+        // no `tokenSource` marker: it publishes through the shared SocialOrc bot.
+        // Only this flag leaves the server, never the metadata or any token.
+        sharedBot:
+          account.platform === Platform.TELEGRAM &&
+          (account.metadata as { tokenSource?: unknown } | null)?.tokenSource !== "own",
         createdAt: account.createdAt.toISOString(),
         updatedAt: account.updatedAt.toISOString(),
         tokenStatus: {

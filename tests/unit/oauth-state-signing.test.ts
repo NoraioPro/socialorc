@@ -133,7 +133,6 @@ test("every reader mints or verifies through the module, never by parsing raw JS
 test("the Telegram connect requires this session's cookie on every path that issues or binds", () => {
   for (const file of [
     "src/app/api/social/telegram/connect/route.ts",
-    "src/app/api/social/telegram/connect/code/route.ts",
   ]) {
     const source = readFileSync(file, "utf8");
     assert.match(source, /readTelegramState\(req, body\?\.state, guard\.userId\)/, file);

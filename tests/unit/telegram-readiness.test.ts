@@ -195,33 +195,18 @@ test("an ok response with no result is not a publish either", async () => {
   }
 });
 
-test("the bot token must match Telegram's shape, and the chat id must be numeric", () => {
-  withEnv(
+test("Telegram needs no deployment credential, whatever the environment holds", () => {
+  for (const env of [
+    { TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined },
     { TELEGRAM_BOT_TOKEN: "not-a-token", TELEGRAM_CHAT_ID: "my-channel-name" },
-    () => {
-      const result = validateTelegramCredentials();
-      assert.equal(result.valid, false);
-      assert.ok(result.invalid.length > 0, "a malformed token must be reported");
-    },
-  );
-
-  withEnv(
-    // A shape-valid token: `{7-12 digit id}:{30-50 char token}`.
     { TELEGRAM_BOT_TOKEN: `123456789:${"A".repeat(35)}`, TELEGRAM_CHAT_ID: "-1001234567890" },
-    () => {
-      assert.equal(validateTelegramCredentials().valid, true);
-    },
-  );
-});
-
-test("the bot token is required by name; the chat id is not", () => {
-  withEnv({ TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined }, () => {
-    const result = validateTelegramCredentials();
-    assert.equal(result.valid, false);
-    // The chat id is per-account since the per-tenant fix, so a deployment with
-    // only the bot token is configured; accounts bring their own chats.
-    assert.deepEqual(result.missing, ["TELEGRAM_BOT_TOKEN"]);
-  });
+  ]) {
+    withEnv(env, () => {
+      const result = validateTelegramCredentials();
+      assert.equal(result.valid, true);
+      assert.equal(result.missing.length, 0);
+    });
+  }
 });
 
 test("a global TELEGRAM_CHAT_ID is never used as a destination", async () => {

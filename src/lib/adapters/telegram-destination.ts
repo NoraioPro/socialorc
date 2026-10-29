@@ -54,18 +54,18 @@ export async function verifyTelegramDestination(
     const bot = await lookup(facts.botId);
     if (!bot.ok) {
       return bot.definite
-        ? { ok: false, reason: "The SocialOrc bot is no longer in this Telegram chat. Add it again and reconnect." }
+        ? { ok: false, reason: "Your Telegram bot is no longer in this Telegram chat. Add it again and reconnect." }
         : { ok: "unknown" };
     }
     if (GONE.has(bot.member.status)) {
-      return { ok: false, reason: "The SocialOrc bot was removed from this Telegram chat. Add it again and reconnect." };
+      return { ok: false, reason: "Your Telegram bot was removed from this Telegram chat. Add it again and reconnect." };
     }
     if (type === "channel") {
       if (bot.member.status !== "administrator" || bot.member.canPostMessages === false) {
-        return { ok: false, reason: "The SocialOrc bot can no longer post in this channel. Make it an admin with permission to post, then reconnect." };
+        return { ok: false, reason: "Your Telegram bot can no longer post in this channel. Make it an admin with permission to post, then reconnect." };
       }
     } else if (bot.member.status === "restricted" && bot.member.canSendMessages === false) {
-      return { ok: false, reason: "The SocialOrc bot is not allowed to send messages in this chat. Change its permissions, then reconnect." };
+      return { ok: false, reason: "Your Telegram bot is not allowed to send messages in this chat. Change its permissions, then reconnect." };
     }
   }
 

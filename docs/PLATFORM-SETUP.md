@@ -60,7 +60,7 @@ Whether a customer can actually use a platform depends on that shared app's appr
 |---|---|---|
 | LinkedIn | **Ready once the app is approved** | The "Share on LinkedIn" product on the LinkedIn app (self-serve) and the redirect URI. Tokens last about 60 days and LinkedIn issues no refresh token to self-serve apps, so customers must reconnect. |
 | X | **Ready on a paid X plan** | `tweet.write` needs a paid tier; on Free, connecting works and publishing fails. Quota is shared by all customers. |
-| Telegram | **Ready** | Only `TELEGRAM_BOT_TOKEN`. Shared bot, see above. |
+| Telegram | **Ready** | Nothing to configure. Each customer connects their own bot, see above. |
 | Facebook | **Blocked by Meta approval** | Business Verification, App Review, Live mode. |
 | Instagram | **Blocked by Meta approval** | Same Meta app, plus a Business/Creator account linked to a Page. |
 | YouTube | **Blocked by Google verification** | Until the consent screen is verified only listed test users can connect; the default API quota allows only a handful of uploads a day. |
@@ -99,41 +99,33 @@ public comment surface at all. Neither is a gap we can close from our side.
 
 ## Telegram — about two minutes, no review
 
-SocialOrc runs **one shared bot** for every customer. The operator creates it once; each
-customer then connects their *own* channel or group to it. Nobody can publish to a chat they do
-not control.
-
-**Operator setup (once):**
-
-1. Open Telegram and message [@BotFather](https://t.me/BotFather).
-2. Send `/newbot`, then follow the prompts for a name and a username.
-3. BotFather replies with a token that looks like `8123456789:AAH...`. Put it in the
-   deployment environment:
-
-```
-TELEGRAM_BOT_TOKEN="8123456789:AAH..."
-```
-
-Do **not** set `TELEGRAM_CHAT_ID`. It used to be a default destination and is now ignored by
-publishing; leaving a personal chat id in the environment only invites confusion. The bot must
-not have a webhook set (SocialOrc reads its messages with `getUpdates`, which Telegram refuses
-while a webhook exists), and only one deployment should use a given bot token.
+Every customer connects **their own bot**. The operator sets nothing: there is no deployment
+bot token, and `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are not read anywhere.
 
 **Customer connection (per user, in Settings → Accounts → Telegram):**
 
-1. SocialOrc shows a one-time code.
-2. The customer adds the bot to their own channel (as an **administrator** with "Post messages")
-   or group, or opens a private chat with it, and posts the code there.
-3. SocialOrc sees the code, checks that whoever posted it administers a group, and binds that
-   chat to the customer's workspace. A chat can belong to only one workspace.
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot` and follow the
+   prompts. BotFather replies with a token that looks like `8123456789:AAH...`.
+2. Pick where the bot posts: for your own chat, open the bot and send `/start`; for a group, add
+   the bot; for a channel, add the bot as an **administrator** with "Post messages".
+3. Paste the token and the chat id (or `@channelname` for a public channel) into SocialOrc.
 
-Before every publish SocialOrc re-checks that the bot is still in the chat (and can still post,
-in a channel) and that the person who connected a group is still an admin. If not, the post
-fails with a "reconnect" message instead of sending. Telegram outages are not treated as a
-failed check.
+SocialOrc checks the token with Telegram, resolves the chat, and refuses the connection unless
+the bot can actually post there. The token is stored encrypted on that customer's account only,
+never shown again, and is the one used for both "Publish now" and scheduled posts. A bot and chat
+can belong to only one workspace.
 
-Limits to know about: posts go out as the shared SocialOrc bot (no per-customer bot identity),
-only text and a single photo are supported, and stored replies are deleted after 30 days.
+Before every publish SocialOrc re-checks that the bot is still in the chat and, in a channel,
+can still post. If not, the post fails with a "reconnect" message instead of sending. Telegram
+outages are not treated as a failed check.
+
+**Connections made before this change** went through the old shared SocialOrc bot. They keep
+working and are labelled "shared bot, reconnect with your own" in Settings. Nothing is migrated
+automatically: the customer reconnects with their own bot, and may then disconnect the old one.
+
+Limits to know about: only text and a single photo are supported, a bot can have only one
+update consumer (a bot with a webhook set can publish but its replies cannot be read), and
+stored replies are deleted after 30 days.
 
 Reactions need the bot to be an admin in the chat. Reading comments works only for replies the
 bot is allowed to see — the Bot API has no way to fetch a message's full reply history, so the

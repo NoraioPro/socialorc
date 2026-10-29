@@ -124,14 +124,15 @@ describe("wiring", () => {
     assert.match(create, /code: "PERMISSION_DENIED"/);
   });
 
-  it("the connect route records who connected the chat", () => {
-    assert.match(fs.readFileSync("src/app/api/social/telegram/connect/route.ts", "utf8"), /connectedBy: row\.authorId/);
+  it("the connect route marks a customer's own bot and records no shared-bot identity", () => {
+    const route = fs.readFileSync("src/app/api/social/telegram/connect/route.ts", "utf8");
+    assert.match(route, /tokenSource: "own"/);
+    assert.equal(/connectedBy/.test(route.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/connectedBy: null/g, "")), false);
   });
 
   it("the deployment's TELEGRAM_CHAT_ID is never offered to users", () => {
-    const route = fs.readFileSync("src/app/api/social/telegram/connect/code/route.ts", "utf8");
+    const route = fs.readFileSync("src/app/api/social/telegram/connect/route.ts", "utf8");
     assert.equal(/process\.env\.TELEGRAM_CHAT_ID/.test(route), false);
-    assert.equal(/suggestedChatId/.test(route.replace(/\/\*[\s\S]*?\*\//g, "")), false);
     assert.equal(/suggestedChatId/.test(fs.readFileSync("src/components/settings/telegram-connect-dialog.tsx", "utf8")), false);
   });
 });

@@ -47,6 +47,8 @@ type PlatformAccount = {
   // Written by the publish worker / cron on a credential dead-letter, cleared by
   // the reconnect flow — see src/lib/social/reconnect.ts.
   needsReconnect?: boolean | null; lastError?: string | null;
+  /** Telegram connected through the old shared bot rather than the customer's own. */
+  sharedBot?: boolean;
   tokenStatus?: { requiresReconnect?: boolean; status?: string } | null;
 };
 type PlatformStatus = {
@@ -198,8 +200,8 @@ function SettingsContent() {
   async function connect(platform: Platform) {
     setBusy(platform); setMessage(null);
     if (platform === Platform.TELEGRAM) {
-      // No OAuth window: Telegram is connected by posting a one-time code in
-      // the chat, verified in a dialog on this page.
+      // No OAuth window: Telegram is connected with the customer's own bot
+      // token, entered in a dialog on this page.
       try {
         const res = await fetch(`/api/social/connect?platform=${platform}&brainId=${encodeURIComponent(brainId)}&popup=0`);
         const data = await res.json();
@@ -531,11 +533,11 @@ function SettingsContent() {
               <span className="settings-platform-icon" style={{ color: config.color }}><Icon className="h-6 w-6" /></span>
               <div className="settings-platform-card-body">
                 <strong>{config.name}</strong>
-                <small title={p.connected ? (reconnect && account ? reconnectReason({ ...account, platform: p.platform }) : undefined) : !p.configured ? `Set ${p.missingCredentials.join(", ")} in this deployment's environment variables.` : config.notes?.[0]}>
+                <small title={p.connected ? (reconnect && account ? reconnectReason({ ...account, platform: p.platform }) : undefined) : !p.configured ? "Not available yet: this service has not set up its app for this platform." : config.notes?.[0]}>
                   {p.connected
                     ? reconnect ? `Needs reconnect · ${accountLabel}`
-                      : accountLabel
-                    : !p.configured ? `Needs ${p.missingCredentials.join(", ")}`
+                      : account?.sharedBot ? `${accountLabel} · shared bot, reconnect with your own` : accountLabel
+                    : !p.configured ? "Not available yet"
                     : config.notes?.[0]}
                 </small>
               </div>

@@ -11,7 +11,7 @@ must be configured with, and what SocialOrc does or does not implement.
 | Meta (Facebook + Instagram) | — | implemented; blocked by Meta Business Verification and App Review for the public |
 | LinkedIn | — | implemented; needs the "Share on LinkedIn" product; no documented token revocation |
 | X | — | implemented; needs a paid X plan to publish |
-| Telegram | — | implemented; shared bot, one-time-code connection |
+| Telegram | — | implemented; each customer connects their own bot |
 
 ## The architecture in one screen
 

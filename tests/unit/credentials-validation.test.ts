@@ -135,42 +135,19 @@ describe("Telegram credential validation", () => {
     process.env = originalEnv;
   });
 
-  test("requires the bot token and treats the chat id as optional", () => {
-    // The bot token is the deployment's own application credential. The chat id
-    // is per-account since the per-tenant fix, so a deployment that sets only
-    // the token is configured — each account supplies its own chat.
-    const result = validateTelegramCredentials();
-    assert.equal(result.valid, false);
-    assert.deepEqual(result.missing, ["TELEGRAM_BOT_TOKEN"]);
-    assert.equal(result.invalid.length, 0);
-  });
-
-  test("is valid with a bot token and no chat id at all", () => {
-    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
+  test("needs no deployment credential: each customer brings their own bot", () => {
     const result = validateTelegramCredentials();
     assert.equal(result.valid, true);
     assert.equal(result.missing.length, 0);
     assert.equal(result.invalid.length, 0);
   });
 
-  test("still rejects a malformed chat id when one is configured", () => {
-    process.env.TELEGRAM_BOT_TOKEN = VALID_TOKEN;
-    process.env.TELEGRAM_CHAT_ID = "not-a-number";
-    const result = validateTelegramCredentials();
-    assert.equal(result.valid, false);
-    assert.equal(result.missing.length, 0);
-    assert.deepEqual(result.invalid.map((i) => i.key), ["TELEGRAM_CHAT_ID"]);
-  });
-
-  test("reports invalid when credentials have wrong format", () => {
+  test("never reads a deployment bot token or chat id", () => {
     process.env.TELEGRAM_BOT_TOKEN = "invalid-token";
     process.env.TELEGRAM_CHAT_ID = "not-a-number";
     const result = validateTelegramCredentials();
-    assert.equal(result.valid, false);
-    assert.equal(result.missing.length, 0);
-    assert.equal(result.invalid.length, 2);
-    assert.ok(result.invalid.some((i) => i.key === "TELEGRAM_BOT_TOKEN"));
-    assert.ok(result.invalid.some((i) => i.key === "TELEGRAM_CHAT_ID"));
+    assert.equal(result.valid, true, "a stray env value must neither enable nor block Telegram");
+    assert.equal(result.invalid.length, 0);
   });
 
   test("passes with valid credentials", () => {
