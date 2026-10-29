@@ -178,7 +178,7 @@ BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 
 ```env
 TELEGRAM_BOT_TOKEN="123456789:..."   # Enables Telegram. Each account connects its own chat via a one-time code
-TELEGRAM_CHAT_ID=""                   # Optional prefill for the connect form only. Never a publishing destination
+TELEGRAM_CHAT_ID=""                   # Unused. Do not set: customers connect their own chat with a one-time code
 ```
 
 ### Platform Credentials

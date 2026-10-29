@@ -41,7 +41,8 @@ Non-negotiable for any deploy:
 Per connector (only the ones you are enabling): `LINKEDIN_CLIENT_ID` /
 `_SECRET`, `TWITTER_CLIENT_ID` / `_SECRET`, `INSTAGRAM_APP_ID` / `_SECRET`,
 `FACEBOOK_APP_ID` / `_SECRET`, `TIKTOK_CLIENT_KEY` / `_SECRET`,
-`YOUTUBE_CLIENT_ID` / `_SECRET`, `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
+`YOUTUBE_CLIENT_ID` / `_SECRET`, `TELEGRAM_BOT_TOKEN` (the shared bot; do not set
+`TELEGRAM_CHAT_ID`, it is no longer a publishing destination).
 `GET /api/health` lists exactly which are still missing, by name.
 
 Optional: `OPENAI_API_KEY` (AI drafting), `BLOB_READ_WRITE_TOKEN` (media),

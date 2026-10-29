@@ -50,6 +50,32 @@ report is available as JSON at `GET /api/social/status` when signed in.
 
 ---
 
+## Which platforms are ready, and which are waiting on someone else
+
+SocialOrc uses one developer app per platform (the usual SaaS model). Each customer authorizes
+**their own account** through it, and their tokens are stored encrypted in their own workspace.
+Whether a customer can actually use a platform depends on that shared app's approvals:
+
+| Platform | State | What it is waiting on |
+|---|---|---|
+| LinkedIn | **Ready once the app is approved** | The "Share on LinkedIn" product on the LinkedIn app (self-serve) and the redirect URI. Tokens last about 60 days and LinkedIn issues no refresh token to self-serve apps, so customers must reconnect. |
+| X | **Ready on a paid X plan** | `tweet.write` needs a paid tier; on Free, connecting works and publishing fails. Quota is shared by all customers. |
+| Telegram | **Ready** | Only `TELEGRAM_BOT_TOKEN`. Shared bot, see above. |
+| Facebook | **Blocked by Meta approval** | Business Verification, App Review, Live mode. |
+| Instagram | **Blocked by Meta approval** | Same Meta app, plus a Business/Creator account linked to a Page. |
+| YouTube | **Blocked by Google verification** | Until the consent screen is verified only listed test users can connect; the default API quota allows only a handful of uploads a day. |
+| TikTok | **Blocked by TikTok audit** | Until the Content Posting API audit passes, posts are private or drafts only (`TIKTOK_DIRECT_POST_APPROVED` stays off). |
+
+"Ready" means the code is complete and the platform allows it; no platform has been verified
+by a live post yet. Remove the credentials of a blocked platform from the deployment until it is
+approved, so it shows as not configured instead of failing for customers.
+
+**Disconnecting.** SocialOrc stops using a connection the moment it is disconnected, whatever
+the platform does. It also asks the platform to revoke the token where the platform documents a
+way to: X, Google (YouTube) and TikTok. LinkedIn documents no revocation call, so a LinkedIn
+token simply stays valid at LinkedIn until it expires; the customer can remove SocialOrc from
+their LinkedIn connected apps. The UI says which of these happened.
+
 ## What each platform can actually do
 
 Capabilities differ because the networks' APIs differ, not because the connector is unfinished.
@@ -73,22 +99,41 @@ public comment surface at all. Neither is a gap we can close from our side.
 
 ## Telegram — about two minutes, no review
 
+SocialOrc runs **one shared bot** for every customer. The operator creates it once; each
+customer then connects their *own* channel or group to it. Nobody can publish to a chat they do
+not control.
+
+**Operator setup (once):**
+
 1. Open Telegram and message [@BotFather](https://t.me/BotFather).
 2. Send `/newbot`, then follow the prompts for a name and a username.
-3. BotFather replies with a token that looks like `8123456789:AAH...`. That is
-   `TELEGRAM_BOT_TOKEN`.
-4. Get the chat id you want to post into:
-   - For a channel: add the bot to the channel as an **administrator** with "Post messages"
-     permission, then use the channel's `@username` (for example `@socialorc_news`).
-   - For a numeric id: message the bot once, then open
-     `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser and read
-     `result[0].message.chat.id`.
-5. Put both in `.env`:
+3. BotFather replies with a token that looks like `8123456789:AAH...`. Put it in the
+   deployment environment:
 
 ```
 TELEGRAM_BOT_TOKEN="8123456789:AAH..."
-TELEGRAM_CHAT_ID="@socialorc_news"
 ```
+
+Do **not** set `TELEGRAM_CHAT_ID`. It used to be a default destination and is now ignored by
+publishing; leaving a personal chat id in the environment only invites confusion. The bot must
+not have a webhook set (SocialOrc reads its messages with `getUpdates`, which Telegram refuses
+while a webhook exists), and only one deployment should use a given bot token.
+
+**Customer connection (per user, in Settings → Accounts → Telegram):**
+
+1. SocialOrc shows a one-time code.
+2. The customer adds the bot to their own channel (as an **administrator** with "Post messages")
+   or group, or opens a private chat with it, and posts the code there.
+3. SocialOrc sees the code, checks that whoever posted it administers a group, and binds that
+   chat to the customer's workspace. A chat can belong to only one workspace.
+
+Before every publish SocialOrc re-checks that the bot is still in the chat (and can still post,
+in a channel) and that the person who connected a group is still an admin. If not, the post
+fails with a "reconnect" message instead of sending. Telegram outages are not treated as a
+failed check.
+
+Limits to know about: posts go out as the shared SocialOrc bot (no per-customer bot identity),
+only text and a single photo are supported, and stored replies are deleted after 30 days.
 
 Reactions need the bot to be an admin in the chat. Reading comments works only for replies the
 bot is allowed to see — the Bot API has no way to fetch a message's full reply history, so the
@@ -138,7 +183,13 @@ TWITTER_CLIENT_ID=""
 TWITTER_CLIENT_SECRET=""
 ```
 
-Scopes requested automatically: `tweet.read`, `tweet.write`, `users.read`, `offline.access`.
+Scopes requested automatically: `tweet.read`, `tweet.write`, `users.read`, `offline.access`,
+`media.write`. The `media.write` scope is what lets SocialOrc upload images and video; the app's
+OAuth 2.0 settings must allow it, and an account connected before it was added has to reconnect
+to attach media. In the X developer portal, set up **User authentication** as a confidential
+**Web App** with *Read and write* permission and the callback
+`<APP_URL>/api/social/twitter/callback`. The write quota on the app is shared by every
+SocialOrc customer.
 
 **The plan matters.** Connecting and reading work on the Free tier, but `tweet.write` — which
 is what publishing and replying use — requires a paid tier. On Free the connection succeeds and
@@ -167,9 +218,20 @@ FACEBOOK_APP_SECRET=""
 Scopes requested automatically: `pages_show_list`, `pages_read_engagement`,
 `pages_manage_posts`, `pages_manage_metadata`, `pages_manage_engagement`.
 
-While the app is **In development** you can connect and publish with your own account
-immediately — that is the fastest route to a working demo. Letting anyone else use it requires
-**App Review** for `pages_manage_posts` and `pages_manage_engagement`.
+While the app is **In development** only people with a role on the app (admin, developer,
+tester) can connect, so it is a working demo, not a public launch. Letting any customer use it
+requires, in this order:
+
+1. **Business Verification** of the business that owns the app. Meta requires it for Advanced
+   Access to Page permissions in a production app.
+2. **App Review** with Advanced Access for `pages_manage_posts` and `pages_manage_engagement`,
+   and also `pages_show_list` and `pages_read_engagement` for people outside the app.
+3. Switching the app to **Live** and whitelisting both redirect URIs
+   (`<APP_URL>/api/social/facebook/callback` and `<APP_URL>/api/social/instagram/callback`).
+
+Until then Facebook and Instagram are **blocked by Meta approval** for the public. SocialOrc
+reads the app's ID and secret from `INSTAGRAM_APP_ID` / `FACEBOOK_APP_ID` (and the matching
+`_APP_SECRET`), or the aliases `FACEBOOK_CLIENT_ID` / `META_APP_ID`.
 
 You must be an admin of the Page you want to post to; the connector lists the Pages your
 account administers and stores a Page token for the one you pick.
@@ -190,6 +252,9 @@ INSTAGRAM_APP_SECRET=""
 
 Scopes requested automatically: `instagram_basic`, `instagram_content_publish`,
 `instagram_manage_comments`, `pages_read_engagement`, `pages_show_list`.
+
+`instagram_content_publish` and `instagram_manage_comments` need the same Business Verification
+and App Review as Facebook, so Instagram is **blocked by Meta approval** for the public too.
 
 **Requirements that will block you if they are not met:**
 

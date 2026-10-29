@@ -102,7 +102,7 @@ deployment's own Blob store, so the token must belong to the store the app uploa
 | Variable | Where to Get |
 |----------|--------------|
 | `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_CHAT_ID` | Optional prefill for the connect form only. Not a publishing destination |
+| `TELEGRAM_CHAT_ID` | Unused. Do not set it: customers connect their own chat with a one-time code, and it is never shown to users or used to publish |
 
 ## Vercel Deployment Checklist
 

@@ -7,10 +7,11 @@ must be configured with, and what SocialOrc does or does not implement.
 | Platform | Doc | State |
 |---|---|---|
 | TikTok | [tiktok.md](./tiktok.md) | provider implemented (connect, identity, capabilities, draft upload, direct post, status, revoke) |
-| YouTube | — | not started |
-| Meta (Facebook + Instagram) | — | not started |
-| LinkedIn | — | not started |
-| X | — | not started |
+| YouTube | — | implemented; blocked by Google verification for the public (see [PLATFORM-SETUP.md](../PLATFORM-SETUP.md)) |
+| Meta (Facebook + Instagram) | — | implemented; blocked by Meta Business Verification and App Review for the public |
+| LinkedIn | — | implemented; needs the "Share on LinkedIn" product; no documented token revocation |
+| X | — | implemented; needs a paid X plan to publish |
+| Telegram | — | implemented; shared bot, one-time-code connection |
 
 ## The architecture in one screen
 
