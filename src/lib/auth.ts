@@ -39,15 +39,17 @@ const facebook = facebookCredentials();
 /**
  * Role for an account created by an OAuth sign-in.
  *
- * The schema default is `ADMIN` (set when roles were introduced, when every
- * existing row was a workspace owner). Inheriting that for self-serve Google
- * sign-ups would make anyone with a Google account an admin of the workspace
- * they land in, so OAuth sign-ups get the least-privileged role that can still
- * use the product. Override deliberately with OAUTH_SIGNUP_ROLE.
+ * The schema default is `ADMIN` and is never relied on: this value is applied
+ * explicitly (createUser event and the jwt callback). It is ADMIN for the same
+ * reason as selfSignupRole (src/lib/roles.ts): an OAuth sign-up owns a private
+ * workspace of its own, ADMIN's powers are scoped to that workspace, and a lower
+ * role could not connect an account or schedule a post. Whether a stranger may
+ * sign up at all is decided separately by the signup policy (signIn callback).
+ * Override deliberately with OAUTH_SIGNUP_ROLE.
  */
 const OAUTH_SIGNUP_ROLE: Role = (() => {
   const configured = process.env.OAUTH_SIGNUP_ROLE;
-  return configured && isRole(configured) ? configured : ("EDITOR" as Role);
+  return configured && isRole(configured) ? configured : ("ADMIN" as Role);
 })();
 
 export const authOptions: NextAuthOptions = {

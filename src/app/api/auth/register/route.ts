@@ -123,10 +123,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // The first account owns the workspace. Everyone after must NOT become an
-    // admin just by filling in this form: ADMIN carries `users:manage` and
-    // `posts:delete`. auth.ts applies the same rule to OAuth sign-ups. An
-    // invitation overrides both rules — that is its whole purpose.
+    // Every self-signup owns a workspace of its own, so it is that workspace's
+    // ADMIN (see selfSignupRole in src/lib/roles.ts for why that is safe and
+    // what must change before teams are enabled). auth.ts applies the same rule
+    // to OAuth sign-ups. An invitation overrides it with the invited role.
     const role = acceptedInvitation
       ? acceptedInvitation.role
       : userCount === 0

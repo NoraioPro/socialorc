@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Header } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +63,8 @@ export default function PostDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { data: session } = useSession();
+  const canApprove = Boolean(session?.user?.permissions?.includes("posts:approve"));
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -350,10 +353,20 @@ export default function PostDetailPage({
                   </Button>
                 )}
 
-                {post.status === "PENDING_APPROVAL" && (
+                {/* Whoever holds posts:approve (the owner of a solo workspace) can
+                    approve straight from DRAFT: the route accepts it and there is
+                    nobody to submit to. */}
+                {(post.status === "PENDING_APPROVAL" || (post.status === "DRAFT" && canApprove)) && (
                   <Button onClick={handleApprove} disabled={saving}>
                     <Check className="mr-2 h-4 w-4" />
                     Approve
+                  </Button>
+                )}
+
+                {post.status === "APPROVED" && (
+                  <Button onClick={() => router.push("/dashboard/queue")}>
+                    <Send className="mr-2 h-4 w-4" />
+                    Schedule or publish in Queue
                   </Button>
                 )}
 

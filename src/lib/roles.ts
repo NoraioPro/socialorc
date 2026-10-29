@@ -13,15 +13,21 @@ export type Role = (typeof ROLES)[number];
 export const DEFAULT_ROLE: Role = "ADMIN";
 
 /**
- * Role for a self-serve signup once the workspace already has an owner.
+ * Role for a self-serve signup.
  *
- * ADMIN carries `users:manage` and `posts:delete`, and the signup route is
- * public — granting it on every registration would let anyone who finds the form
- * manage users and delete posts. So the first account bootstraps the workspace
- * as its owner (DEFAULT_ROLE) and everyone after that gets least privilege.
+ * Every self-signup creates and owns a workspace of its own (see
+ * createWorkspaceForNewUser), and ADMIN's powers are all scoped to the caller's
+ * workspace: `users:manage` and `posts:delete` act on that workspace only
+ * (requireWorkspace). So the owner of a private workspace must be ADMIN. At
+ * EDITOR they could not connect a social account, approve or schedule
+ * (`accounts:connect`, `posts:approve`, `posts:schedule` are ADMIN/MANAGER), so
+ * public signup produced accounts that could not use the product.
  *
- * auth.ts applies the same rule to OAuth sign-ups, so both paths agree.
- * Override with SIGNUP_ROLE.
+ * Roles are still global, not per workspace (docs/AUDIT-MVP-2026-10-29.md N-9):
+ * this default is only safe while every self-signup lives in its own workspace
+ * and team invitations stay off (NEXT_PUBLIC_TEAMS_ENABLED). Revisit before
+ * enabling teams. auth.ts applies the same rule to OAuth sign-ups. Override with
+ * SIGNUP_ROLE.
  *
  * Takes the env bag as a parameter (like auth-providers.ts) so this module stays
  * free of ambient globals and remains trivially testable.
@@ -30,7 +36,7 @@ export function selfSignupRole(env: NodeJS.ProcessEnv = process.env): Role {
   const configured = env.SIGNUP_ROLE;
   return configured && (ROLES as readonly string[]).includes(configured)
     ? (configured as Role)
-    : "EDITOR";
+    : "ADMIN";
 }
 
 /**
