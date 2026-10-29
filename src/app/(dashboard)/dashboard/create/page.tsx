@@ -15,6 +15,7 @@ import { Wand2, Loader2, Check, ShieldCheck, Sparkles, PenLine, ArrowRight, Film
 import { platformIcons } from "@/components/icons/platform-icons";
 import { PlatformCharCounts } from "@/components/posts/platform-char-counts";
 import { blobPathFor } from "@/lib/social/blob-upload";
+import { blobStorageIsUnconfigured, errorFromResponse } from "@/lib/media/upload-errors";
 
 // isMock marks template text from the mock generator (no AI key, outside
 // production). It stays on the variant through edits and is saved with the
@@ -66,19 +67,20 @@ export default function CreatePostPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: blob.url, pathname: blob.pathname, mimeType: blob.contentType || file.type, filename: file.name, size: file.size }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Could not save the upload.");
-        result = data;
+        if (!res.ok) throw new Error(await errorFromResponse(res, "Could not save the upload"));
+        result = await res.json();
       } catch (blobErr) {
-        // Local dev without BLOB_READ_WRITE_TOKEN: fall back to the small-file
-        // route. It is capped by the same body-size limit, so it only serves
-        // as a way to test images locally, never real video in production.
+        // Fall back to the small-file route only when Blob storage is not set up
+        // (local dev). Any other failure is the real answer: a rejected type, a
+        // size or rate limit, a dropped connection. Retrying those through a
+        // body-limited route would hide the cause (audit UI-02).
+        const blobMessage = blobErr instanceof Error ? blobErr.message : "Could not upload the file.";
+        if (!blobStorageIsUnconfigured(blobMessage)) throw blobErr;
         const body = new FormData();
         body.append("file", file);
         const res = await fetch("/api/media", { method: "POST", body });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || (blobErr instanceof Error ? blobErr.message : "Could not upload the file."));
-        result = data;
+        if (!res.ok) throw new Error(await errorFromResponse(res, "Could not upload the file"));
+        result = await res.json();
       }
       setMedia({ id: result.id, url: result.url, mimeType: result.mimeType, filename: result.filename });
     } catch (err) {

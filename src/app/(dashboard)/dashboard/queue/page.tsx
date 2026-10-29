@@ -50,6 +50,7 @@ import {
   getTimezoneAbbr,
   COMMON_TIMEZONES,
 } from "@/lib/timezone";
+import { fetchAllPosts } from "@/lib/posts/fetch-all";
 
 type PostWithRelations = Post & {
   socialAccount: SocialAccount | null;
@@ -82,11 +83,7 @@ export default function QueuePage() {
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/posts?limit=500");
-      if (res.ok) {
-        const data = await res.json();
-        setPosts(data.posts);
-      }
+      setPosts(await fetchAllPosts<PostWithRelations>());
     } catch (error) {
       console.error("Failed to fetch posts:", error);
     } finally {

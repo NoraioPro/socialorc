@@ -65,8 +65,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       posts,
       total,
-      limit,
-      offset,
+      limit: safeLimit,
+      offset: safeOffset,
     });
   } catch (error) {
     console.error("Error fetching posts:", error);
