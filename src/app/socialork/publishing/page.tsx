@@ -162,7 +162,7 @@ export default async function PublishingPage() {
           <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}>
             <div className="so-stat-label">Recently published</div>
           </div>
-          <div style={{ display: "grid" }}>
+          <div className="so-list" style={{ display: "grid" }}>
             {published.map((post) => (
               <div key={post.id} className="so-row" style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", gap: 10 }}>
                 <span className="so-pill">{PLATFORM_CONFIGS[post.platform]?.name ?? post.platform}</span>

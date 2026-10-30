@@ -213,6 +213,7 @@ export function Shell({
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            className="so-palette"
             style={{
               width: "min(560px, 92vw)", background: "var(--panel)", border: "1px solid var(--line2)",
               borderRadius: 12, boxShadow: "var(--shadow)", overflow: "hidden",

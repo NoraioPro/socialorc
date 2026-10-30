@@ -72,7 +72,7 @@ export default async function OverviewPage() {
       ) : null}
 
       {failed.length > 0 ? (
-        <div className="so-banner" style={{ borderColor: "rgba(239,120,120,0.32)", background: "var(--redSoft)", color: "var(--red)" }}>
+        <div className="so-banner" data-tone="failed" style={{ borderColor: "rgba(239,120,120,0.32)", background: "var(--redSoft)", color: "var(--red)" }}>
           <div style={{ display: "grid", gap: 2 }}>
             <strong>{failed.length} {failed.length === 1 ? "post" : "posts"} failed to publish</strong>
             <span style={{ color: "var(--text2)" }}>
@@ -100,7 +100,7 @@ export default async function OverviewPage() {
           {needsYou.length === 0 ? (
             <div className="so-empty">Nothing is waiting on a decision.</div>
           ) : (
-            <div style={{ display: "grid" }}>
+            <div className="so-list" style={{ display: "grid" }}>
               {needsYou.map((post) => (
                 <div
                   key={post.id}
@@ -136,7 +136,7 @@ export default async function OverviewPage() {
               <a href="/socialork/settings">Connect the first one</a>.
             </div>
           ) : (
-            <div style={{ display: "grid" }}>
+            <div className="so-list" style={{ display: "grid" }}>
               {accounts.map((a) => (
                 <div key={a.id} className="so-row" style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)" }}>
                   <span style={{ fontWeight: 600 }}>{PLATFORM_CONFIGS[a.platform]?.name ?? a.platform}</span>

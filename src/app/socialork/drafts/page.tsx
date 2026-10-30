@@ -35,7 +35,7 @@ export default async function DraftsPage() {
             No drafts yet. <a href="/socialork/create">Write the first one</a>.
           </div>
         ) : (
-          <div style={{ display: "grid" }}>
+          <div className="so-list" style={{ display: "grid" }}>
             {drafts.map((post) => (
               <article
                 key={post.id}

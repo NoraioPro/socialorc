@@ -66,7 +66,7 @@ export default async function ApprovalsPage({
                 : "No drafts yet — write one in Create."}
           </div>
         ) : (
-          <div style={{ display: "grid" }}>
+          <div className="so-list" style={{ display: "grid" }}>
             {rows.map((post) => (
               <article
                 key={post.id}
