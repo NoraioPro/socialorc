@@ -1,13 +1,21 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { isWorkspaceKind, needsOnboarding } from "../../src/lib/onboarding";
+import { isWorkspaceKind, needsOnboarding, onboardingRole } from "../../src/lib/onboarding";
 
 describe("first-run onboarding (just me / a team)", () => {
   it("knows the two kinds and nothing else", () => {
     assert.equal(isWorkspaceKind("PERSONAL"), true);
     assert.equal(isWorkspaceKind("TEAM"), true);
     for (const bad of ["ENTERPRISE", "personal", "", null, undefined, 1]) assert.equal(isWorkspaceKind(bad), false);
+  });
+
+  it("Just me is always ADMIN; a team creator picks a valid role, ADMIN by default", () => {
+    assert.equal(onboardingRole("PERSONAL", "CLIENT"), "ADMIN", "the role is ignored for Just me");
+    assert.equal(onboardingRole("TEAM", undefined), "ADMIN");
+    assert.equal(onboardingRole("TEAM", ""), "ADMIN");
+    for (const role of ["ADMIN", "MANAGER", "EDITOR", "CLIENT"]) assert.equal(onboardingRole("TEAM", role), role);
+    for (const bad of ["ROOT", "admin", 5, {}]) assert.equal(onboardingRole("TEAM", bad), null, String(bad));
   });
 
   it("asks only accounts that have not answered yet", () => {

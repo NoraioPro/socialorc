@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 type Kind = "PERSONAL" | "TEAM";
+type TeamRole = "ADMIN" | "MANAGER" | "EDITOR" | "CLIENT";
+
+const TEAM_ROLES: { role: TeamRole; title: string; text: string }[] = [
+  { role: "ADMIN", title: "Admin", text: "Full control, including inviting and managing teammates." },
+  { role: "MANAGER", title: "Manager", text: "Approve, schedule and connect accounts." },
+  { role: "EDITOR", title: "Editor", text: "Create and submit posts for approval." },
+  { role: "CLIENT", title: "Client", text: "View only." },
+];
 
 export function OnboardingForm({ teamsAvailable }: { teamsAvailable: boolean }) {
   const router = useRouter();
   const [kind, setKind] = useState<Kind>("PERSONAL");
+  const [role, setRole] = useState<TeamRole>("ADMIN");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -18,7 +27,7 @@ export function OnboardingForm({ teamsAvailable }: { teamsAvailable: boolean }) 
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind }),
+        body: JSON.stringify(kind === "TEAM" ? { kind, role } : { kind }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not save your choice.");
@@ -64,6 +73,27 @@ export function OnboardingForm({ teamsAvailable }: { teamsAvailable: boolean }) 
           </button>
         ))}
       </div>
+      {kind === "TEAM" && (
+        <div role="radiogroup" aria-label="Your role in the team" className="grid gap-2">
+          <p className="text-sm font-medium">Your role in the team</p>
+          {TEAM_ROLES.map((option) => (
+            <button
+              key={option.role}
+              type="button"
+              role="radio"
+              aria-checked={role === option.role}
+              onClick={() => setRole(option.role)}
+              className={`rounded-lg border p-3 text-left transition ${role === option.role ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary"}`}
+            >
+              <strong className="block text-sm">{option.title}</strong>
+              <span className="text-xs text-muted-foreground">{option.text}</span>
+            </button>
+          ))}
+          {role !== "ADMIN" && (
+            <p className="text-xs text-muted-foreground">Only an Admin can invite and manage others. You can start as Admin.</p>
+          )}
+        </div>
+      )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <Button type="button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Continue"}</Button>
     </main>

@@ -674,6 +674,11 @@ export async function runRoutesE2E({ baseUrl }) {
     200,
   );
   expectStatus(
+    "onboarding: an invalid team role is 400",
+    await req(owner.jar, url("/api/onboarding"), { method: "POST", json: { kind: "TEAM", role: "ROOT" } }),
+    400,
+  );
+  expectStatus(
     "onboarding: Just me is accepted (200)",
     await req(owner.jar, url("/api/onboarding"), { method: "POST", json: { kind: "PERSONAL" } }),
     200,
