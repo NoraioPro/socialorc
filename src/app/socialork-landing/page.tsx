@@ -43,8 +43,9 @@ export default function SocialOrkLanding() {
       <header className="lp-header">
         <div className="lp-wrap lp-header-in">
           <a href="#top" className="lp-brand">
-            <Image src="/socialork/orc-logo.png" alt="SocialOrk" width={32} height={32} priority />
-            <b>SocialOrk</b>
+            {/* the existing SocialOrk mascot mark, not the handoff's placeholder tile */}
+            <Image src="/socialork-logo.svg" alt="SocialOrk" width={30} height={27} priority unoptimized />
+            <b>Social<b style={{ color: "#48ed85" }}>Ork</b></b>
           </a>
           <nav className="lp-nav">
             <a href="#how">How it works</a>
@@ -290,7 +291,7 @@ export default function SocialOrkLanding() {
       <footer className="lp-footer">
         <div className="lp-wrap lp-footer-in">
           <span style={{ display: "flex", alignItems: "center", gap: 8, color: "#a6a6b0" }}>
-            <Image src="/socialork/orc-logo.png" alt="SocialOrk" width={24} height={24} />
+            <Image src="/socialork-logo.svg" alt="SocialOrk" width={24} height={22} unoptimized />
             SocialOrk
           </span>
           <span style={{ flex: 1 }} />

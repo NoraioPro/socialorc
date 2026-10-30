@@ -118,8 +118,12 @@ export function Shell({
     <div className="so-root">
       <aside className="so-side">
         <div className="so-brand">
-          <span className="so-brand-mark">So</span>
-          <span className="so-brand-name">SocialOrk</span>
+          {/* the product's existing mascot mark */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/socialork-logo.svg" alt="SocialOrk" width={26} height={24} className="so-brand-img" />
+          <span className="so-brand-name">
+            Social<span style={{ color: "var(--accent)" }}>Ork</span>
+          </span>
         </div>
 
         <button className="so-brain-switch" onClick={() => go("/socialork/brains")}>
