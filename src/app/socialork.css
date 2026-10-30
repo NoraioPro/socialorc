@@ -188,3 +188,34 @@
   letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3);
   border: 1px dashed var(--line2); border-radius: 5px; padding: 2px 6px;
 }
+
+/* ── motion, ported from the handoff's app keyframes ─────────────────── */
+@keyframes so-page { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes so-row { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes so-pop { 0% { transform: scale(0.96); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes so-pal { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes so-ping {
+  0% { box-shadow: 0 0 0 0 oklch(0.73 0.17 25 / 0.55); }
+  100% { box-shadow: 0 0 0 9px oklch(0.73 0.17 25 / 0); }
+}
+@keyframes so-toast { from { opacity: 0; transform: translate(-50%, 12px) scale(0.98); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.so-page { animation: so-page 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.so-list > * { animation: so-row 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.so-list > *:nth-child(1) { animation-delay: 0.02s; }
+.so-list > *:nth-child(2) { animation-delay: 0.05s; }
+.so-list > *:nth-child(3) { animation-delay: 0.08s; }
+.so-list > *:nth-child(4) { animation-delay: 0.11s; }
+.so-list > *:nth-child(5) { animation-delay: 0.14s; }
+.so-list > *:nth-child(6) { animation-delay: 0.17s; }
+.so-list > *:nth-child(7) { animation-delay: 0.2s; }
+.so-list > *:nth-child(8) { animation-delay: 0.23s; }
+.so-card { transition: border-color 0.16s, background-color 0.16s; }
+.so-palette { animation: so-pal 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.so-banner[data-tone="failed"] { animation: so-ping 1.8s ease-out 2; }
+.so-nav-count { transition: color 0.16s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .so-root *, .so-root *::before, .so-root *::after { animation: none !important; transition: none !important; }
+}
+
