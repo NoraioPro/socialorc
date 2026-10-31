@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
     "10.97.73.43",
     "192.168.64.1",
     "*.ts.net",
+    // Quick tunnels (cloudflared) are how OAuth gets a public https origin on a
+    // dev machine. Without this the HMR websocket is refused and the console
+    // fills with /_next/hmr failures.
+    "*.trycloudflare.com",
   ],
 };
 
