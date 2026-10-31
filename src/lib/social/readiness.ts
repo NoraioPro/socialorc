@@ -11,6 +11,8 @@ import { CONNECTABLE_PLATFORMS, buildReadinessReport, type ReadinessReport } fro
 
 export async function readinessReport(
   connectedCounts: Partial<Record<Platform, number>> = {},
+  /** Origin the caller is actually using; the redirect URI must match it exactly. */
+  appUrl?: string,
 ): Promise<ReadinessReport> {
   const credentialStatus = getAdapterStatus();
 
@@ -23,7 +25,7 @@ export async function readinessReport(
         return { capabilities: capabilities.capabilities, limitations: capabilities.limitations };
       },
       approval: (platform) => appApprovalFor(platform),
-      appUrl: appOrigin(),
+      appUrl: appUrl ?? appOrigin(),
     },
     connectedCounts,
   );

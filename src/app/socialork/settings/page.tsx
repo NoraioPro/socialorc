@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
@@ -17,6 +18,13 @@ export default async function SettingsPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
+  // The redirect URI a teammate is told to register has to be the origin they
+  // are actually using, not whatever APP_URL happens to say.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const requestOrigin = host ? `${proto}://${host}` : undefined;
+
   const [account, accounts, workspace, key, readiness, audit] = await Promise.all([
     prisma.user.findUnique({
       where: { id: tenant.userId },
@@ -28,7 +36,7 @@ export default async function SettingsPage() {
       where: { OR: [{ userId: tenant.userId }, { workspaceId: tenant.workspaceId }] },
       select: { id: true },
     }),
-    readinessReport(),
+    readinessReport({}, requestOrigin),
     recentAudit(tenant.workspaceId, 60),
   ]);
 

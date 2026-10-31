@@ -37,8 +37,8 @@ export default async function InboxPage() {
             {accounts.length === 0 ? (
               <tr>
                 <td colSpan={4} className="so-empty">
-                  No channel is connected. <a href="/socialork/settings">Connect one</a> to see
-                  comments and mentions here.
+                  No channel is connected. <a href="/socialork/settings">Settings → Connections</a>{" "}
+                  explains how to connect one, step by step.
                 </td>
               </tr>
             ) : (

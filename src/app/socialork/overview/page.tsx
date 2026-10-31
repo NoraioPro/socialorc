@@ -150,7 +150,8 @@ export default async function OverviewPage() {
           {accounts.length === 0 ? (
             <div className="so-empty">
               No channel is connected yet.{" "}
-              <a href="/socialork/settings">Connect the first one</a>.
+              <a href="/socialork/settings">Open Settings → Connections</a> — the guide there walks through
+              each channel, including the redirect URI to register.
             </div>
           ) : (
             <div className="so-list" style={{ display: "grid" }}>

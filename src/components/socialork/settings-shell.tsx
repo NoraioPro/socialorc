@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
+import { ConnectionGuide } from "@/components/socialork/connection-guide";
 
 type Connection = {
   platform: string; name: string; handle: string | null; capability: string;
@@ -181,6 +182,19 @@ export function SettingsShell({
             </button>
           </div>
         </form>
+      ) : null}
+
+      {tab === "connections" ? (
+        <ConnectionGuide
+          platforms={connections.map((c) => ({
+            platform: c.platform,
+            name: c.name,
+            needsApp: c.platform !== "TELEGRAM",
+            redirectUri: c.redirectUri ?? null,
+            missing: c.missing ?? [],
+            connected: c.state !== "missing",
+          }))}
+        />
       ) : null}
 
       {tab === "connections" ? (
