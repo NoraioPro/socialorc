@@ -267,7 +267,7 @@ export function SettingsShell({
                 {c.state === "missing" && c.configured === false ? (
                   <div style={{ padding: "0 16px 10px", display: "grid", gap: 3 }}>
                     <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                      set {c.missing?.length ? c.missing.join(", ") : "the platform credentials"} in the deployment env
+                      add {c.missing?.length ? c.missing.join(", ") : "the platform credentials"} under App credentials for this workspace, or set them in the deployment env
                     </span>
                     {c.redirectUri ? (
                       <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>

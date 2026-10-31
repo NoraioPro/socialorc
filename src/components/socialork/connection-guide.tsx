@@ -27,32 +27,32 @@ const STEPS: Record<string, string[]> = {
   LINKEDIN: [
     "An admin creates an app at linkedin.com/developers/apps and requests the “Share on LinkedIn” product (scope w_member_social).",
     "Paste the redirect URI below into the app's Authorized redirect URLs — it must match exactly, including https and no trailing slash.",
-    "Put LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in the deployment, then press Connect and approve as the account that should post.",
+    "Put LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET under Settings → App credentials for this workspace (or in the deployment env), then press Connect and approve as the account that should post.",
   ],
   TWITTER: [
     "An admin creates an app at developer.x.com with OAuth 2.0 (type: Web App) and the scopes tweet.read, tweet.write, users.read, offline.access.",
     "Register the redirect URI below, and note that writing to X needs a paid API tier.",
-    "Put TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET in the deployment, then press Connect.",
+    "Put TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET under Settings → App credentials for this workspace (or in the deployment env), then press Connect.",
   ],
   FACEBOOK: [
     "An admin creates one Meta app (type Business) and adds Facebook Login for Business.",
     "Request App Review for pages_show_list, pages_manage_posts and pages_read_engagement — publishing to pages you don't admin is blocked until then.",
-    "Register the redirect URI below, add FACEBOOK_APP_ID and FACEBOOK_APP_SECRET, then press Connect and pick the Page.",
+    "Register the redirect URI below, add FACEBOOK_APP_ID and FACEBOOK_APP_SECRET under Settings → App credentials for this workspace (or in the deployment env), then press Connect and pick the Page.",
   ],
   INSTAGRAM: [
     "Reuse the same Meta app: add the Instagram Graph API product.",
     "The Instagram account must be Business or Creator and linked to a Facebook Page.",
-    "Request instagram_basic and instagram_content_publish, register the redirect URI below, add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET, then Connect.",
+    "Request instagram_basic and instagram_content_publish, register the redirect URI below, add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET under Settings → App credentials for this workspace (or in the deployment env), then Connect.",
   ],
   YOUTUBE: [
     "An admin creates a Google Cloud project, enables YouTube Data API v3, and makes an OAuth client of type Web application.",
     "Add the scope youtube.upload and register the redirect URI below.",
-    "Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then Connect. Until the app is verified by Google, uploads land as private.",
+    "Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET under Settings → App credentials for this workspace (or in the deployment env), then Connect. Until the app is verified by Google, uploads land as private.",
   ],
   TIKTOK: [
     "An admin creates an app at developers.tiktok.com and adds the Content Posting API.",
     "Request video.publish (direct) and/or video.upload (draft to inbox), then register the redirect URI below.",
-    "Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET. Until the audit passes, posts are created as SELF_ONLY — only the author sees them.",
+    "Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET under Settings → App credentials for this workspace (or in the deployment env). Until the audit passes, posts are created as SELF_ONLY — only the author sees them.",
   ],
 };
 
@@ -166,7 +166,7 @@ export function ConnectionGuide({ platforms }: { platforms: GuidePlatform[] }) {
                     ) : null}
                     {p.needsApp && p.missing?.length ? (
                       <span className="so-mono" style={{ fontSize: 10.5, color: "var(--amber)" }}>
-                        set {p.missing.join(", ")} in the deployment before this can connect
+                        add {p.missing.join(", ")} under App credentials for this workspace, or set them in the deployment, before this can connect
                       </span>
                     ) : null}
                   </div>
