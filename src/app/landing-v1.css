@@ -10,7 +10,10 @@
 
 /* 3D object from the handoff, layered behind the closing mascot orbit */
 .mk-final-orbit{position:relative;isolation:isolate}
-.mk-final-3d{position:absolute;inset:-12% -10%;z-index:0;pointer-events:none;opacity:.9}
+.mk-final-3d{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.62;
+  -webkit-mask-image:radial-gradient(closest-side,#000 52%,transparent 84%);
+  mask-image:radial-gradient(closest-side,#000 52%,transparent 84%);
+  filter:saturate(1.05)}
 .mk-final-orbit>img{position:relative;z-index:1}
 .mk-final-orbit>span{position:relative;z-index:2}
 @media (prefers-reduced-motion:reduce){.mk-final-3d{opacity:.55}}

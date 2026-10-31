@@ -209,7 +209,9 @@ export function Hero3D({ className }: { className?: string }) {
       io.observe(host);
 
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const clock = new THREE.Clock();
+      // three r170+ deprecated Clock; elapsed time from performance.now() is all we need.
+      const started = performance.now();
+      const elapsed = () => (performance.now() - started) / 1000;
       let nextPulse = 1.4;
       let pulseStart: number | null = null;
       let pulseTarget: number | null = null;
@@ -225,7 +227,7 @@ export function Hero3D({ className }: { className?: string }) {
           camera.updateProjectionMatrix();
           sized = true;
         }
-        const t = reduce ? 2 : clock.getElapsedTime();
+        const t = reduce ? 2 : elapsed();
 
         core.rotation.y = t * 0.25;
         shell.rotation.y = -t * 0.12;

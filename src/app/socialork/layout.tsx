@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import { redirect } from "next/navigation";
+import prisma from "@/lib/prisma";
 import { getAuthSession } from "@/lib/auth";
+import { needsOnboarding } from "@/lib/onboarding";
 import { getCurrentUser, getShellData, tenantFor } from "@/lib/socialork/queries";
 import { Shell } from "@/components/socialork/shell";
 import "../socialork.css";
@@ -30,6 +32,14 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
 
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
+
+  // Same first-run rule as the dashboard layout: a workspace that has not chosen
+  // person-or-team yet goes through onboarding before it sees the app.
+  const account = await prisma.user.findUnique({
+    where: { id: tenant.userId },
+    select: { onboardedAt: true },
+  });
+  if (account && needsOnboarding(account.onboardedAt)) redirect("/onboarding");
 
   const [shell, user] = await Promise.all([
     getShellData(tenant),
