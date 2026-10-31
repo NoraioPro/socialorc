@@ -16,6 +16,7 @@ import {
   type AccountCapabilities,
 } from "./types";
 import { TIKTOK_SCOPES } from "./tiktok/constants";
+import { PLATFORM_CONFIGS } from "@/types/platform";
 
 /** Scopes arrive from providers as a space- or comma-separated string. */
 export function parseScopes(scope: string | null | undefined): string[] {
@@ -128,6 +129,59 @@ export function tiktokCapabilities(input: {
   return { platform: "TIKTOK" as Platform, capabilities, limitations, scopes };
 }
 
+/** The scope that actually permits posting, per platform. */
+const PUBLISH_SCOPE: Partial<Record<Platform, string>> = {
+  LINKEDIN: "w_member_social",
+  TWITTER: "tweet.write",
+  FACEBOOK: "pages_manage_posts",
+  INSTAGRAM: "instagram_content_publish",
+  YOUTUBE: "https://www.googleapis.com/auth/youtube.upload",
+};
+
+/**
+ * Capabilities for the six adapters that predate the TikTok report.
+ *
+ * `createPost` is implemented on every adapter, so publishing is not "not
+ * implemented" — what varies is whether *this* account can use it: either the
+ * granted scopes include the platform's publish scope, or the app itself was
+ * approved for direct publishing. Telegram is token-based and needs neither.
+ */
+function legacyCapabilities(
+  platform: Platform,
+  input: { scopes: string[]; approval: AppApprovalState },
+): CapabilityReport {
+  const config = PLATFORM_CONFIGS[platform];
+  const base = config?.capabilities;
+  const requiredScope = PUBLISH_SCOPE[platform];
+  const scopeGranted = requiredScope ? input.scopes.includes(requiredScope) : false;
+  const canPublish =
+    platform === "TELEGRAM" ? true : Boolean(input.approval.directPublish || scopeGranted);
+
+  const capabilities = {
+    ...NO_CAPABILITIES,
+    text: Boolean(base?.text),
+    image: Boolean(base?.image),
+    video: Boolean(base?.video),
+    carousel: Boolean(base?.carousel),
+    mediaRequired: Boolean(base?.mediaRequired),
+    directPublish: canPublish,
+    draftUpload: Boolean(input.approval.draftUpload),
+  };
+
+  const limitations: CapabilityLimitation[] = [];
+  if (!canPublish) {
+    limitations.push({
+      capability: "directPublish" as const,
+      code: "APP_REVIEW_REQUIRED" as const,
+      message: requiredScope
+        ? `This account has not granted ${requiredScope}, so ${platform} publishing is unavailable until it reconnects with that scope.`
+        : `${platform} publishing needs the app to be approved by the platform first.`,
+    });
+  }
+
+  return { platform, capabilities, limitations, scopes: input.scopes };
+}
+
 export function capabilitiesFor(
   platform: Platform,
   input: { scopes: string[]; accountType?: string | null; approval: AppApprovalState },
@@ -136,20 +190,7 @@ export function capabilitiesFor(
     case "TIKTOK":
       return tiktokCapabilities({ scopes: input.scopes, approval: input.approval });
     default:
-      // Every other platform is still on the legacy adapter contract, so an
-      // empty report is the honest answer until its provider lands.
-      return {
-        platform,
-        capabilities: { ...NO_CAPABILITIES },
-        limitations: [
-          {
-            capability: "directPublish",
-            code: "NOT_IMPLEMENTED_YET",
-            message: `${platform} capabilities are not implemented yet.`,
-          },
-        ],
-        scopes: input.scopes,
-      };
+      return legacyCapabilities(platform, { scopes: input.scopes, approval: input.approval });
   }
 }
 

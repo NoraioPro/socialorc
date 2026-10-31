@@ -10,7 +10,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
 
-type Connection = { platform: string; name: string; handle: string | null; capability: string; state: "connected" | "reconnect" | "missing" };
+type Connection = {
+  platform: string; name: string; handle: string | null; capability: string;
+  state: "connected" | "reconnect" | "missing";
+  configured?: boolean; missing?: string[]; redirectUri?: string | null;
+};
 
 const TABS = [
   { id: "profile", label: "Profile" },
@@ -145,21 +149,37 @@ export function SettingsShell({
           </div>
           <div style={{ display: "grid" }}>
             {connections.map((c) => (
-              <div key={c.platform} className="so-row" style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)", gap: 10 }}>
-                <span style={{ fontWeight: 600, minWidth: 90 }}>{c.name}</span>
-                <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-                  {c.handle ? `@${c.handle}` : "not connected"}
-                </span>
-                <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-                  <span className="so-pill">{c.capability}</span>
-                  {c.state === "reconnect" ? (
-                    <ConnectButton platform={c.platform} label="Reconnect" />
-                  ) : c.state === "connected" ? (
-                    <span className="so-pill" data-tone="approved">Connected</span>
-                  ) : (
-                    <ConnectButton platform={c.platform} />
-                  )}
-                </span>
+              <div key={c.platform} style={{ borderBottom: "1px solid var(--line)" }}>
+                <div className="so-row" style={{ padding: "10px 16px", gap: 10 }}>
+                  <span style={{ fontWeight: 600, minWidth: 90 }}>{c.name}</span>
+                  <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
+                    {c.handle ? `@${c.handle}` : "not connected"}
+                  </span>
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                    <span className="so-pill">{c.capability}</span>
+                    {c.state === "reconnect" ? (
+                      <ConnectButton platform={c.platform} label="Reconnect" />
+                    ) : c.state === "connected" ? (
+                      <span className="so-pill" data-tone="approved">Connected</span>
+                    ) : c.configured === false ? (
+                      <span className="so-pill" data-tone="review">Needs setup</span>
+                    ) : (
+                      <ConnectButton platform={c.platform} />
+                    )}
+                  </span>
+                </div>
+                {c.state === "missing" && c.configured === false ? (
+                  <div style={{ padding: "0 16px 10px", display: "grid", gap: 3 }}>
+                    <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                      set {c.missing?.length ? c.missing.join(", ") : "the platform credentials"} in the deployment env
+                    </span>
+                    {c.redirectUri ? (
+                      <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                        redirect URI · {c.redirectUri}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

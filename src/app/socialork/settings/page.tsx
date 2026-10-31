@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { capabilityLabel, getAccounts, tenantFor } from "@/lib/socialork/queries";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { SettingsShell } from "@/components/socialork/settings-shell";
+import { readinessReport } from "@/lib/social/readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function SettingsPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
-  const [account, accounts, workspace, key] = await Promise.all([
+  const [account, accounts, workspace, key, readiness] = await Promise.all([
     prisma.user.findUnique({
       where: { id: tenant.userId },
       select: { name: true, email: true, timezone: true },
@@ -26,6 +27,7 @@ export default async function SettingsPage() {
       where: { OR: [{ userId: tenant.userId }, { workspaceId: tenant.workspaceId }] },
       select: { id: true },
     }),
+    readinessReport(),
   ]);
 
   const connections = ALL.map((platform) => {
@@ -36,6 +38,9 @@ export default async function SettingsPage() {
       handle: match?.platformUsername ?? null,
       capability: capabilityLabel(platform),
       state: match ? (match.needsReconnect ? ("reconnect" as const) : ("connected" as const)) : ("missing" as const),
+      configured: readiness.platforms.find((r) => r.platform === platform)?.state === "ready",
+      missing: readiness.platforms.find((r) => r.platform === platform)?.missing ?? [],
+      redirectUri: readiness.platforms.find((r) => r.platform === platform)?.redirectUri ?? null,
     };
   });
 

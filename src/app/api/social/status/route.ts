@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import type { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
-import { getAdapterStatus } from "@/lib/adapters";
-import { capabilitiesFor } from "@/lib/social/capabilities";
-import { appApprovalFor, appOrigin } from "@/lib/social/approval";
-import { CONNECTABLE_PLATFORMS, buildReadinessReport } from "@/lib/social/status";
+import { readinessReport } from "@/lib/social/readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -32,21 +29,5 @@ export async function GET() {
     connectedCounts[account.platform] = (connectedCounts[account.platform] ?? 0) + 1;
   }
 
-  const credentialStatus = getAdapterStatus();
-
-  const report = buildReadinessReport(CONNECTABLE_PLATFORMS, {
-    credentialStatus: (platform) =>
-      credentialStatus[platform] ?? { configured: false, missing: [] },
-    capabilities: (platform, approval) => {
-      const capabilities = capabilitiesFor(platform, { scopes: [], approval });
-      return {
-        capabilities: capabilities.capabilities,
-        limitations: capabilities.limitations,
-      };
-    },
-    approval: (platform) => appApprovalFor(platform),
-    appUrl: appOrigin(),
-  }, connectedCounts);
-
-  return NextResponse.json(report);
+  return NextResponse.json(await readinessReport(connectedCounts));
 }

@@ -58,15 +58,18 @@ if (asJson) {
     }
   }
 
+  // Only OAuth platforms can be blocked by app review. Telegram publishes with a
+  // bot token as soon as one is stored, so it must never appear in this list —
+  // it used to, because the approval default is (deliberately) false.
   const publishBlocked = report.platforms.filter(
-    (row) => row.state === "ready" && !row.approval.directPublish,
+    (row) => row.state === "ready" && row.method === "oauth2" && !row.approval.directPublish,
   );
   if (publishBlocked.length > 0) {
-    console.log(
-      `\nCan connect but cannot publish yet (platform app review outstanding): ${publishBlocked
-        .map((row) => row.platform)
-        .join(", ")}`,
-    );
+    console.log("\nReady to connect, publishing needs the platform's approval:");
+    for (const row of publishBlocked) {
+      const why = row.limitations[0] ?? "app review outstanding";
+      console.log(`  ${row.platform.padEnd(11)} ${why}`);
+    }
   }
 
   console.log(
