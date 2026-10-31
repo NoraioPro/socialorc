@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import { capabilityLabel, getAccounts, getCurrentUser, getShellData, tenantFor } from "@/lib/socialork/queries";
+import { ConnectButton } from "@/components/socialork/connect-button";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 export const dynamic = "force-dynamic";
@@ -70,15 +71,11 @@ export default async function SettingsPage() {
                   <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                     <span className="so-pill">{capabilityLabel(platform)}</span>
                     {account?.needsReconnect ? (
-                      <a className="so-btn" href="/settings/accounts?tab=integrations" style={{ height: 26, textDecoration: "none" }}>
-                        Reconnect
-                      </a>
+                      <ConnectButton platform={platform} label="Reconnect" />
                     ) : account ? (
                       <span className="so-pill" data-tone="approved">Connected</span>
                     ) : (
-                      <a className="so-btn" href="/settings/accounts?tab=integrations" style={{ height: 26, textDecoration: "none" }}>
-                        Connect
-                      </a>
+                      <ConnectButton platform={platform} />
                     )}
                   </span>
                 </div>
@@ -95,7 +92,7 @@ export default async function SettingsPage() {
             Generation runs on a key you or this workspace supplied. With no key, drafts are written
             by hand and the product says so.
           </p>
-          <a href="/settings/ai" className="so-btn" style={{ justifySelf: "start", textDecoration: "none" }}>Manage AI keys</a>
+          <a href="/socialork/settings/ai" className="so-btn" style={{ justifySelf: "start", textDecoration: "none" }}>Manage AI keys</a>
         </section>
 
         <section className="so-card so-card-pad" style={{ display: "grid", gap: 8 }}>
@@ -103,7 +100,7 @@ export default async function SettingsPage() {
           <p style={{ margin: 0, color: "var(--text2)", fontSize: 12.5 }}>
             Voice, audience and words to avoid. Stored per workspace; generation does not read it yet.
           </p>
-          <a href="/settings/brand-brain" className="so-btn" style={{ justifySelf: "start", textDecoration: "none" }}>Open Brand Brain</a>
+          <a href="/socialork/settings/brand" className="so-btn" style={{ justifySelf: "start", textDecoration: "none" }}>Open Brand Brain</a>
         </section>
       </div>
 
