@@ -21,6 +21,7 @@ import {
   validateYouTubeCredentials,
   type CredentialValidationResult,
 } from "./credentials";
+import { platformEnv } from "@/lib/platform-env";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -102,7 +103,7 @@ export class YouTubeAdapter extends BasePlatformAdapter {
 
   getOAuthUrl(state: string): string {
     const params = new URLSearchParams({
-      client_id: process.env.YOUTUBE_CLIENT_ID || "",
+      client_id: platformEnv("YOUTUBE_CLIENT_ID") || "",
       redirect_uri: this.getRedirectUri(),
       response_type: "code",
       scope:
@@ -122,8 +123,8 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        client_id: process.env.YOUTUBE_CLIENT_ID || "",
-        client_secret: process.env.YOUTUBE_CLIENT_SECRET || "",
+        client_id: platformEnv("YOUTUBE_CLIENT_ID") || "",
+        client_secret: platformEnv("YOUTUBE_CLIENT_SECRET") || "",
         code,
         grant_type: "authorization_code",
         redirect_uri: this.getRedirectUri(),
@@ -179,8 +180,8 @@ export class YouTubeAdapter extends BasePlatformAdapter {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        client_id: process.env.YOUTUBE_CLIENT_ID || "",
-        client_secret: process.env.YOUTUBE_CLIENT_SECRET || "",
+        client_id: platformEnv("YOUTUBE_CLIENT_ID") || "",
+        client_secret: platformEnv("YOUTUBE_CLIENT_SECRET") || "",
         grant_type: "refresh_token",
         refresh_token: refreshToken,
       }),

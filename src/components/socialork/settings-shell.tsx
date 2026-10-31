@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
 import { ConnectionGuide } from "@/components/socialork/connection-guide";
+import { AppCredentialsForm } from "@/components/socialork/app-credentials-form";
 
 type Connection = {
   platform: string; name: string; handle: string | null; capability: string;
@@ -22,6 +23,7 @@ const TABS = [
   { id: "profile", label: "Profile" },
   { id: "connections", label: "Connections" },
   { id: "ai", label: "AI keys" },
+  { id: "app-credentials", label: "App credentials" },
   { id: "audit", label: "Audit" },
   { id: "notifications", label: "Notifications" },
 ];
@@ -272,6 +274,8 @@ export function SettingsShell({
           </div>
         </section>
       ) : null}
+
+      {tab === "app-credentials" ? <AppCredentialsForm /> : null}
 
       {tab === "ai" ? (
         <section className="so-card so-card-pad" style={{ display: "grid", gap: 10, maxWidth: 620 }}>

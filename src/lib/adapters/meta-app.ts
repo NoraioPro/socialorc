@@ -1,3 +1,4 @@
+import { platformEnv } from "@/lib/platform-env";
 /**
  * The Meta app credentials, under whichever name they happen to be set as.
  *
@@ -12,20 +13,20 @@
  */
 export function metaAppId(): string {
   return (
-    process.env.INSTAGRAM_APP_ID ||
-    process.env.FACEBOOK_APP_ID ||
-    process.env.FACEBOOK_CLIENT_ID ||
-    process.env.META_APP_ID ||
+    platformEnv("INSTAGRAM_APP_ID") ||
+    platformEnv("FACEBOOK_APP_ID") ||
+    platformEnv("FACEBOOK_CLIENT_ID") ||
+    platformEnv("META_APP_ID") ||
     ""
   );
 }
 
 export function metaAppSecret(): string {
   return (
-    process.env.INSTAGRAM_APP_SECRET ||
-    process.env.FACEBOOK_APP_SECRET ||
-    process.env.FACEBOOK_CLIENT_SECRET ||
-    process.env.META_APP_SECRET ||
+    platformEnv("INSTAGRAM_APP_SECRET") ||
+    platformEnv("FACEBOOK_APP_SECRET") ||
+    platformEnv("FACEBOOK_CLIENT_SECRET") ||
+    platformEnv("META_APP_SECRET") ||
     ""
   );
 }

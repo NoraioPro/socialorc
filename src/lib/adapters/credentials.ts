@@ -12,6 +12,7 @@
  */
 
 import { metaAppId, metaAppSecret } from "./meta-app";
+import { platformEnv } from "@/lib/platform-env";
 
 export type CredentialValidationResult = {
   valid: boolean;
@@ -89,8 +90,8 @@ export function validateLinkedInCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+  const clientId = platformEnv("LINKEDIN_CLIENT_ID");
+  const clientSecret = platformEnv("LINKEDIN_CLIENT_SECRET");
 
   if (!clientId) {
     missing.push("LINKEDIN_CLIENT_ID");
@@ -124,8 +125,8 @@ export function validateTwitterCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const clientId = process.env.TWITTER_CLIENT_ID;
-  const clientSecret = process.env.TWITTER_CLIENT_SECRET;
+  const clientId = platformEnv("TWITTER_CLIENT_ID");
+  const clientSecret = platformEnv("TWITTER_CLIENT_SECRET");
 
   if (!clientId) {
     missing.push("TWITTER_CLIENT_ID");
@@ -229,8 +230,8 @@ export function validateTikTokCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const clientKey = process.env.TIKTOK_CLIENT_KEY;
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+  const clientKey = platformEnv("TIKTOK_CLIENT_KEY");
+  const clientSecret = platformEnv("TIKTOK_CLIENT_SECRET");
 
   if (!clientKey) {
     missing.push("TIKTOK_CLIENT_KEY");
@@ -264,8 +265,8 @@ export function validateYouTubeCredentials(): CredentialValidationResult {
   const missing: string[] = [];
   const invalid: { key: string; reason: string }[] = [];
 
-  const clientId = process.env.YOUTUBE_CLIENT_ID;
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+  const clientId = platformEnv("YOUTUBE_CLIENT_ID");
+  const clientSecret = platformEnv("YOUTUBE_CLIENT_SECRET");
 
   if (!clientId) {
     missing.push("YOUTUBE_CLIENT_ID");

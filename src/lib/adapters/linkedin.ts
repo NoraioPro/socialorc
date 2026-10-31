@@ -6,6 +6,7 @@ import {
   validateLinkedInCredentials,
   type CredentialValidationResult,
 } from "./credentials";
+import { platformEnv } from "@/lib/platform-env";
 
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -104,7 +105,7 @@ export class LinkedInAdapter extends BasePlatformAdapter {
   getOAuthUrl(state: string): string {
     const params = new URLSearchParams({
       response_type: "code",
-      client_id: process.env.LINKEDIN_CLIENT_ID || "",
+      client_id: platformEnv("LINKEDIN_CLIENT_ID") || "",
       redirect_uri: this.getRedirectUri(),
       state,
       scope: "openid profile email w_member_social",
@@ -123,8 +124,8 @@ export class LinkedInAdapter extends BasePlatformAdapter {
         grant_type: "authorization_code",
         code,
         redirect_uri: this.getRedirectUri(),
-        client_id: process.env.LINKEDIN_CLIENT_ID || "",
-        client_secret: process.env.LINKEDIN_CLIENT_SECRET || "",
+        client_id: platformEnv("LINKEDIN_CLIENT_ID") || "",
+        client_secret: platformEnv("LINKEDIN_CLIENT_SECRET") || "",
       }),
     });
 
@@ -160,8 +161,8 @@ export class LinkedInAdapter extends BasePlatformAdapter {
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-        client_id: process.env.LINKEDIN_CLIENT_ID || "",
-        client_secret: process.env.LINKEDIN_CLIENT_SECRET || "",
+        client_id: platformEnv("LINKEDIN_CLIENT_ID") || "",
+        client_secret: platformEnv("LINKEDIN_CLIENT_SECRET") || "",
       }),
     });
 

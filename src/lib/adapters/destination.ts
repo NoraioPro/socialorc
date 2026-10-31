@@ -1,3 +1,4 @@
+import { platformEnv } from "@/lib/platform-env";
 /**
  * Where a send is addressed, taken from the connected account rather than from
  * the process environment.
@@ -5,7 +6,7 @@
  * Why this exists: SocialOrc runs ONE application credential per platform (the
  * normal SaaS shape — every tenant cannot each own a Facebook app), but the
  * *destination* of a send belongs to the account. Telegram made the cost of
- * conflating the two concrete: the adapter read `process.env.TELEGRAM_CHAT_ID`
+ * conflating the two concrete: the adapter read `platformEnv("TELEGRAM_CHAT_ID")`
  * whenever the caller supplied nothing, so every tenant published into — and
  * read engagement from — the deployment owner's private chat.
  *

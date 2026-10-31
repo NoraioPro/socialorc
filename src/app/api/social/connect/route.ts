@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/tenancy/guard";
+import { overridesForCurrentUser, withPlatformEnv } from "@/lib/platform-env";
 import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { resolveBrainForWorkspace } from "@/lib/brains";
@@ -7,7 +8,7 @@ import crypto from "crypto";
 import { encodeStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
 
-export async function GET(req: NextRequest) {
+async function handleConnect(req: NextRequest) {
   try {
     // Starting a connection is a write path that ends in a stored credential.
     // `accounts:connect` is the permission for it; it was defined and checked
@@ -96,4 +97,14 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+
+/**
+ * A workspace that stored its own app must get ITS app in the authorize URL.
+ * `withPlatformEnv` scopes the override to this request only.
+ */
+export async function GET(req: NextRequest) {
+  const overrides = await overridesForCurrentUser();
+  return withPlatformEnv(overrides, () => handleConnect(req));
 }

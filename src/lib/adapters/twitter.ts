@@ -28,6 +28,7 @@ import {
   inFlightMediaStore,
   type InFlightMediaStore,
 } from "./in-flight-media";
+import { platformEnv } from "@/lib/platform-env";
 
 const TWITTER_AUTH_URL = "https://x.com/i/oauth2/authorize";
 const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
@@ -87,7 +88,7 @@ export class TwitterAdapter extends BasePlatformAdapter {
 
     const params = new URLSearchParams({
       response_type: "code",
-      client_id: process.env.TWITTER_CLIENT_ID || "",
+      client_id: platformEnv("TWITTER_CLIENT_ID") || "",
       redirect_uri: this.getRedirectUri(),
       // media.write: required by the v2 media upload endpoints
       // (https://docs.x.com/x-api/media/upload-media). Accounts connected
@@ -114,14 +115,14 @@ export class TwitterAdapter extends BasePlatformAdapter {
 
   async exchangeCodeForTokens(code: string, codeVerifier?: string): Promise<OAuthTokens> {
     const basicAuth = Buffer.from(
-      `${process.env.TWITTER_CLIENT_ID}:${process.env.TWITTER_CLIENT_SECRET}`
+      `${platformEnv("TWITTER_CLIENT_ID")}:${platformEnv("TWITTER_CLIENT_SECRET")}`
     ).toString("base64");
 
     const body: Record<string, string> = {
       grant_type: "authorization_code",
       code,
       redirect_uri: this.getRedirectUri(),
-      client_id: process.env.TWITTER_CLIENT_ID || "",
+      client_id: platformEnv("TWITTER_CLIENT_ID") || "",
     };
 
     if (codeVerifier) {
@@ -168,8 +169,8 @@ export class TwitterAdapter extends BasePlatformAdapter {
    * returned 2xx.
    */
   async revokeAccess(accessToken: string, refreshToken?: string | null): Promise<void> {
-    const id = process.env.TWITTER_CLIENT_ID;
-    const secret = process.env.TWITTER_CLIENT_SECRET;
+    const id = platformEnv("TWITTER_CLIENT_ID");
+    const secret = platformEnv("TWITTER_CLIENT_SECRET");
     if (!id || !secret) throw new Error("X credentials are not configured.");
     const headers = { Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}` };
     for (const token of [accessToken, refreshToken].filter((t): t is string => Boolean(t))) {
@@ -179,7 +180,7 @@ export class TwitterAdapter extends BasePlatformAdapter {
 
   async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
     const basicAuth = Buffer.from(
-      `${process.env.TWITTER_CLIENT_ID}:${process.env.TWITTER_CLIENT_SECRET}`
+      `${platformEnv("TWITTER_CLIENT_ID")}:${platformEnv("TWITTER_CLIENT_SECRET")}`
     ).toString("base64");
 
     const response = await fetch(TWITTER_TOKEN_URL, {
@@ -191,7 +192,7 @@ export class TwitterAdapter extends BasePlatformAdapter {
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-        client_id: process.env.TWITTER_CLIENT_ID || "",
+        client_id: platformEnv("TWITTER_CLIENT_ID") || "",
       }),
     });
 

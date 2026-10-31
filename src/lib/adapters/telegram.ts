@@ -35,6 +35,7 @@ import {
   type TelegramReplyStore,
 } from "./telegram-replies";
 import { extractConnectCodes, hashConnectCode } from "./telegram-connect-code";
+import { platformEnv } from "@/lib/platform-env";
 
 const TELEGRAM_API = process.env.TELEGRAM_API_BASE?.replace(/\/$/, "") || "https://api.telegram.org";
 
@@ -236,7 +237,7 @@ export class TelegramAdapter extends BasePlatformAdapter {
    * Each customer brings their own bot, so the token is per account (the
    * `accessToken` passed to every call, decrypted from that account's row) and
    * the chat it posts into belongs to that same account. This used to fall back
-   * to `process.env.TELEGRAM_CHAT_ID` whenever the caller supplied nothing,
+   * to `platformEnv("TELEGRAM_CHAT_ID")` whenever the caller supplied nothing,
    * which meant every tenant published into the deployment owner's private chat.
    *
    * At publish and engagement time the account's own chat id is the only
