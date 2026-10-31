@@ -75,7 +75,7 @@ export function SignInForm() {
       <div style={{ display: "grid", gap: 6 }}>
         <div className="so-row" style={{ justifyContent: "space-between" }}>
           <label className="so-stat-label" htmlFor="password">Password</label>
-          <a href="/register" style={{ fontSize: 11.5 }}>Forgot?</a>
+          <a href="/register" style={{ fontSize: 11.5 }}>Need an account?</a>
         </div>
         <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password" required style={field} />
