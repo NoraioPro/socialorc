@@ -32,6 +32,8 @@ export function ComposeForm() {
   const [tone, setTone] = useState("professional");
   const [picked, setPicked] = useState<string[]>(["LINKEDIN"]);
   const [variants, setVariants] = useState<Variant[] | null>(null);
+  const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +64,50 @@ export function ComposeForm() {
       }
     })();
   }, []);
+
+  const mediaRequiredMissing = useMemo(
+    () =>
+      picked.filter((id) => {
+        const caps = PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.capabilities;
+        return Boolean(caps?.mediaRequired) && media.length === 0;
+      }),
+    [picked, media],
+  );
+
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    const added: typeof media = [];
+    for (const file of Array.from(files)) {
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/media", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data?.code === "MEDIA_STORAGE_NOT_CONFIGURED") {
+            setError("Media storage is not configured in this deployment (BLOB_READ_WRITE_TOKEN).");
+          } else {
+            setError(data.error ?? `Upload failed for ${file.name} (${res.status}).`);
+          }
+          continue;
+        }
+        const asset = data.asset ?? data.media ?? data;
+        added.push({
+          id: asset.id,
+          url: asset.url,
+          filename: asset.filename ?? file.name,
+          mimeType: asset.mimeType ?? file.type,
+          devOnly: String(asset.url ?? "").startsWith("data:"),
+        });
+      } catch {
+        setError(`Network error uploading ${file.name}.`);
+      }
+    }
+    if (added.length) setMedia((m) => [...m, ...added]);
+    setUploading(false);
+  };
 
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -106,6 +152,10 @@ export function ComposeForm() {
       setError("Write the post and pick at least one channel.");
       return;
     }
+    if (mediaRequiredMissing.length) {
+      setError(`Attach an image or video first — ${mediaRequiredMissing.join(", ")} cannot publish without media.`);
+      return;
+    }
     setBusy("manual");
     setError(null);
     const failed: string[] = [];
@@ -118,6 +168,7 @@ export function ComposeForm() {
             title: brief.trim() ? brief.trim().slice(0, 90) : undefined,
             content: text,
             platform,
+            mediaAssetIds: media.map((m) => m.id),
           }),
         });
         if (!res.ok) {
@@ -145,7 +196,12 @@ export function ComposeForm() {
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: v.title ?? undefined, content: v.content, platform: v.platform }),
+        body: JSON.stringify({
+          title: v.title ?? undefined,
+          content: v.content,
+          platform: v.platform,
+          mediaAssetIds: media.map((m) => m.id),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -266,6 +322,72 @@ export function ComposeForm() {
               })
             )}
           </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <span className="so-stat-label">Attachments</span>
+          <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <label
+              className="so-btn"
+              style={{ height: 30, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}
+            >
+              {uploading ? "Uploading…" : "Attach image or video"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
+              />
+            </label>
+            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+              JPG · PNG · GIF · WebP · MP4 · MOV · WebM · up to 100MB each
+            </span>
+          </div>
+
+          {media.length > 0 ? (
+            <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {media.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 8,
+                    border: "1px solid var(--line2)", background: "var(--panel2)", maxWidth: 260,
+                  }}
+                >
+                  {m.mimeType.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url} alt="" width={28} height={28} style={{ borderRadius: 5, objectFit: "cover" }} />
+                  ) : (
+                    <span className="so-mono" style={{ fontSize: 10, color: "var(--text3)" }}>VIDEO</span>
+                  )}
+                  <span style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
+                    {m.filename}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMedia((list) => list.filter((x) => x.id !== m.id))}
+                    style={{ border: 0, background: "transparent", color: "var(--text3)", cursor: "pointer", fontSize: 12 }}
+                    aria-label={`Remove ${m.filename}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {media.some((m) => m.devOnly) ? (
+            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--amber)" }}>
+              dev storage: this asset is stored inline and cannot be published — set BLOB_READ_WRITE_TOKEN for a real upload
+            </span>
+          ) : null}
+          {mediaRequiredMissing.length > 0 ? (
+            <span style={{ fontSize: 11.5, color: "var(--amber)" }}>
+              {mediaRequiredMissing.map((id) => PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id).join(", ")} needs an image or video before it can publish.
+            </span>
+          ) : null}
         </div>
 
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
