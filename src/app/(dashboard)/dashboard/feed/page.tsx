@@ -1,10 +1,6 @@
 import { redirect } from "next/navigation";
 
-/**
- * This screen now lives in the SocialOrk design system at /socialork/overview.
- * The old implementation stays in git history; the URL keeps working so no
- * bookmark, email link or stale tab lands on a different design.
- */
-export default function LegacyScreen() {
-  redirect("/socialork/overview");
+/** The Timeline is rebuilt in the SocialOrk design at /socialork/feed. */
+export default function LegacyFeed() {
+  redirect("/socialork/feed");
 }

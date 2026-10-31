@@ -72,7 +72,13 @@ export function Shell({
         },
       ],
     },
-    { label: "Listen", items: [{ href: "/socialork/inbox", label: "Inbox", icon: Inbox }] },
+    {
+      label: "Listen",
+      items: [
+        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
+        { href: "/socialork/inbox", label: "Inbox", icon: Inbox },
+      ],
+    },
     { label: "Learn", items: [{ href: "/socialork/insights", label: "Insights", icon: CircleDot }] },
     {
       label: "Workspace",

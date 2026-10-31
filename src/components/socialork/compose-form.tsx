@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PLATFORM_CONFIGS } from "@/types/platform";
 
 const PLATFORMS = [
   { id: "LINKEDIN", name: "LinkedIn" },
@@ -27,6 +28,7 @@ export function ComposeForm() {
   const [brainId, setBrainId] = useState<string>("");
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [brief, setBrief] = useState("");
+  const [body, setBody] = useState("");
   const [tone, setTone] = useState("professional");
   const [picked, setPicked] = useState<string[]>(["LINKEDIN"]);
   const [variants, setVariants] = useState<Variant[] | null>(null);
@@ -95,6 +97,45 @@ export function ComposeForm() {
     } finally {
       setBusy(null);
     }
+  };
+
+  /** Manual path: one draft per selected channel, no AI key involved. */
+  const createManual = async () => {
+    const text = (body || brief).trim();
+    if (!text || picked.length === 0) {
+      setError("Write the post and pick at least one channel.");
+      return;
+    }
+    setBusy("manual");
+    setError(null);
+    const failed: string[] = [];
+    for (const platform of picked) {
+      try {
+        const res = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: brief.trim() ? brief.trim().slice(0, 90) : undefined,
+            content: text,
+            platform,
+          }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          failed.push(`${platform}: ${data.error ?? res.status}`);
+        }
+      } catch {
+        failed.push(`${platform}: network error`);
+      }
+    }
+    setBusy(null);
+    if (failed.length === picked.length) {
+      setError(`Nothing was saved — ${failed.join("; ")}`);
+      return;
+    }
+    if (failed.length) setError(`Saved the rest. Failed → ${failed.join("; ")}`);
+    router.push("/socialork/drafts");
+    router.refresh();
   };
 
   const saveVariant = async (v: Variant) => {
@@ -201,13 +242,46 @@ export function ComposeForm() {
           </div>
         </div>
 
+        <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="body">Post content (written by you)</label>
+          <textarea id="body" rows={6} value={body} onChange={(e) => setBody(e.target.value)}
+            placeholder="Write it once — a draft is created for every channel you picked."
+            style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
+          <div className="so-row" style={{ gap: 10, flexWrap: "wrap" }}>
+            {picked.length === 0 ? (
+              <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
+                pick at least one channel
+              </span>
+            ) : (
+              picked.map((id) => {
+                const limit = PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.maxTextLength ?? 0;
+                const over = limit > 0 && body.length > limit;
+                return (
+                  <span key={id} className="so-mono" style={{ fontSize: 10.5, color: over ? "var(--red)" : "var(--text3)" }}>
+                    {PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id}
+                    {limit ? ` ${body.length}/${limit}` : ""}
+                    {over ? " over" : ""}
+                  </span>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
             {picked.length} channel{picked.length === 1 ? "" : "s"} · saves as drafts, nothing publishes
           </span>
-          <button className="so-btn" type="submit" data-variant="primary" disabled={busy === "generate"}>
-            {busy === "generate" ? "Generating…" : "Generate drafts"}
-          </button>
+          <div className="so-row" style={{ gap: 8 }}>
+            <button className="so-btn" type="button" onClick={() => void createManual()}
+              data-variant="primary" disabled={busy === "manual"}>
+              {busy === "manual" ? "Saving…" : `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}`}
+            </button>
+            <button className="so-btn" type="submit" disabled={busy === "generate" || aiReady === false}
+              title={aiReady === false ? "Needs an AI key — add one under Settings → AI keys" : undefined}>
+              {busy === "generate" ? "Generating…" : "Generate with AI"}
+            </button>
+          </div>
         </div>
 
         {error ? <span style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}

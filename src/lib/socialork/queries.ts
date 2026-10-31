@@ -184,6 +184,54 @@ export async function getInsights(tenant: TenantContext) {
   };
 }
 
+/** The workspace timeline: posts with their author, reactions and comments. */
+export async function getFeed(tenant: TenantContext, take = 30) {
+  const rows = await prisma.post.findMany({
+    where: {
+      OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }],
+      status: { in: ["PUBLISHED", "SCHEDULED", "APPROVED", "PENDING_APPROVAL"] },
+    },
+    orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
+    take,
+    select: {
+      id: true, title: true, content: true, platform: true, status: true,
+      createdAt: true, publishedAt: true, updatedAt: true, platformPostUrl: true,
+      user: { select: { name: true, email: true, headline: true } },
+      feedReactions: { select: { userId: true, type: true } },
+      feedComments: {
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, content: true, createdAt: true, user: { select: { name: true, email: true } } },
+      },
+    },
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    content: r.content,
+    platform: r.platform,
+    status: r.status,
+    author: r.user?.name ?? r.user?.email ?? "a teammate",
+    headline: r.user?.headline ?? null,
+    when: relativeTime(r.publishedAt ?? r.updatedAt ?? r.createdAt),
+    url: r.platformPostUrl,
+    reactions: r.feedReactions.reduce<Record<string, number>>((acc, x) => {
+      acc[x.type] = (acc[x.type] ?? 0) + 1;
+      return acc;
+    }, {}),
+    mine: r.feedReactions.find((x) => x.userId === tenant.userId)?.type ?? null,
+    comments: r.feedComments.map((c) => ({
+      id: c.id,
+      body: c.content,
+      who: c.user?.name ?? c.user?.email ?? "a teammate",
+      when: relativeTime(c.createdAt),
+    })),
+  }));
+}
+
+export type FeedItem = Awaited<ReturnType<typeof getFeed>>[number];
+
 export async function getTeam(tenant: TenantContext) {
   const members = await prisma.workspaceMember.findMany({
     where: { workspaceId: tenant.workspaceId },
