@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { signOut } from "next-auth/react";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
   Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Users,
@@ -53,6 +54,7 @@ export function Shell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [viewAs, setViewAs] = useState<string | null>(null);
+  const [userMenu, setUserMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const nav: { label?: string; items: NavItem[] }[] = [
@@ -166,8 +168,52 @@ export function Shell({
           ))}
         </nav>
 
-        <div className="so-side-foot">
-          <div className="so-row" style={{ gap: 8 }}>
+        <div className="so-side-foot" style={{ position: "relative" }}>
+          {userMenu ? (
+            <div
+              className="so-card so-palette"
+              style={{
+                position: "absolute", bottom: "calc(100% - 4px)", left: 10, right: 10, padding: 6,
+                boxShadow: "var(--shadow)", zIndex: 20, display: "grid", gap: 2,
+              }}
+            >
+              <div style={{ padding: "6px 8px", display: "grid", gap: 1 }}>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{userName || email}</span>
+                <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                  {email} · {role.toLowerCase()}
+                </span>
+              </div>
+              <div className="so-divider" />
+              <a href="/socialork/settings" className="so-nav-item" style={{ height: 28 }} onClick={() => setUserMenu(false)}>
+                Profile &amp; settings
+              </a>
+              <a href="/socialork/settings/ai" className="so-nav-item" style={{ height: 28 }} onClick={() => setUserMenu(false)}>
+                AI keys
+              </a>
+              <a href="/socialork/brains" className="so-nav-item" style={{ height: 28 }} onClick={() => setUserMenu(false)}>
+                Brains
+              </a>
+              <div className="so-divider" />
+              <button
+                className="so-nav-item"
+                style={{ height: 28, border: 0, background: "transparent", cursor: "pointer", width: "100%", color: "var(--red)" }}
+                onClick={() => signOut({ callbackUrl: "/signin" })}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+
+          <button
+            className="so-row"
+            onClick={() => setUserMenu((v) => !v)}
+            aria-expanded={userMenu}
+            aria-haspopup="menu"
+            style={{
+              gap: 8, width: "100%", padding: 4, borderRadius: 8, border: 0,
+              background: userMenu ? "var(--panel2)" : "transparent", color: "inherit", cursor: "pointer", textAlign: "left",
+            }}
+          >
             <span
               style={{
                 width: 24, height: 24, borderRadius: 999, display: "grid", placeItems: "center",
@@ -181,7 +227,8 @@ export function Shell({
               </span>
               <span className="so-brain-meta">{role.toLowerCase()}</span>
             </span>
-          </div>
+            <ChevronDown size={13} strokeWidth={2} style={{ marginLeft: "auto", color: "var(--text3)", flex: "none" }} />
+          </button>
         </div>
       </aside>
 
