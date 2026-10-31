@@ -150,6 +150,10 @@ export function WorkspaceSwitcher({
           ) : null}
 
           <div className="so-divider" style={{ margin: "4px 0" }} />
+          <a href="/socialork/workspaces" className="so-nav-item" style={{ height: 28 }}>
+            <span>Manage workspaces</span>
+            <span className="so-mono" style={{ marginLeft: "auto", fontSize: 10, color: "var(--text3)" }}>→</span>
+          </a>
           {creating ? (
             <form onSubmit={create} style={{ display: "grid", gap: 6, padding: "2px 4px 4px" }}>
               <input

@@ -85,6 +85,7 @@ export function Shell({
     {
       label: "Workspace",
       items: [
+        { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
         { href: "/socialork/brains", label: "Brains", icon: BookOpen, count: brains },
         { href: "/socialork/team", label: "Team", icon: Users },
         { href: "/socialork/settings", label: "Settings", icon: Settings, count: accounts },
