@@ -27,6 +27,7 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { can, effectiveRole, type Permission, type Role } from "@/lib/roles";
 import { isSoleWorkspaceMember } from "./solo";
+import { readActiveWorkspaceId } from "./active-workspace";
 
 export interface TenantContext {
   userId: string;
@@ -55,7 +56,7 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
       role: true,
       workspaceMembers: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: 1,
+        take: 25,
         select: { workspaceId: true, role: true },
       },
     },
@@ -65,7 +66,14 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
   // another local server sharing NEXTAUTH_SECRET, or a deleted account).
   if (!user) return { ok: false, status: 401, error: "Unauthorized" };
 
-  const workspaceId = user.workspaceMembers[0]?.workspaceId;
+  // The cookie only chooses among memberships this user actually holds; a value
+  // naming somebody else's workspace is ignored and the oldest is used instead.
+  const activeId = await readActiveWorkspaceId();
+  const chosen =
+    (activeId ? user.workspaceMembers.find((m) => m.workspaceId === activeId) : undefined) ??
+    user.workspaceMembers[0];
+
+  const workspaceId = chosen?.workspaceId;
   // Never an empty string: an empty tenant id silently disables a filter.
   if (!workspaceId) return { ok: false, status: 403, error: NO_WORKSPACE_MESSAGE };
 
@@ -85,7 +93,7 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
     CLIENT: "CLIENT",
     VIEWER: "CLIENT",
   };
-  const membershipRole = String(user.workspaceMembers[0]?.role ?? "").toUpperCase();
+  const membershipRole = String(chosen?.role ?? "").toUpperCase();
   const baseRole = MEMBERSHIP_ROLE[membershipRole] ?? user.role;
   const role = effectiveRole(baseRole, await isSoleWorkspaceMember(userId));
   return { ok: true, userId, role, workspaceId };

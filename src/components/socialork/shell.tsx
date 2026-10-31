@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
   Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Sparkles, Users,
@@ -136,23 +137,7 @@ export function Shell({
           </span>
         </div>
 
-        <div className="so-brain-switch" style={{ cursor: "default" }}>
-          <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {workspaceName}
-            </span>
-            <span className="so-brain-meta">
-              {brains} {brains === 1 ? "brain" : "brains"} · {accounts} {accounts === 1 ? "channel" : "channels"}
-            </span>
-          </span>
-          <a
-            href="/socialork/brains"
-            title="Brains in this workspace"
-            style={{ marginLeft: "auto", flex: "none", fontSize: 10.5, color: "var(--accent)", textDecoration: "none" }}
-          >
-            Brains →
-          </a>
-        </div>
+        <WorkspaceSwitcher currentName={workspaceName} brains={brains} accounts={accounts} />
 
         <nav className="so-nav">
           {nav.map((group, gi) => (
