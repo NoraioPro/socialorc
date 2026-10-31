@@ -6,6 +6,7 @@ import { capabilityLabel, getAccounts, tenantFor } from "@/lib/socialork/queries
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { SettingsShell } from "@/components/socialork/settings-shell";
 import { readinessReport } from "@/lib/social/readiness";
+import { overridesForCurrentUser, withPlatformEnv } from "@/lib/platform-env";
 import { recentAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,14 @@ export default async function SettingsPage() {
       where: { OR: [{ userId: tenant.userId }, { workspaceId: tenant.workspaceId }] },
       select: { id: true },
     }),
-    readinessReport({}, requestOrigin),
+    // The readiness guide must report what THIS workspace can actually do. When
+    // the workspace stored its own OAuth app (Settings → App credentials), the
+    // connect flow and every callback already use those values — so the screen
+    // has to be evaluated under the same overrides, or it keeps telling an owner
+    // who did configure their app to "set FACEBOOK_APP_ID in the deployment".
+    overridesForCurrentUser().then((overrides) =>
+      withPlatformEnv(overrides, () => readinessReport({}, requestOrigin)),
+    ),
     recentAudit(tenant.workspaceId, 60),
   ]);
 

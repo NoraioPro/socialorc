@@ -3,6 +3,7 @@ import type { Platform } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
 import { readinessReport } from "@/lib/social/readiness";
+import { overridesForCurrentUser, withPlatformEnv } from "@/lib/platform-env";
 
 export const dynamic = "force-dynamic";
 
@@ -29,5 +30,8 @@ export async function GET() {
     connectedCounts[account.platform] = (connectedCounts[account.platform] ?? 0) + 1;
   }
 
-  return NextResponse.json(await readinessReport(connectedCounts));
+  // Same overrides the connect flow uses, so the API and the Settings screen
+  // agree: a workspace that stored its own OAuth app is ready, not "missing".
+  const overrides = await overridesForCurrentUser();
+  return NextResponse.json(await withPlatformEnv(overrides, () => readinessReport(connectedCounts)));
 }
