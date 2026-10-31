@@ -136,7 +136,7 @@ export function Shell({
           </span>
         </div>
 
-        <button className="so-brain-switch" onClick={() => go("/socialork/brains")}>
+        <div className="so-brain-switch" style={{ cursor: "default" }}>
           <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
             <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {workspaceName}
@@ -145,8 +145,14 @@ export function Shell({
               {brains} {brains === 1 ? "brain" : "brains"} · {accounts} {accounts === 1 ? "channel" : "channels"}
             </span>
           </span>
-          <ChevronDown size={14} strokeWidth={2} style={{ marginLeft: "auto", color: "var(--text3)", flex: "none" }} />
-        </button>
+          <a
+            href="/socialork/brains"
+            title="Brains in this workspace"
+            style={{ marginLeft: "auto", flex: "none", fontSize: 10.5, color: "var(--accent)", textDecoration: "none" }}
+          >
+            Brains →
+          </a>
+        </div>
 
         <nav className="so-nav">
           {nav.map((group, gi) => (

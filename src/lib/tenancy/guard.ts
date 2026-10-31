@@ -56,7 +56,7 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
       workspaceMembers: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: 1,
-        select: { workspaceId: true },
+        select: { workspaceId: true, role: true },
       },
     },
   });
@@ -69,7 +69,25 @@ export async function tenantForUser(userId: string): Promise<TenantGuard> {
   // Never an empty string: an empty tenant id silently disables a filter.
   if (!workspaceId) return { ok: false, status: 403, error: NO_WORKSPACE_MESSAGE };
 
-  const role = effectiveRole(user.role, await isSoleWorkspaceMember(userId));
+  // The membership decides, not the global account flag: the product promises
+  // "access comes from workspace membership", and a role change in Team has to
+  // take effect on the next request. The global role is only a fallback for a
+  // membership that predates the column being populated.
+  //
+  // Membership rows use OWNER/MEMBER alongside the app's roles, so they are
+  // mapped explicitly — an unmapped value would fall through to CLIENT and
+  // silently demote a workspace owner.
+  const MEMBERSHIP_ROLE: Record<string, typeof user.role> = {
+    OWNER: "ADMIN",
+    ADMIN: "ADMIN",
+    MANAGER: "MANAGER",
+    EDITOR: "EDITOR",
+    CLIENT: "CLIENT",
+    VIEWER: "CLIENT",
+  };
+  const membershipRole = String(user.workspaceMembers[0]?.role ?? "").toUpperCase();
+  const baseRole = MEMBERSHIP_ROLE[membershipRole] ?? user.role;
+  const role = effectiveRole(baseRole, await isSoleWorkspaceMember(userId));
   return { ok: true, userId, role, workspaceId };
 }
 

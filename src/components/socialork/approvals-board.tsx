@@ -31,7 +31,7 @@ const TABS = [
   { id: "approved", label: "Approved", statuses: ["APPROVED"] as PostStatus[] },
 ];
 
-export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
+export function ApprovalsBoard({ posts, canApprove = true }: { posts: ApprovalPost[]; canApprove?: boolean }) {
   const [tab, setTab] = useState("review");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -97,6 +97,13 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
         />
       </div>
 
+      {!canApprove ? (
+        <div className="so-frame" style={{ fontSize: 12 }}>
+          Your role is read-and-review only here. You can open any post and read it; a manager or an
+          admin makes the decision.
+        </div>
+      ) : null}
+
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 12, alignItems: "start" }}>
         <section className="so-card">
           {rows.length === 0 ? (
@@ -160,9 +167,17 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
                 <span className="so-mono">approved by · {current.approvedBy ?? "—"}</span>
               </div>
               <div className="so-divider" />
-              <PostActions id={current.id} status={current.status} />
+              {canApprove ? (
+                <PostActions id={current.id} status={current.status} />
+              ) : (
+                <div className="so-frame" style={{ fontSize: 12 }}>
+                  <b>You can review but not decide.</b> Approving or sending a post back needs a
+                  manager or admin. Ask an admin to change your role in Team — the server enforces
+                  this, so no button here would work.
+                </div>
+              )}
 
-              <div className="so-row" style={{ gap: 6 }}>
+              <div className="so-row" style={{ gap: 6, display: canApprove ? undefined : "none" }}>
                 <button
                   className="so-btn"
                   style={{ height: 28, flex: 1 }}
@@ -194,7 +209,7 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
                 </button>
               </div>
 
-              <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ display: canApprove ? "grid" : "none", gap: 6 }}>
                 <button className="so-btn" style={{ height: 28, justifyContent: "center" }}
                   onClick={() => void mintLink(current.id)} disabled={linkBusy}>
                   {linkBusy ? "Creating link…" : "Copy client review link"}

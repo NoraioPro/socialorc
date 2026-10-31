@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { formatWhen, relativeTime, tenantFor } from "@/lib/socialork/queries";
+import { tenantCan } from "@/lib/tenancy/guard";
 import { ApprovalsBoard, type ApprovalPost } from "@/components/socialork/approvals-board";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ export default async function ApprovalsPage() {
           approval — that rule lives on the server, not on this screen.
         </p>
       </div>
-      <ApprovalsBoard posts={posts} />
+      <ApprovalsBoard posts={posts} canApprove={tenantCan(tenant, "posts:approve")} />
     </div>
   );
 }
