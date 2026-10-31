@@ -7,7 +7,7 @@
  * excellent at explaining what to do instead: who is allowed to do it, what they
  * need, where to click, and the exact redirect URI to paste into the portal.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type GuidePlatform = {
   platform: string;
@@ -59,6 +59,13 @@ const STEPS: Record<string, string[]> = {
 export function ConnectionGuide({ platforms }: { platforms: GuidePlatform[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [origin, setOrigin] = useState<string>("");
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const insecure = origin.startsWith("http://");
 
   const copy = async (value: string) => {
     try {
@@ -81,6 +88,20 @@ export function ConnectionGuide({ platforms }: { platforms: GuidePlatform[] }) {
         </div>
       </div>
       <div className="so-card-pad" style={{ display: "grid", gap: 10 }}>
+        {insecure ? (
+          <div className="so-banner" style={{ alignItems: "flex-start" }}>
+            <div style={{ display: "grid", gap: 2 }}>
+              <strong>OAuth needs an https origin — this page is on {origin}</strong>
+              <span style={{ color: "var(--text2)" }}>
+                LinkedIn, Meta, Google and X reject an http redirect. Telegram works here, but for the
+                others use a tunnel (cloudflared / ngrok) or the deployed domain, then register{" "}
+                <code className="so-mono">https://&lt;that-host&gt;/api/social/&lt;platform&gt;/callback</code>{" "}
+                in each portal — and open the app from that address so the URI below is the right one.
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         <div style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--text2)" }}>
           <span>
             <b style={{ color: "var(--text)" }}>Every member</b> can connect their own accounts (LinkedIn, X,
