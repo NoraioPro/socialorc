@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
 import { ConnectionGuide } from "@/components/socialork/connection-guide";
 import { AppCredentialsForm } from "@/components/socialork/app-credentials-form";
+import { TelegramConnectForm } from "@/components/socialork/telegram-connect-form";
 
 type Connection = {
   platform: string; name: string; handle: string | null; capability: string;
@@ -247,11 +248,17 @@ export function SettingsShell({
                       </select>
                     ) : null}
                     {c.state === "reconnect" ? (
-                      <ConnectButton platform={c.platform} label="Reconnect" />
+                      c.platform === "TELEGRAM" ? (
+                        <TelegramConnectForm />
+                      ) : (
+                        <ConnectButton platform={c.platform} label="Reconnect" />
+                      )
                     ) : c.state === "connected" ? (
                       <span className="so-pill" data-tone="approved">Connected</span>
                     ) : c.configured === false ? (
                       <span className="so-pill" data-tone="review">Needs setup</span>
+                    ) : c.platform === "TELEGRAM" ? (
+                      <TelegramConnectForm />
                     ) : (
                       <ConnectButton platform={c.platform} />
                     )}

@@ -72,7 +72,7 @@ export function createOAuthCallback(platform: Platform, overrides: Partial<OAuth
     );
     const failure = (reason: string, popup = earlyPopup) =>
       NextResponse.redirect(
-        new URL(`/settings/accounts?error=${encodeURIComponent(reason)}${popup ? "&popup=1" : ""}`, req.url),
+        new URL(`/connect/done?error=${encodeURIComponent(reason)}${popup ? "&popup=1" : ""}`, req.url),
       );
 
     try {
@@ -144,7 +144,7 @@ export function createOAuthCallback(platform: Platform, overrides: Partial<OAuth
         if (targets.length > 1) {
           const pending = NextResponse.redirect(
             new URL(
-              `/settings/accounts?select=${platform.toLowerCase()}&brain=${brain.id}${popup ? "&popup=1" : ""}`,
+              `/connect/done?error=${encodeURIComponent("account_needs_selection")}${popup ? "&popup=1" : ""}`,
               req.url,
             ),
           );
@@ -187,7 +187,7 @@ export function createOAuthCallback(platform: Platform, overrides: Partial<OAuth
 
       const response = NextResponse.redirect(
         new URL(
-          `/settings/accounts?success=${platform.toLowerCase()}_connected&account=${account.id}&brain=${brain.id}${popup ? "&popup=1" : ""}`,
+          `/connect/done?success=${platform.toLowerCase()}_connected&account=${account.id}${popup ? "&popup=1" : ""}`,
           req.url,
         ),
       );
