@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getAuthSession } from "@/lib/auth";
 import { needsOnboarding } from "@/lib/onboarding";
-import { getCurrentUser, getShellData, tenantFor } from "@/lib/socialork/queries";
+import { getBrains, getCurrentUser, getShellData, tenantFor } from "@/lib/socialork/queries";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { Shell } from "@/components/socialork/shell";
 import "../socialork.css";
 
@@ -41,9 +42,11 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
   });
   if (account && needsOnboarding(account.onboardedAt)) redirect("/onboarding");
 
-  const [shell, user] = await Promise.all([
+  const [shell, user, brains, brainId] = await Promise.all([
     getShellData(tenant),
     getCurrentUser(tenant.userId),
+    getBrains(tenant),
+    activeBrainId(tenant),
   ]);
 
   return (
@@ -56,6 +59,8 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
         brains={shell.brains}
         accounts={shell.accounts}
         counts={shell.counts}
+        brainsList={brains.map((b) => ({ id: b.id, name: b.name, isDefault: b.isDefault }))}
+        activeBrainId={brainId}
       >
         {children}
       </Shell>

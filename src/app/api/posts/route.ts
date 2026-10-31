@@ -14,6 +14,7 @@ import {
   accountPlatformMismatchMessage,
 } from "@/lib/posts/transitions";
 import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 
 const createPostSchema = z.object({
   title: z.string().optional(),
@@ -175,6 +176,7 @@ export async function POST(req: NextRequest) {
     const post = await prisma.post.create({
       data: {
         workspaceId: guard.workspaceId,
+        brainId: await activeBrainId(guard),
         userId: guard.userId,
         title,
         content,

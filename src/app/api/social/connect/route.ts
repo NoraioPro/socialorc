@@ -4,6 +4,7 @@ import { overridesForCurrentUser, withPlatformEnv } from "@/lib/platform-env";
 import { Platform } from "@prisma/client";
 import { getAdapter } from "@/lib/adapters";
 import { resolveBrainForWorkspace } from "@/lib/brains";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import crypto from "crypto";
 import { encodeStateCookie } from "@/lib/oauth/state";
 import { oauthStateSecret } from "@/lib/oauth/state-secret";
@@ -43,7 +44,7 @@ async function handleConnect(req: NextRequest) {
       );
     }
 
-    const brain = await resolveBrainForWorkspace(guard, searchParams.get("brainId"));
+    const brain = await resolveBrainForWorkspace(guard, searchParams.get("brainId") ?? (await activeBrainId(guard)));
 
     const state = crypto.randomBytes(32).toString("hex");
 

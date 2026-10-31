@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
+import { BrainSwitcher } from "@/components/socialork/brain-switcher";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
   Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Sparkles, Users,
@@ -39,6 +40,8 @@ export function Shell({
   brains,
   accounts,
   counts,
+  brainsList = [],
+  activeBrainId: activeBrain = "",
   children,
 }: {
   workspaceName: string;
@@ -48,6 +51,8 @@ export function Shell({
   brains: number;
   accounts: number;
   counts: NavCounts;
+  brainsList?: { id: string; name: string; isDefault: boolean }[];
+  activeBrainId?: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -139,6 +144,7 @@ export function Shell({
         </div>
 
         <WorkspaceSwitcher currentName={workspaceName} brains={brains} accounts={accounts} />
+        <BrainSwitcher brains={brainsList} activeId={activeBrain} />
 
         <nav className="so-nav">
           {nav.map((group, gi) => (

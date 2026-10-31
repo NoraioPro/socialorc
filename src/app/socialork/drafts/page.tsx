@@ -3,6 +3,7 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { DraftsTable, type DraftRow } from "@/components/socialork/drafts-table";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +13,14 @@ export default async function DraftsPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
+  const brainId = await activeBrainId(tenant);
   const rows = await prisma.post.findMany({
     where: {
-      OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }],
-      status: "DRAFT",
+      AND: [
+        { OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }] },
+        { OR: [{ brainId }, { brainId: null }] },
+        { status: "DRAFT" },
+      ],
     },
     orderBy: { updatedAt: "desc" },
     take: 60,

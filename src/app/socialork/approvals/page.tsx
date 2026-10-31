@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { formatWhen, relativeTime, tenantFor } from "@/lib/socialork/queries";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { tenantCan } from "@/lib/tenancy/guard";
 import { ApprovalsBoard, type ApprovalPost } from "@/components/socialork/approvals-board";
 
@@ -13,10 +14,14 @@ export default async function ApprovalsPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
+  const brainId = await activeBrainId(tenant);
   const rows = await prisma.post.findMany({
     where: {
-      OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }],
-      status: { in: ["PENDING_APPROVAL", "DRAFT", "APPROVED"] },
+      AND: [
+        { OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }] },
+        { OR: [{ brainId }, { brainId: null }] },
+        { status: { in: ["PENDING_APPROVAL", "DRAFT", "APPROVED"] } },
+      ],
     },
     orderBy: [{ updatedAt: "desc" }],
     take: 80,

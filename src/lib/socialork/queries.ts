@@ -8,6 +8,7 @@
  */
 import prisma from "@/lib/prisma";
 import { tenantForUser, type TenantContext } from "@/lib/tenancy/guard";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { getAdapter } from "@/lib/adapters";
 import type { Platform, PostStatus } from "@prisma/client";
@@ -55,12 +56,20 @@ export type PostRow = {
   socialAccount: { platformUsername: string | null } | null;
 };
 
-function scoped(tenant: TenantContext) {
-  return { OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }] };
+function scoped(tenant: TenantContext, brainId: string) {
+  return {
+    AND: [
+      { OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }] },
+      // Content belongs to a brand. Rows written before brains existed carry no
+      // brainId and stay visible rather than vanishing from every list.
+      { OR: [{ brainId }, { brainId: null }] },
+    ],
+  };
 }
 
 export async function getShellData(tenant: TenantContext) {
-  const where = scoped(tenant);
+  const brainId = await activeBrainId(tenant);
+  const where = scoped(tenant, brainId);
   const [workspace, brains, accounts, drafts, review, approved, scheduled, failed] =
     await Promise.all([
       prisma.workspace.findUnique({ where: { id: tenant.workspaceId }, select: { name: true, slug: true } }),
@@ -83,7 +92,7 @@ export async function getShellData(tenant: TenantContext) {
 
 export async function listPosts(tenant: TenantContext, statuses: PostStatus[], take = 50) {
   return prisma.post.findMany({
-    where: { ...scoped(tenant), status: { in: statuses } },
+    where: { ...scoped(tenant, await activeBrainId(tenant)), status: { in: statuses } },
     orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }],
     take,
     select: postSelect,
@@ -91,7 +100,8 @@ export async function listPosts(tenant: TenantContext, statuses: PostStatus[], t
 }
 
 export async function getOverview(tenant: TenantContext) {
-  const where = scoped(tenant);
+  const brainId = await activeBrainId(tenant);
+  const where = scoped(tenant, brainId);
   const [byStatus, published30, accounts, reconnect, recent] = await Promise.all([
     prisma.post.groupBy({ by: ["status"], where, _count: { _all: true } }),
     prisma.post.count({
@@ -119,7 +129,7 @@ export async function getPublishing(tenant: TenantContext) {
     listPosts(tenant, ["SCHEDULED", "PUBLISHING"], 40),
     listPosts(tenant, ["FAILED"], 20),
     prisma.post.findMany({
-      where: { ...scoped(tenant), status: "PUBLISHED" },
+      where: { ...scoped(tenant, await activeBrainId(tenant)), status: "PUBLISHED" },
       orderBy: { publishedAt: "desc" },
       take: 10,
       select: postSelect,
@@ -186,7 +196,8 @@ export function capabilityLabel(platform: Platform): string {
 }
 
 export async function getInsights(tenant: TenantContext) {
-  const where = scoped(tenant);
+  const brainId = await activeBrainId(tenant);
+  const where = scoped(tenant, brainId);
   const [published, byPlatform, approvals] = await Promise.all([
     prisma.post.count({ where: { ...where, status: "PUBLISHED" } }),
     prisma.post.groupBy({ by: ["platform"], where: { ...where, status: "PUBLISHED" }, _count: { _all: true } }),
@@ -215,7 +226,7 @@ export async function getInsights(tenant: TenantContext) {
 export async function getFeed(tenant: TenantContext, take = 30) {
   const rows = await prisma.post.findMany({
     where: {
-      OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }],
+      ...scoped(tenant, await activeBrainId(tenant)),
       status: { in: ["PUBLISHED", "SCHEDULED", "APPROVED", "PENDING_APPROVAL"] },
     },
     orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
