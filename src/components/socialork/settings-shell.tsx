@@ -48,7 +48,7 @@ export function SettingsShell({
   aiConfigured,
   audit,
 }: {
-  profile: { name: string; email: string; timezone: string };
+  profile: { name: string; email: string; timezone: string; headline: string; bio: string; location: string; website: string };
   workspaceName: string;
   role: string;
   connections: Connection[];
@@ -59,6 +59,10 @@ export function SettingsShell({
   const [tab, setTab] = useState("profile");
   const [name, setName] = useState(profile.name);
   const [timezone, setTimezone] = useState(profile.timezone || "Europe/Oslo");
+  const [headline, setHeadline] = useState(profile.headline ?? "");
+  const [bio, setBio] = useState(profile.bio ?? "");
+  const [location, setLocation] = useState(profile.location ?? "");
+  const [website, setWebsite] = useState(profile.website ?? "");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -67,10 +71,10 @@ export function SettingsShell({
     setBusy(true);
     setNote(null);
     try {
-      const res = await fetch("/api/settings/profile", {
+      const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, timezone }),
+        body: JSON.stringify({ name, headline, bio, location, website, timezone } as never),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -143,6 +147,30 @@ export function SettingsShell({
             <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
               Every schedule and audit timestamp is shown in this zone.
             </span>
+          </div>
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="so-stat-label" htmlFor="headline">Headline</label>
+            <input id="headline" value={headline} onChange={(e) => setHeadline(e.target.value)}
+              placeholder="Product designer · Oslo" style={field} maxLength={140} />
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="so-stat-label" htmlFor="bio">Bio</label>
+            <textarea id="bio" rows={3} value={bio} onChange={(e) => setBio(e.target.value)}
+              placeholder="What you do, in two sentences." maxLength={1000}
+              style={{ ...field, height: "auto", padding: "9px 11px", resize: "vertical" }} />
+          </div>
+          <div className="so-grid so-grid-2">
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="so-stat-label" htmlFor="location">Location</label>
+              <input id="location" value={location} onChange={(e) => setLocation(e.target.value)}
+                placeholder="Oslo, Norway" style={field} maxLength={120} />
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="so-stat-label" htmlFor="website">Website</label>
+              <input id="website" value={website} onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://…" style={field} />
+            </div>
           </div>
 
           <div className="so-row" style={{ justifyContent: "flex-end", gap: 10 }}>

@@ -10,7 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
-  Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Users,
+  Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 
 export type NavCounts = {
@@ -62,6 +62,7 @@ export function Shell({
       items: [
         { href: "/socialork/overview", label: "Overview", icon: LayoutDashboard },
         { href: "/socialork/create", label: "Create", icon: PenLine },
+        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
         { href: "/socialork/drafts", label: "Drafts", icon: FileText, count: counts.drafts },
         { href: "/socialork/approvals", label: "Approvals", icon: ShieldCheck, count: counts.review, tone: "amber" },
         {

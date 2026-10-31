@@ -32,6 +32,7 @@ export function DraftEditor({
   const [content, setContent] = useState(initialContent);
   const [media, setMedia] = useState<Media[]>(initialMedia);
   const [busy, setBusy] = useState<string | null>(null);
+  const [cascadeTargets, setCascadeTargets] = useState<string[]>([]);
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const limit = PLATFORM_CONFIGS[platform]?.maxTextLength ?? 0;
@@ -119,6 +120,34 @@ export function DraftEditor({
       router.refresh();
     } catch {
       setNote({ kind: "err", text: "Network error — nothing was deleted." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Cascade: adapt this post into drafts for other channels. */
+  const cascade = async () => {
+    if (cascadeTargets.length === 0) {
+      setNote({ kind: "err", text: "Pick at least one other channel." });
+      return;
+    }
+    setBusy("cascade");
+    setNote(null);
+    try {
+      const res = await fetch(`/api/posts/${id}/cascade`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetPlatforms: cascadeTargets, createDrafts: true }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setNote({ kind: "err", text: data.error ?? `Cascade failed (${res.status}).` });
+        return;
+      }
+      router.push("/socialork/drafts");
+      router.refresh();
+    } catch {
+      setNote({ kind: "err", text: "Network error — no drafts were created." });
     } finally {
       setBusy(null);
     }
@@ -248,6 +277,39 @@ export function DraftEditor({
             and the server will not let that happen silently.
           </div>
         ) : null}
+        <div className="so-divider" />
+        <span className="so-stat-label">Adapt to other channels</span>
+        <div className="so-row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {(Object.keys(PLATFORM_CONFIGS) as (keyof typeof PLATFORM_CONFIGS)[])
+            .filter((p) => String(p) !== String(platform))
+            .map((p) => {
+              const active = cascadeTargets.includes(String(p));
+              return (
+                <button
+                  key={String(p)}
+                  type="button"
+                  className="so-btn"
+                  style={{
+                    height: 24, padding: "0 8px", fontSize: 10.5,
+                    borderColor: active ? "var(--accent)" : undefined,
+                    color: active ? "var(--accent)" : "var(--text2)",
+                    background: active ? "var(--accentSoft)" : "var(--panel2)",
+                  }}
+                  onClick={() =>
+                    setCascadeTargets((list) =>
+                      active ? list.filter((x) => x !== String(p)) : [...list, String(p)],
+                    )
+                  }
+                >
+                  {PLATFORM_CONFIGS[p]?.name ?? String(p)}
+                </button>
+              );
+            })}
+        </div>
+        <button className="so-btn" style={{ height: 28 }} onClick={() => void cascade()} disabled={busy === "cascade"}>
+          {busy === "cascade" ? "Creating drafts…" : "Create drafts for these channels"}
+        </button>
+
         <a href="/socialork/drafts" style={{ fontSize: 12.5 }}>← All drafts</a>
       </aside>
     </div>

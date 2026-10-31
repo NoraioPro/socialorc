@@ -20,7 +20,7 @@ export default async function SettingsPage() {
   const [account, accounts, workspace, key, readiness, audit] = await Promise.all([
     prisma.user.findUnique({
       where: { id: tenant.userId },
-      select: { name: true, email: true, timezone: true },
+      select: { name: true, email: true, timezone: true, headline: true, bio: true, location: true, website: true },
     }),
     getAccounts(tenant),
     prisma.workspace.findUnique({ where: { id: tenant.workspaceId }, select: { name: true } }),
@@ -59,6 +59,10 @@ export default async function SettingsPage() {
           name: account?.name ?? "",
           email: account?.email ?? session.user.email ?? "",
           timezone: account?.timezone ?? "Europe/Oslo",
+          headline: account?.headline ?? "",
+          bio: account?.bio ?? "",
+          location: account?.location ?? "",
+          website: account?.website ?? "",
         }}
         workspaceName={workspace?.name ?? "Workspace"}
         role={String(tenant.role)}

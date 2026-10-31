@@ -27,6 +27,7 @@ export default async function TeamPage() {
         canInvite={String(tenant.role).toUpperCase() === "ADMIN"}
         members={members.map((m) => ({
           id: m.id,
+          userId: m.user.id,
           name: m.user.name ?? "",
           email: m.user.email ?? "",
           role: String(m.role),

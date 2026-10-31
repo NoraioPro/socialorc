@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 
-type Member = { id: string; name: string; email: string; role: string; joined: string };
+type Member = { id: string; userId: string; name: string; email: string; role: string; joined: string };
 
 const ROLE_TABS = ["All", "Owner", "Admin", "Manager", "Editor", "Client", "Viewer"];
 
@@ -17,6 +17,48 @@ export function TeamBoard({ members, canInvite }: { members: Member[]; canInvite
   const [inviteRole, setInviteRole] = useState("EDITOR");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string; token?: string | null } | null>(null);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+
+  const changeRole = async (member: Member, nextRole: string) => {
+    setRowBusy(member.id);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/workspace/users/${member.userId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setNote({ kind: "err", text: data.error ?? `Could not change the role (${res.status}).` });
+        return;
+      }
+      setNote({ kind: "ok", text: `${member.name || member.email} is now ${nextRole.toLowerCase()}. Takes effect on their next request.` });
+      window.location.reload();
+    } catch {
+      setNote({ kind: "err", text: "Network error — the role was not changed." });
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  const removeMember = async (member: Member) => {
+    setRowBusy(member.id);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/workspace/users/${member.userId}`, { method: "DELETE" });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setNote({ kind: "err", text: data.error ?? `Could not remove ${member.email} (${res.status}).` });
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setNote({ kind: "err", text: "Network error — nobody was removed." });
+    } finally {
+      setRowBusy(null);
+    }
+  };
 
   const rows = useMemo(
     () => (role === "All" ? members : members.filter((m) => m.role.toLowerCase() === role.toLowerCase())),
@@ -70,11 +112,11 @@ export function TeamBoard({ members, canInvite }: { members: Member[]; canInvite
       <section className="so-card">
         <table className="so-table">
           <thead>
-            <tr><th>Member</th><th>Role</th><th>Joined</th></tr>
+            <tr><th>Member</th><th>Role</th><th>Joined</th><th style={{ textAlign: "right" }}>Actions</th></tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={3} className="so-empty">No member with that role.</td></tr>
+              <tr><td colSpan={4} className="so-empty">No member with that role.</td></tr>
             ) : (
               rows.map((m) => (
                 <tr key={m.id}>
@@ -83,11 +125,35 @@ export function TeamBoard({ members, canInvite }: { members: Member[]; canInvite
                     <div className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>{m.email}</div>
                   </td>
                   <td>
-                    <span className="so-pill" data-tone={m.role === "ADMIN" ? "approved" : undefined}>
-                      {m.role.toLowerCase()}
-                    </span>
+                    {canInvite ? (
+                      <select
+                        value={m.role.toUpperCase()}
+                        disabled={rowBusy === m.id}
+                        onChange={(e) => void changeRole(m, e.target.value)}
+                        style={{
+                          height: 26, borderRadius: 7, border: "1px solid var(--line2)",
+                          background: "var(--panel2)", color: "var(--text)", fontSize: 11.5, padding: "0 6px",
+                        }}
+                      >
+                        {["OWNER", "ADMIN", "MANAGER", "EDITOR", "CLIENT", "VIEWER"].map((r) => (
+                          <option key={r} value={r}>{r.toLowerCase()}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="so-pill" data-tone={m.role === "ADMIN" ? "approved" : undefined}>
+                        {m.role.toLowerCase()}
+                      </span>
+                    )}
                   </td>
                   <td className="so-mono" style={{ color: "var(--text2)" }}>{m.joined}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {canInvite && m.role.toUpperCase() !== "OWNER" ? (
+                      <button className="so-btn" style={{ height: 26, color: "var(--red)" }}
+                        disabled={rowBusy === m.id} onClick={() => void removeMember(m)}>
+                        {rowBusy === m.id ? "…" : "Remove"}
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))
             )}

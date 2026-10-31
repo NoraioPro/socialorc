@@ -36,6 +36,7 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [reviewLink, setReviewLink] = useState<{ postId: string; url: string } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
 
   const counts = useMemo(
@@ -160,6 +161,38 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
               </div>
               <div className="so-divider" />
               <PostActions id={current.id} status={current.status} />
+
+              <div className="so-row" style={{ gap: 6 }}>
+                <button
+                  className="so-btn"
+                  style={{ height: 28, flex: 1 }}
+                  disabled={actionBusy || current.status !== "PENDING_APPROVAL"}
+                  onClick={async () => {
+                    setActionBusy(true);
+                    try {
+                      await fetch(`/api/posts/${current.id}/approve`, {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ action: "reject", reason: "Returned to drafts from the approval review." }),
+                      });
+                      setSelected(null);
+                      window.location.reload();
+                    } finally {
+                      setActionBusy(false);
+                    }
+                  }}
+                >
+                  Return to drafts
+                </button>
+                <button
+                  className="so-btn"
+                  style={{ height: 28, flex: 1 }}
+                  disabled={actionBusy}
+                  onClick={() => setSelected(null)}
+                >
+                  Cancel
+                </button>
+              </div>
 
               <div style={{ display: "grid", gap: 6 }}>
                 <button className="so-btn" style={{ height: 28, justifyContent: "center" }}
