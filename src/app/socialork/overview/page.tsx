@@ -4,13 +4,14 @@ import {
   formatWhen, getAccounts, getCurrentUser, getOverview, STATUS_TONE, tenantFor, relativeTime,
 } from "@/lib/socialork/queries";
 import { PostActions } from "@/components/socialork/post-actions";
+import { Hero3D } from "@/components/socialork/hero-3d";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 export const dynamic = "force-dynamic";
 
 function Stat({ label, value, note }: { label: string; value: string | number; note: string }) {
   return (
-    <div className="so-card so-card-pad">
+    <div className="so-card so-card-pad so-stat">
       <div className="so-stat-label">{label}</div>
       <div className="so-stat-value">{value}</div>
       <div className="so-stat-note">{note}</div>
@@ -40,6 +41,8 @@ export default async function OverviewPage() {
 
   return (
     <div className="so-page">
+      <div className="so-hero">
+      <div style={{ display: "grid", gap: 16 }}>
       <div className="so-spread">
         <div style={{ display: "grid", gap: 6 }}>
           <h1 className="so-h1">{greeting}, {firstName}</h1>
@@ -92,13 +95,27 @@ export default async function OverviewPage() {
         <Stat label="Published · 30d" value={overview.published30} note="Across every channel" />
       </div>
 
+      </div>
+
+        {/* the brand's own art, with the 3D object the handoff drew for it */}
+        <div className="so-stage" aria-hidden="true">
+          <Hero3D />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="so-stage-orc" src="/socialork/orc-head.png" alt="" />
+        </div>
+      </div>
+
       <div className="so-grid so-grid-2" style={{ alignItems: "start" }}>
         <section className="so-card">
           <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}>
             <div className="so-stat-label">Needs you</div>
           </div>
           {needsYou.length === 0 ? (
-            <div className="so-empty">Nothing is waiting on a decision.</div>
+            <div className="so-empty">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="so-orc-empty" src="/socialork/orc-face.png" alt="" />
+              <div>Nothing is waiting on a decision.</div>
+            </div>
           ) : (
             <div className="so-list" style={{ display: "grid" }}>
               {needsYou.map((post) => (
