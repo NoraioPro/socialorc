@@ -32,7 +32,11 @@ import {
 import type { PostResult } from "@/types/platform";
 
 /**
- * Publishing worker (Vercel cron: every 5 minutes, see vercel.json).
+ * Publishing worker (Vercel cron: every minute, see vercel.json).
+ *
+ * The cadence is the schedule's accuracy: a 5-minute tick sent a post due at
+ * 23:36 at 23:40, which users read as "scheduled publishing does not work".
+ * Overlapping invocations are safe — the claim is atomic.
  *
  * Guarantees this route must hold:
  *  1. Only SCHEDULED posts are ever published (the approval gate upstream).
