@@ -82,7 +82,9 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
               {visible.map((r) => (
                 <tr key={r.id}>
                   <td style={{ maxWidth: 420 }}>
-                    <div style={{ fontWeight: 600 }}>{r.title ?? "Untitled post"}</div>
+                    <a href={`/socialork/drafts/${r.id}`} style={{ fontWeight: 600, color: "var(--text)", textDecoration: "none" }}>
+                      {r.title ?? "Untitled post"}
+                    </a>
                     <div style={{ color: "var(--text3)", fontSize: 11.5 }}>
                       {PLATFORM_CONFIGS[r.platform]?.name ?? r.platform} · {r.content.slice(0, 80)}
                       {r.content.length > 80 ? "…" : ""}

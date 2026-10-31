@@ -10,6 +10,8 @@ import {
   approveGuardWhere,
   submitGuardWhere,
 } from "@/lib/posts/transitions";
+import { isSoleWorkspaceMember } from "@/lib/tenancy/solo";
+import { clientIp, recordAudit } from "@/lib/audit";
 
 export async function POST(
   req: NextRequest,
@@ -52,6 +54,22 @@ export async function POST(
     }
 
     if (action === "approve") {
+      // The product promises "nobody approves their own post, admins included".
+      // A workspace with a single member has no second person to ask, so that
+      // case is the one documented exception — and the response says so.
+      const isAuthor = post.userId === guard.userId;
+      const soloWorkspace = isAuthor ? await isSoleWorkspaceMember(guard.userId) : false;
+      if (isAuthor && !soloWorkspace) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot approve your own post. Ask another manager in this workspace to review it.",
+            code: "SELF_APPROVAL_BLOCKED",
+          },
+          { status: 403 },
+        );
+      }
+
       const claim = await prisma.post.updateMany({
         where: approveGuardWhere(id, guard.workspaceId),
         data: {
@@ -80,9 +98,27 @@ export async function POST(
         },
       });
 
+      const actor = await prisma.user.findUnique({
+        where: { id: guard.userId },
+        select: { name: true, email: true },
+      });
+      await recordAudit({
+        workspaceId: guard.workspaceId,
+        actorId: guard.userId,
+        actorLabel: actor?.name ?? actor?.email ?? null,
+        action: soloWorkspace ? "SELF_APPROVED_SOLO" : "APPROVED",
+        subjectType: "POST",
+        subjectId: id,
+        detail: { title: post.title, platform: post.platform, solo: soloWorkspace },
+        ip: clientIp(req.headers),
+      });
+
       return NextResponse.json({
         success: true,
-        message: "Post approved successfully",
+        message: soloWorkspace
+          ? "Post approved — solo workspace: you are the only member, so self-approval was allowed."
+          : "Post approved successfully",
+        selfApproved: soloWorkspace,
         post: updatedPost,
       });
     } else if (action === "reject") {
@@ -116,6 +152,21 @@ export async function POST(
         },
       });
 
+      const rejector = await prisma.user.findUnique({
+        where: { id: guard.userId },
+        select: { name: true, email: true },
+      });
+      await recordAudit({
+        workspaceId: guard.workspaceId,
+        actorId: guard.userId,
+        actorLabel: rejector?.name ?? rejector?.email ?? null,
+        action: "REJECTED",
+        subjectType: "POST",
+        subjectId: id,
+        detail: { title: post.title, reason },
+        ip: clientIp(req.headers),
+      });
+
       return NextResponse.json({
         success: true,
         message: "Post rejected and returned to draft",
@@ -146,6 +197,21 @@ export async function POST(
             orderBy: { order: "asc" },
           },
         },
+      });
+
+      const submitter = await prisma.user.findUnique({
+        where: { id: guard.userId },
+        select: { name: true, email: true },
+      });
+      await recordAudit({
+        workspaceId: guard.workspaceId,
+        actorId: guard.userId,
+        actorLabel: submitter?.name ?? submitter?.email ?? null,
+        action: "SUBMITTED",
+        subjectType: "POST",
+        subjectId: id,
+        detail: { title: post.title, platform: post.platform },
+        ip: clientIp(req.headers),
       });
 
       return NextResponse.json({

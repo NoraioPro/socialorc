@@ -5,6 +5,7 @@ import { capabilityLabel, getAccounts, tenantFor } from "@/lib/socialork/queries
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { SettingsShell } from "@/components/socialork/settings-shell";
 import { readinessReport } from "@/lib/social/readiness";
+import { recentAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function SettingsPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
-  const [account, accounts, workspace, key, readiness] = await Promise.all([
+  const [account, accounts, workspace, key, readiness, audit] = await Promise.all([
     prisma.user.findUnique({
       where: { id: tenant.userId },
       select: { name: true, email: true, timezone: true },
@@ -28,6 +29,7 @@ export default async function SettingsPage() {
       select: { id: true },
     }),
     readinessReport(),
+    recentAudit(tenant.workspaceId, 60),
   ]);
 
   const connections = ALL.map((platform) => {
@@ -62,6 +64,14 @@ export default async function SettingsPage() {
         role={String(tenant.role)}
         connections={connections}
         aiConfigured={Boolean(key)}
+        audit={audit.map((a) => ({
+          id: a.id,
+          action: a.action,
+          actor: a.actorLabel ?? (a.actorId ? "a teammate" : "system"),
+          subject: `${a.subjectType.toLowerCase()}${a.subjectId ? ` · ${a.subjectId.slice(-6)}` : ""}`,
+          ip: a.ip ?? "—",
+          when: a.createdAt.toISOString(),
+        }))}
       />
     </div>
   );

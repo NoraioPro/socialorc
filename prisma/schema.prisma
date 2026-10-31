@@ -582,6 +582,7 @@ model Workspace {
   platformCredentials      WorkspacePlatformCredential[]
   brandBrain               BrandBrain?
   invitations              Invitation[]
+  auditEvents            AuditEvent[]
 }
 
 /** Per-user role inside a workspace: OWNER | ADMIN | EDITOR | MEMBER | VIEWER. */
@@ -970,4 +971,28 @@ model BrandBrain {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+/// Append-only record of every decision that changes what the product does:
+/// approvals, submissions, schedules, publishes and role changes. Nothing in the
+/// app updates or deletes a row here.
+model AuditEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  actorId     String?
+  /// Denormalised so the trail still reads correctly after a user is removed.
+  actorLabel  String?
+  /// APPROVED | REJECTED | SUBMITTED | SCHEDULED | PUBLISHED | PUBLISH_FAILED | ROLE_CHANGED | SELF_APPROVED_SOLO
+  action      String
+  subjectType String
+  subjectId   String?
+  detail      Json?
+  /// Captured from the request headers at write time; null when unavailable.
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([subjectType, subjectId])
 }

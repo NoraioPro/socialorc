@@ -20,8 +20,23 @@ const TABS = [
   { id: "profile", label: "Profile" },
   { id: "connections", label: "Connections" },
   { id: "ai", label: "AI keys" },
+  { id: "audit", label: "Audit" },
   { id: "notifications", label: "Notifications" },
 ];
+
+type AuditRowView = { id: string; action: string; actor: string; subject: string; ip: string; when: string };
+
+const AUDIT_TONE: Record<string, string> = {
+  APPROVED: "approved",
+  SELF_APPROVED_SOLO: "approved",
+  SUBMITTED: "review",
+  REJECTED: "changes",
+  SCHEDULED: "scheduled",
+  PUBLISHED: "approved",
+  PUBLISH_FAILED: "failed",
+  ROLE_CHANGED: "review",
+  MEMBER_REMOVED: "failed",
+};
 
 const ZONES = ["Europe/Oslo", "Europe/London", "Europe/Paris", "Europe/Berlin", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Australia/Sydney", "UTC"];
 
@@ -31,12 +46,14 @@ export function SettingsShell({
   role,
   connections,
   aiConfigured,
+  audit,
 }: {
   profile: { name: string; email: string; timezone: string };
   workspaceName: string;
   role: string;
   connections: Connection[];
   aiConfigured: boolean;
+  audit: AuditRowView[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("profile");
@@ -201,6 +218,50 @@ export function SettingsShell({
           <a href="/socialork/settings/ai" className="so-btn" style={{ justifySelf: "start", textDecoration: "none" }}>
             Manage AI keys
           </a>
+        </section>
+      ) : null}
+
+      {tab === "audit" ? (
+        <section className="so-card">
+          <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}>
+            <div className="so-row">
+              <span className="so-stat-label">Audit trail · append-only</span>
+              <span className="so-mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text3)" }}>
+                {audit.length} events
+              </span>
+            </div>
+          </div>
+          {audit.length === 0 ? (
+            <div className="so-empty">
+              Nothing recorded yet. Submitting, approving, rejecting or scheduling a post writes a row here.
+            </div>
+          ) : (
+            <table className="so-table">
+              <thead>
+                <tr><th>Time</th><th>Action</th><th>Actor</th><th>Subject</th><th>IP</th></tr>
+              </thead>
+              <tbody>
+                {audit.map((row) => (
+                  <tr key={row.id}>
+                    <td className="so-mono" style={{ whiteSpace: "nowrap", color: "var(--text2)" }}>
+                      {new Date(row.when).toLocaleString("en-GB", {
+                        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                        timeZone: timezone || "Europe/Oslo",
+                      })}
+                    </td>
+                    <td>
+                      <span className="so-pill" data-tone={AUDIT_TONE[row.action] ?? undefined}>
+                        {row.action.toLowerCase().replace(/_/g, " ")}
+                      </span>
+                    </td>
+                    <td style={{ color: "var(--text2)" }}>{row.actor}</td>
+                    <td className="so-mono" style={{ color: "var(--text3)" }}>{row.subject}</td>
+                    <td className="so-mono" style={{ color: "var(--text3)" }}>{row.ip}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
       ) : null}
 

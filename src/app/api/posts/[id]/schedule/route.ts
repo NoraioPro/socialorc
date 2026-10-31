@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requeueJobData } from "@/lib/jobs/pending-publish";
 import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
+import { clientIp, recordAudit } from "@/lib/audit";
 import {
   ACCOUNT_PLATFORM_MISMATCH_CODE,
   accountPlatformMismatch,
@@ -138,6 +139,21 @@ export async function POST(
         { status: POST_CONFLICT_STATUS }
       );
     }
+
+    const actor = await prisma.user.findUnique({
+      where: { id: guard.userId },
+      select: { name: true, email: true },
+    });
+    await recordAudit({
+      workspaceId: guard.workspaceId,
+      actorId: guard.userId,
+      actorLabel: actor?.name ?? actor?.email ?? null,
+      action: "SCHEDULED",
+      subjectType: "POST",
+      subjectId: id,
+      detail: { title: scheduled?.title, platform: scheduled?.platform, scheduledFor: scheduledFor.toISOString() },
+      ip: clientIp(req.headers),
+    });
 
     return NextResponse.json({
       success: true,
