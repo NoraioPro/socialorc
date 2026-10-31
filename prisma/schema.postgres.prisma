@@ -152,6 +152,7 @@ model Brain {
 
   @@index([userId])
   @@index([workspaceId])
+  posts          Post[]
 }
 
 model VerificationToken {
@@ -295,6 +296,12 @@ model Post {
   @@index([platform])
   @@index([scheduledFor])
   @@index([socialAccountId])
+  /// The brand (brain) this post belongs to. Content is scoped by it inside the
+  /// workspace; a post cannot change brand after it is approved.
+  brainId         String?
+
+  brain           Brain?        @relation(fields: [brainId], references: [id], onDelete: SetNull)
+  @@index([brainId])
 }
 
 model FeedReaction {
