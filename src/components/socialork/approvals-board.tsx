@@ -35,6 +35,8 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
   const [tab, setTab] = useState("review");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [reviewLink, setReviewLink] = useState<{ postId: string; url: string } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const counts = useMemo(
     () =>
@@ -53,6 +55,24 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
         : true,
     );
   const current = rows.find((p) => p.id === selected) ?? rows[0] ?? null;
+
+  /** Mint a signed, account-free review link for the selected post. */
+  const mintLink = async (postId: string) => {
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`/api/posts/${postId}/review-link`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) return;
+      setReviewLink({ postId, url: data.url });
+      try {
+        await navigator.clipboard.writeText(data.url);
+      } catch {
+        /* clipboard may be blocked; the URL is shown either way */
+      }
+    } finally {
+      setLinkBusy(false);
+    }
+  };
 
   return (
     <>
@@ -140,6 +160,22 @@ export function ApprovalsBoard({ posts }: { posts: ApprovalPost[] }) {
               </div>
               <div className="so-divider" />
               <PostActions id={current.id} status={current.status} />
+
+              <div style={{ display: "grid", gap: 6 }}>
+                <button className="so-btn" style={{ height: 28, justifyContent: "center" }}
+                  onClick={() => void mintLink(current.id)} disabled={linkBusy}>
+                  {linkBusy ? "Creating link…" : "Copy client review link"}
+                </button>
+                {reviewLink && reviewLink.postId === current.id ? (
+                  <span className="so-mono" style={{ fontSize: 10, color: "var(--text3)", wordBreak: "break-all" }}>
+                    {reviewLink.url}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                    A signed link, valid 72 hours, no account — the client can approve or ask for changes.
+                  </span>
+                )}
+              </div>
               {current.url ? <a href={current.url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Open on the platform</a> : null}
             </>
           ) : (
