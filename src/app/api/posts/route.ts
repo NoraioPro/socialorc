@@ -119,6 +119,18 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
+      // A connection is personal unless its owner shared it with the workspace.
+      if (account.userId !== guard.userId && account.visibility !== "WORKSPACE") {
+        return NextResponse.json(
+          {
+            error:
+              "That account is private to another member. Ask them to share it with the workspace first.",
+            code: "ACCOUNT_NOT_SHARED",
+          },
+          { status: 403 },
+        );
+      }
+
       if (accountPlatformMismatch(platform, account)) {
         return NextResponse.json(
           {
@@ -129,10 +141,21 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      const account = await prisma.socialAccount.findFirst({
-        where: { workspaceId: guard.workspaceId, platform, isActive: true },
-        orderBy: { createdAt: "asc" },
-      });
+      // Prefer the caller's own connection; fall back to one the team shared.
+      const account =
+        (await prisma.socialAccount.findFirst({
+          where: { userId: guard.userId, platform, isActive: true },
+          orderBy: { createdAt: "asc" },
+        })) ??
+        (await prisma.socialAccount.findFirst({
+          where: {
+            workspaceId: guard.workspaceId,
+            platform,
+            isActive: true,
+            visibility: "WORKSPACE",
+          },
+          orderBy: { createdAt: "asc" },
+        }));
       resolvedAccountId = account?.id;
     }
 

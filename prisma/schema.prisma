@@ -222,6 +222,11 @@ model SocialAccount {
   @@index([brainId])
   @@index([platform])
   @@index([workspaceId])
+  /// Who may publish through this connection:
+  ///   PRIVATE   — only the member who connected it (personal accounts)
+  ///   WORKSPACE — any member holding posts:create (brand pages, team channels)
+  visibility      String   @default("PRIVATE")
+
 }
 
 enum Platform {

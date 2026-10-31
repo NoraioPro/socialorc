@@ -9,6 +9,7 @@
 import prisma from "@/lib/prisma";
 import { tenantForUser, type TenantContext } from "@/lib/tenancy/guard";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { getAdapter } from "@/lib/adapters";
 import type { Platform, PostStatus } from "@prisma/client";
 
 export type MaybeTenant = TenantContext | null;
@@ -143,19 +144,45 @@ export async function getAccounts(tenant: TenantContext) {
     select: {
       id: true, platform: true, platformUsername: true, isActive: true,
       needsReconnect: true, lastError: true, createdAt: true,
+      userId: true, visibility: true,
+      user: { select: { name: true, email: true } },
     },
     orderBy: { createdAt: "asc" },
   });
 }
 
+/** Accounts the caller may publish through: their own, plus what the team shared. */
+export async function getUsableAccounts(tenant: TenantContext) {
+  const all = await getAccounts(tenant);
+  return all
+    .filter((a) => a.userId === tenant.userId || a.visibility === "WORKSPACE")
+    .map((a) => ({
+      id: a.id,
+      platform: a.platform,
+      handle: a.platformUsername,
+      owner: a.userId === tenant.userId ? "you" : (a.user?.name ?? a.user?.email ?? "a teammate"),
+      shared: a.visibility === "WORKSPACE",
+    }));
+}
+
+/**
+ * What the Inbox can honestly do for a platform.
+ *
+ * Derived from the adapter that will actually run, not from a declared flag: a
+ * channel with publish support but no comment methods must not advertise
+ * "Read and reply" in the inbox.
+ */
 export function capabilityLabel(platform: Platform): string {
-  const cfg = PLATFORM_CONFIGS[platform];
-  const c = cfg?.capabilities;
-  if (!c) return "Not available";
-  if (c.directMessages && c.mentions) return "Read and reply";
-  if (c.mentions) return "Read only";
-  if (c.text) return "Read";
-  return "Not available";
+  try {
+    const adapter = getAdapter(platform) as unknown as Record<string, unknown>;
+    const canRead = typeof adapter.listComments === "function";
+    const canReply = typeof adapter.replyToComment === "function";
+    if (canRead && canReply) return "Read and reply";
+    if (canRead) return "Read only";
+    return "Publish only";
+  } catch {
+    return PLATFORM_CONFIGS[platform]?.capabilities?.text ? "Publish only" : "Not available";
+  }
 }
 
 export async function getInsights(tenant: TenantContext) {

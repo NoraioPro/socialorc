@@ -22,7 +22,9 @@ const PLATFORMS = [
 type Brain = { id: string; name: string; isDefault: boolean };
 type Variant = { platform: string; title?: string | null; content: string; usedMock?: boolean; model?: string };
 
-export function ComposeForm() {
+type AccountOption = { id: string; platform: string; handle: string | null; owner: string; shared: boolean };
+
+export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   const router = useRouter();
   const [brains, setBrains] = useState<Brain[]>([]);
   const [brainId, setBrainId] = useState<string>("");
@@ -31,6 +33,7 @@ export function ComposeForm() {
   const [body, setBody] = useState("");
   const [tone, setTone] = useState("professional");
   const [picked, setPicked] = useState<string[]>(["LINKEDIN"]);
+  const [accountId, setAccountId] = useState<string>("");
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -168,6 +171,8 @@ export function ComposeForm() {
             title: brief.trim() ? brief.trim().slice(0, 90) : undefined,
             content: text,
             platform,
+            socialAccountId:
+              accounts.find((a) => a.id === accountId && a.platform === platform)?.id ?? undefined,
             mediaAssetIds: media.map((m) => m.id),
           }),
         });
@@ -285,6 +290,21 @@ export function ComposeForm() {
               ))}
             </select>
           </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="account">Publish as</label>
+          <select id="account" value={accountId} onChange={(e) => setAccountId(e.target.value)} style={field}>
+            <option value="">Each channel&apos;s default (mine, else the team&apos;s)</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.platform} · {a.handle ?? "connected"} · {a.owner}{a.shared ? " · shared" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+            Your own connections, plus any the team shared. A personal account is never used by someone else.
+          </span>
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>

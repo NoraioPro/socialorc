@@ -14,6 +14,7 @@ type Connection = {
   platform: string; name: string; handle: string | null; capability: string;
   state: "connected" | "reconnect" | "missing";
   configured?: boolean; missing?: string[]; redirectUri?: string | null;
+  accountId?: string | null; owner?: string | null; visibility?: string | null;
 };
 
 const TABS = [
@@ -200,8 +201,35 @@ export function SettingsShell({
                   <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
                     {c.handle ? `@${c.handle}` : "not connected"}
                   </span>
+                  {c.owner ? (
+                    <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                      {c.owner === "you" ? "yours" : `by ${c.owner}`}
+                    </span>
+                  ) : null}
                   <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                     <span className="so-pill">{c.capability}</span>
+                    {c.accountId ? (
+                      <select
+                        value={c.visibility ?? "PRIVATE"}
+                        onChange={async (e) => {
+                          const next = e.target.value;
+                          await fetch(`/api/accounts/${c.accountId}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ visibility: next }),
+                          });
+                          window.location.reload();
+                        }}
+                        title="Who may publish through this connection"
+                        style={{
+                          height: 24, borderRadius: 6, border: "1px solid var(--line2)",
+                          background: "var(--panel2)", color: "var(--text2)", fontSize: 10.5, padding: "0 5px",
+                        }}
+                      >
+                        <option value="PRIVATE">only me</option>
+                        <option value="WORKSPACE">workspace</option>
+                      </select>
+                    ) : null}
                     {c.state === "reconnect" ? (
                       <ConnectButton platform={c.platform} label="Reconnect" />
                     ) : c.state === "connected" ? (

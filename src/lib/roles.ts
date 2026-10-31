@@ -90,7 +90,9 @@ const MATRIX: Record<Permission, readonly Role[]> = {
   "posts:approve": ["ADMIN", "MANAGER"],
   "posts:schedule": ["ADMIN", "MANAGER"],
   "posts:delete": ["ADMIN"],
-  "accounts:connect": ["ADMIN", "MANAGER"],
+  // Anyone who can write can connect their OWN account; ownership is enforced by
+  // the connection itself (SocialAccount.userId) and by visibility for sharing.
+  "accounts:connect": ["ADMIN", "MANAGER", "EDITOR"],
   "media:upload": ["ADMIN", "MANAGER", "EDITOR"],
   "media:delete": ["ADMIN", "MANAGER"],
   "brains:read": ROLES,
