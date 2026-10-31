@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import { formatWhen, getPublishing, relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { PostActions } from "@/components/socialork/post-actions";
+import { PublishCalendar } from "@/components/socialork/publish-calendar";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,15 @@ export default async function PublishingPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
-  const { upcoming, failed, published, jobs } = await getPublishing(tenant);
+  const { upcoming, failed, published, jobs, approved } = await getPublishing(tenant);
+
+  const calendarItems = [
+    ...upcoming.map((p) => ({ id: p.id, title: p.title, platform: p.platform, when: (p.scheduledFor ?? p.createdAt).toISOString() })),
+  ];
+  const trayItems = approved.map((p) => ({ id: p.id, title: p.title, platform: p.platform, when: p.createdAt.toISOString() }));
 
   return (
-    <div className="so-page">
+    <div className="so-page" data-wide="true">
       <div className="so-spread">
         <div style={{ display: "grid", gap: 6 }}>
           <h1 className="so-h1">Publishing</h1>
@@ -30,6 +36,8 @@ export default async function PublishingPage() {
           <span className="so-pill">{published.length} published</span>
         </div>
       </div>
+
+      <PublishCalendar scheduled={calendarItems} approved={trayItems} />
 
       <section className="so-card">
         <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}>

@@ -133,7 +133,8 @@ export async function getPublishing(tenant: TenantContext) {
       },
     }),
   ]);
-  return { upcoming, failed, published, jobs };
+  const approved = await listPosts(tenant, ["APPROVED"], 40);
+  return { upcoming, failed, published, jobs, approved };
 }
 
 export async function getAccounts(tenant: TenantContext) {

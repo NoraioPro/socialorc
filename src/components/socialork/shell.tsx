@@ -52,6 +52,7 @@ export function Shell({
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [viewAs, setViewAs] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const nav: { label?: string; items: NavItem[] }[] = [
@@ -198,11 +199,43 @@ export function Shell({
             <span className="so-kbd">⌘K</span>
           </button>
 
-          <span className="so-viewas">
+          <label className="so-viewas" style={{ cursor: "pointer" }}>
             View as
-            <span className="so-pill" data-tone="approved" style={{ textTransform: "none" }}>{role.toLowerCase()}</span>
-          </span>
+            <select
+              value={viewAs ?? role.toUpperCase()}
+              onChange={(e) => setViewAs(e.target.value === role.toUpperCase() ? null : e.target.value)}
+              style={{
+                height: 24, borderRadius: 7, border: "1px solid var(--line2)", background: "var(--panel2)",
+                color: "var(--text2)", fontSize: 11.5, padding: "0 6px", fontFamily: "inherit",
+              }}
+            >
+              {["ADMIN", "MANAGER", "EDITOR", "VIEWER"].map((r) => (
+                <option key={r} value={r}>{r.toLowerCase()}</option>
+              ))}
+            </select>
+          </label>
         </header>
+
+        {viewAs ? (
+          <div
+            style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "6px 16px",
+              background: "var(--amberSoft)", color: "var(--amber)", fontSize: 11.5,
+              borderBottom: "1px solid var(--line)",
+            }}
+          >
+            <span>
+              Previewing as <b>{viewAs.toLowerCase()}</b> — this only changes the label. Permissions
+              are enforced by the server on every request, so nothing is actually hidden.
+            </span>
+            <button
+              onClick={() => setViewAs(null)}
+              style={{ marginLeft: "auto", background: "transparent", border: 0, color: "inherit", cursor: "pointer", fontSize: 11.5 }}
+            >
+              Exit preview
+            </button>
+          </div>
+        ) : null}
 
         <div className="so-scroll">{children}</div>
       </div>

@@ -103,7 +103,11 @@
 .so-scroll { flex: 1; overflow-y: auto; }
 
 /* ── page frame ──────────────────────────────────────────────────────── */
-.so-page { padding: 22px 24px 48px; max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+/* Screen rhythm taken from the handoff: padding 28/32/56, gap 16 (20 on Overview,
+   1320 wide on Publishing). Keeping it here means every screen inherits it. */
+.so-page { padding: 28px 32px 56px; max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.so-page[data-gap="20"] { gap: 20px; }
+.so-page[data-wide="true"] { max-width: 1320px; }
 .so-h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 .so-sub { margin: 0; color: var(--text2); font-size: 13px; max-width: 74ch; }
 .so-row { display: flex; align-items: center; gap: 10px; }
@@ -243,3 +247,35 @@
   .so-root *, .so-root *::before, .so-root *::after { animation: none !important; transition: none !important; }
 }
 
+
+/* ── sign in (handoff: split screen, brand left, form right) ───────────── */
+.so-signin {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 100dvh; background: var(--bg, #0b0b0e); color: var(--text, #ededf1);
+  font-family: var(--font-hanken), system-ui, sans-serif; font-size: 13px;
+}
+.so-signin-brand {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
+  padding: 48px; border-right: 1px solid rgba(255,255,255,0.07);
+  background: radial-gradient(closest-side at 30% 20%, rgba(72,237,133,0.10), transparent 70%), #0f0f13;
+}
+.so-signin-form { display: grid; place-items: center; padding: 48px; }
+.so-signin-card {
+  width: 100%; max-width: 360px; display: grid; gap: 14px;
+  background: #131317; border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; padding: 24px;
+}
+.so-signin :is(a) { color: #48ed85; text-decoration: none; }
+.so-signin :is(a):hover { text-decoration: underline; }
+.so-signin :is(.so-btn) { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,0.13); background: #1b1b21;
+  color: #ededf1; font-size: 12.5px; font-weight: 500; cursor: pointer; padding: 0 12px; }
+.so-signin :is(.so-btn)[data-variant="primary"] { background: #48ed85; border-color: #48ed85; color: #06140b; font-weight: 600; }
+.so-signin :is(.so-stat-label) { font: 500 10px var(--font-plex-mono), monospace; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #7c7c87; }
+.so-signin :is(.so-mono) { font-family: var(--font-plex-mono), monospace; }
+.so-signin :is(.so-row) { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 900px) {
+  .so-signin { grid-template-columns: minmax(0, 1fr); }
+  .so-signin-brand { padding: 28px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .so-signin-form { padding: 28px; }
+}

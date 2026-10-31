@@ -40,7 +40,7 @@ export default async function OverviewPage() {
   const needsYou = overview.recent.filter((p) => p.status === "PENDING_APPROVAL" || p.status === "FAILED");
 
   return (
-    <div className="so-page">
+    <div className="so-page" data-gap="20">
       <div className="so-hero">
       <div style={{ display: "grid", gap: 16 }}>
       <div className="so-spread">
