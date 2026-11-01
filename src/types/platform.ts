@@ -581,7 +581,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "Carousels: 2–10 JPEG images (no video items yet)",
       "100 API-published posts per 24 hours limit",
       "JPEG only for images (no PNG/WebP)",
-      "Comment moderation requires instagram_manage_comments (reconnect after scope change)",
+      "Comment moderation is not available: Meta rejects instagram_manage_comments for this app",
       "Instagram does not expose liking arbitrary media via Graph API",
     ],
   },
