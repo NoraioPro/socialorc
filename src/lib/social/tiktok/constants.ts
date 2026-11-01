@@ -47,7 +47,6 @@ export const TIKTOK_SCOPES = {
 /** What we ask for at connect time, most privileged last. */
 export const TIKTOK_REQUESTED_SCOPES = [
   TIKTOK_SCOPES.basic,
-  TIKTOK_SCOPES.profile,
   TIKTOK_SCOPES.upload,
   TIKTOK_SCOPES.publish,
 ] as const;
