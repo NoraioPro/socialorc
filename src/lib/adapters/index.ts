@@ -3,6 +3,7 @@ import { PlatformAdapter, PlatformCapabilities, PlatformConfig, PLATFORM_CONFIGS
 import { linkedInAdapter } from "./linkedin";
 import { twitterAdapter } from "./twitter";
 import { instagramAdapter } from "./instagram";
+import { instagramLoginAdapter, isInstagramLoginConfigured } from "./instagram-login";
 import { facebookAdapter } from "./facebook";
 import { tiktokAdapter } from "./tiktok";
 import { youtubeAdapter } from "./youtube";
@@ -52,8 +53,26 @@ export function isMockAdapterAllowed(): boolean {
  * - Otherwise the real adapter is returned — even when unconfigured, so the
  *   caller can report exactly what is missing instead of quietly succeeding.
  */
+/**
+ * Instagram has two publishing APIs and the credential decides which one runs:
+ *
+ * - `INSTAGRAM_LOGIN_APP_ID` set  → Instagram Login: the user authorises on
+ *   instagram.com and publishes without any Facebook Page (`instagram-login.ts`).
+ * - not set                        → the Facebook-Login flavour this project has
+ *   always used, which needs a Page (`instagram.ts`).
+ *
+ * Keeping the choice here means the callback route, the worker and the UI never
+ * need to know which flavour is active.
+ */
+function adapterFor(platform: Platform): PlatformAdapter {
+  if (platform === Platform.INSTAGRAM && isInstagramLoginConfigured()) {
+    return instagramLoginAdapter;
+  }
+  return adapters[platform];
+}
+
 export function getAdapter(platform: Platform, options?: { useMockIfUnconfigured?: boolean }): PlatformAdapter {
-  const adapter = adapters[platform];
+  const adapter = adapterFor(platform);
   if (!adapter) {
     throw new Error(`No adapter found for platform: ${platform}`);
   }
