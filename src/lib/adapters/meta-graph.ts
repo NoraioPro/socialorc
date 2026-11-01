@@ -119,6 +119,16 @@ export async function fetchManagedPages(userToken: string, fields: string): Prom
       const formatted = formatGraphError(body, "Failed to get Facebook Pages");
       throw new AdapterError(formatted.message, "PAGES_FETCH_FAILED", response.status, body);
     }
+    if (!body.data || body.data.length === 0) {
+      // "pages=0" on its own cannot be diagnosed: it means either the grant
+      // carries no Page access, or the Pages live in a business portfolio the
+      // token may not read without business_management. Log the shape of the
+      // answer, never the token.
+      console.warn(
+        "[meta] /me/accounts returned no pages (page " +
+          `${i + 1}, body keys: ${Object.keys(body).join(",") || "none"})`,
+      );
+    }
     pages.push(...(body.data ?? []));
     url = body.paging?.next ?? null;
   }

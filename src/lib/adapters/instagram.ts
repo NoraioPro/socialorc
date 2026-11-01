@@ -85,7 +85,7 @@ export class InstagramAdapter extends BasePlatformAdapter {
         // instagram_manage_comments is not available to this app: Meta answers
         // "Invalid Scopes: instagram_manage_comments" and aborts the whole dialog
         // (observed 2026-11-01), so the callback never receives a code.
-        "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
+        "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list,business_management",
       response_type: "code",
     });
 
