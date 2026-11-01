@@ -8,6 +8,7 @@ import { SettingsShell } from "@/components/socialork/settings-shell";
 import { readinessReport } from "@/lib/social/readiness";
 import { overridesForCurrentUser, withPlatformEnv } from "@/lib/platform-env";
 import { recentAudit } from "@/lib/audit";
+import { can, parseRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,7 @@ export default async function SettingsPage() {
         }}
         workspaceName={workspace?.name ?? "Workspace"}
         role={String(tenant.role)}
+        canConfigure={can(parseRole(String(tenant.role)), "brains:manage")}
         connections={connections}
         aiConfigured={Boolean(key)}
         audit={audit.map((a) => ({

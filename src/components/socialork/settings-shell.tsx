@@ -52,6 +52,7 @@ export function SettingsShell({
   connections,
   aiConfigured,
   audit,
+  canConfigure,
 }: {
   profile: { name: string; email: string; timezone: string; headline: string; bio: string; location: string; website: string };
   workspaceName: string;
@@ -59,6 +60,13 @@ export function SettingsShell({
   connections: Connection[];
   aiConfigured: boolean;
   audit: AuditRowView[];
+  /**
+   * Whether the signed-in person may see *how* a channel is configured. Env
+   * variable names, redirect URIs and "set this in the deployment" are operator
+   * instructions, not product copy: a reader who cannot act on them should see
+   * "not available yet", not a developer checklist.
+   */
+  canConfigure: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("profile");
@@ -256,7 +264,9 @@ export function SettingsShell({
                     ) : c.state === "connected" ? (
                       <span className="so-pill" data-tone="approved">Connected</span>
                     ) : c.configured === false ? (
-                      <span className="so-pill" data-tone="review">Needs setup</span>
+                      <span className="so-pill" data-tone="review">
+                        {canConfigure ? "Needs setup" : "Not available yet"}
+                      </span>
                     ) : c.platform === "TELEGRAM" ? (
                       <TelegramConnectForm />
                     ) : (
@@ -265,16 +275,24 @@ export function SettingsShell({
                   </span>
                 </div>
                 {c.state === "missing" && c.configured === false ? (
-                  <div style={{ padding: "0 16px 10px", display: "grid", gap: 3 }}>
-                    <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                      add {c.missing?.length ? c.missing.join(", ") : "the platform credentials"} under App credentials for this workspace, or set them in the deployment env
-                    </span>
-                    {c.redirectUri ? (
+                  canConfigure ? (
+                    <div style={{ padding: "0 16px 10px", display: "grid", gap: 3 }}>
                       <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                        redirect URI · {c.redirectUri}
+                        add {c.missing?.length ? c.missing.join(", ") : "the platform credentials"} under App credentials for this workspace, or set them in the deployment env
                       </span>
-                    ) : null}
-                  </div>
+                      {c.redirectUri ? (
+                        <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                          redirect URI · {c.redirectUri}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div style={{ padding: "0 16px 10px" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
+                        This channel is not enabled for your workspace yet. Ask a workspace admin.
+                      </span>
+                    </div>
+                  )
                 ) : null}
               </div>
             ))}
@@ -357,8 +375,9 @@ export function SettingsShell({
       ) : null}
 
       <div className="so-frame" style={{ maxWidth: 620 }}>
-        Workspace · {workspaceName}. Profile changes are audited; connection credentials live in the
-        deployment environment and are never shown here.
+        Workspace · {workspaceName}. Profile changes are audited. App credentials are stored
+        encrypted per workspace and are never shown again after saving; the deployment app is only
+        the fallback.
       </div>
     </>
   );
