@@ -375,9 +375,10 @@ export function SettingsShell({
       ) : null}
 
       <div className="so-frame" style={{ maxWidth: 620 }}>
-        Workspace · {workspaceName}. Profile changes are audited. App credentials are stored
-        encrypted per workspace and are never shown again after saving; the deployment app is only
-        the fallback.
+        Workspace · {workspaceName}. Profile changes are audited.
+        {canConfigure
+          ? " App credentials are stored encrypted per workspace and are never shown again after saving; the deployment app is only the fallback."
+          : null}
       </div>
     </>
   );
