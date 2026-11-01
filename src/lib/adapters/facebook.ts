@@ -68,7 +68,7 @@ export class FacebookAdapter extends BasePlatformAdapter {
       // them aborts the whole dialog with "Invalid Scopes: ..." and the user
       // never reaches the consent screen (observed 2026-11-01). Comment and like
       // actions therefore run on pages_manage_posts alone.
-      scope: "pages_show_list,pages_read_engagement,pages_manage_posts",
+      scope: "pages_show_list,pages_read_engagement,pages_manage_posts,business_management",
       response_type: "code",
     });
 
