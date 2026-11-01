@@ -20,13 +20,23 @@ export function PostActions({ id, status, compact = false }: Props) {
   const [reason, setReason] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const [when, setWhen] = useState("");
+  // A scheduled post used to offer only "Publish now": no way to move it to a
+  // different time and no way to pull it back to Approved without opening the
+  // draft. Both routes already existed; nothing called them.
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [newWhen, setNewWhen] = useState("");
 
-  const call = async (label: string, path: string, body?: unknown) => {
+  const call = async (
+    label: string,
+    path: string,
+    body?: unknown,
+    method: "POST" | "PATCH" | "DELETE" = "POST",
+  ) => {
     setBusy(label);
     setError(null);
     try {
       const res = await fetch(path, {
-        method: "POST",
+        method,
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body ?? {}),
       });
@@ -97,14 +107,33 @@ export function PostActions({ id, status, compact = false }: Props) {
         ) : null}
 
         {status === "SCHEDULED" ? (
-          <button
-            className="so-btn"
-            style={size}
-            disabled={disabled}
-            onClick={() => call("publish", `/api/posts/${id}/publish`, { confirm: true })}
-          >
-            {busy === "publish" ? "Publishing…" : "Publish now"}
-          </button>
+          <>
+            <button
+              className="so-btn"
+              style={size}
+              disabled={disabled}
+              onClick={() => setShowReschedule((v) => !v)}
+            >
+              Reschedule
+            </button>
+            <button
+              className="so-btn"
+              style={size}
+              disabled={disabled}
+              onClick={() => call("unschedule", `/api/posts/${id}/schedule`, undefined, "DELETE")}
+            >
+              {busy === "unschedule" ? "Unschedule…" : "Unschedule"}
+            </button>
+            <button
+              className="so-btn"
+              data-variant="primary"
+              style={size}
+              disabled={disabled}
+              onClick={() => call("publish", `/api/posts/${id}/publish`, { confirm: true })}
+            >
+              {busy === "publish" ? "Publishing…" : "Publish now"}
+            </button>
+          </>
         ) : null}
 
         {status === "FAILED" ? (
@@ -175,6 +204,38 @@ export function PostActions({ id, status, compact = false }: Props) {
             }}
           >
             {busy === "schedule" ? "Saving…" : "Confirm"}
+          </button>
+        </div>
+      ) : null}
+
+      {showReschedule ? (
+        <div className="so-row" style={{ gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <input
+            type="datetime-local"
+            value={newWhen}
+            onChange={(e) => setNewWhen(e.target.value)}
+            aria-label="New schedule time"
+            style={{
+              height: 28, padding: "0 8px", borderRadius: 7, border: "1px solid var(--line2)",
+              background: "var(--panel2)", color: "var(--text)", fontSize: 12,
+            }}
+          />
+          <button
+            className="so-btn"
+            data-variant="primary"
+            style={size}
+            disabled={disabled || !newWhen}
+            onClick={async () => {
+              const ok = await call(
+                "reschedule",
+                `/api/posts/${id}/reschedule`,
+                { scheduledFor: new Date(newWhen).toISOString() },
+                "PATCH",
+              );
+              if (ok) setShowReschedule(false);
+            }}
+          >
+            {busy === "reschedule" ? "Saving…" : "Move"}
           </button>
         </div>
       ) : null}
