@@ -42,8 +42,8 @@ const defaultDeps: OAuthCallbackDeps = {
 /** Shown when a grant covers nothing this connector can publish to. */
 export function noTargetMessage(platform: Platform): string {
   return platform === Platform.INSTAGRAM
-    ? "No Instagram professional account linked to a Facebook Page you manage was found for this login."
-    : "No Facebook Page you can publish to was found for this login.";
+    ? "No Instagram professional account linked to a Facebook Page you manage was found. Instagram publishing runs through a Page: make sure you are an Admin or Editor of a Facebook Page, that the Page is ticked in the Facebook dialog, and that your Instagram account is a Business or Creator account linked to that Page."
+    : "No Facebook Page you can publish to was found for this login. Meta only lets an app publish to a Page you are an Admin or Editor of: check facebook.com/pages, then tick the Page when Facebook asks which Pages to share.";
 }
 
 /**

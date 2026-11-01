@@ -87,6 +87,17 @@ export class FacebookAdapter extends BasePlatformAdapter {
   /** Pages this grant can publish to — one per entry, chosen by the user when there are several. */
   async listConnectTargets(userToken: string): Promise<ConnectTarget[]> {
     const pages = await fetchManagedPages(userToken, PAGE_FIELDS);
+    // Diagnostic for the "no Page found" dead end: an operator needs to know
+    // whether the grant saw no Page at all, or saw Pages it may not publish to.
+    if (pages.length === 0) {
+      console.warn("[facebook] listConnectTargets: the grant returned 0 Pages");
+    } else if (pages.filter(publishablePage).length === 0) {
+      console.warn(
+        `[facebook] listConnectTargets: ${pages.length} Page(s) returned, none publishable (tasks: ${pages
+          .map((p) => (Array.isArray(p.tasks) ? p.tasks.join("/") : "none"))
+          .join(" | ")})`,
+      );
+    }
     return pages.filter(publishablePage).map((page) => ({
       id: page.id,
       name: page.name,
