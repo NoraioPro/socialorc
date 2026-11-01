@@ -634,7 +634,7 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
       "Requires pages_manage_posts permission",
       "App Review required for non-owned Pages",
       "Business Verification required for Advanced Access",
-      "Comment and like actions require pages_manage_engagement (reconnect after scope change)",
+      "Comment and like actions are not available: Meta removed pages_manage_engagement from Facebook Login",
     ],
   },
   TIKTOK: {
