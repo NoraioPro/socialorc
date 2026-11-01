@@ -104,6 +104,13 @@ export class InstagramAdapter extends BasePlatformAdapter {
   /** Instagram professional accounts linked to a Page this grant manages. */
   async listConnectTargets(userToken: string): Promise<ConnectTarget[]> {
     const pages = await fetchManagedPages(userToken, IG_PAGE_FIELDS);
+    const linked = pages.filter((p) => p.instagram_business_account?.id).length;
+    // "No professional account linked to a Page you manage" has three very
+    // different causes: no Page, a Page with no linked Instagram account, or an
+    // account the grant cannot see. The log says which one happened.
+    console.warn(
+      `[instagram] listConnectTargets: pages=${pages.length} linkedInstagramAccounts=${linked}`,
+    );
     const seen = new Set<string>();
     const targets: ConnectTarget[] = [];
     for (const page of pages) {
