@@ -63,8 +63,12 @@ export class FacebookAdapter extends BasePlatformAdapter {
       client_id: metaAppId(),
       redirect_uri: this.getRedirectUri(),
       state,
-      scope:
-        "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,pages_manage_engagement",
+      // Only the scopes Meta still accepts. `pages_manage_metadata` and
+      // `pages_manage_engagement` were removed from Facebook Login; requesting
+      // them aborts the whole dialog with "Invalid Scopes: ..." and the user
+      // never reaches the consent screen (observed 2026-11-01). Comment and like
+      // actions therefore run on pages_manage_posts alone.
+      scope: "pages_show_list,pages_read_engagement,pages_manage_posts",
       response_type: "code",
     });
 
