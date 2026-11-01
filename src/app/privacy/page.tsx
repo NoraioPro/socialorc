@@ -140,14 +140,53 @@ export default function PrivacyPage() {
         against tampering. There is no advertising or cross-site tracking cookie.
       </P>
 
-      <H2>8. Children</H2>
+      <H2>8. Google API Services (YouTube)</H2>
+      <P>
+        When you connect a YouTube channel, SocialOrk asks Google for three permissions
+        and no others: <strong>youtube.upload</strong> (upload a video you created to
+        your own channel), <strong>youtube.readonly</strong> (show which channel is
+        connected and confirm an upload landed) and <strong>youtube.force-ssl</strong>{" "}
+        (read back the status of the published video so we can report success or
+        failure accurately).
+      </P>
+      <P>
+        That data is used only to perform the action you asked for. It is never sold,
+        never shared with advertisers or data brokers, never used for ad targeting, and
+        never used to train or improve any machine-learning model. It is transferred
+        only to Google, as the destination of the upload you requested.
+      </P>
+      <P>
+        SocialOrk&apos;s use and transfer of information received from Google APIs
+        adheres to the{" "}
+        <a
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          style={{ color: "#1b1b1f" }}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Google API Services User Data Policy
+        </a>
+        , including the <strong>Limited Use</strong> requirements. You can revoke
+        access at any time at{" "}
+        <a
+          href="https://myaccount.google.com/permissions"
+          style={{ color: "#1b1b1f" }}
+          rel="noreferrer"
+          target="_blank"
+        >
+          myaccount.google.com/permissions
+        </a>
+        , or by disconnecting the channel in the product.
+      </P>
+
+      <H2>9. Children</H2>
       <P>
         SocialOrk is a business tool and is not intended for anyone under 16. We
         do not knowingly hold data belonging to children; if you believe a child
         has created an account, write to us and we will remove it.
       </P>
 
-      <H2>9. Changes</H2>
+      <H2>10. Changes</H2>
       <P>
         If this policy changes in a way that affects what we store or why, we will
         update the date at the top of this page and tell workspace owners by
