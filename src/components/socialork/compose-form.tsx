@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { mediaProblems, platformSpec } from "@/lib/social/platform-rules";
 
 const PLATFORMS = [
   { id: "LINKEDIN", name: "LinkedIn" },
@@ -316,6 +317,42 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
               </button>
             ))}
           </div>
+          {/* What the picked channels accept, before the post is written — the
+              alternative was learning it from a rejection at publish time. */}
+          {picked.length > 0 ? (
+            <ul
+              data-testid="platform-specs"
+              style={{ margin: "2px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 5 }}
+            >
+              {picked.map((id) => {
+                const spec = platformSpec(id as keyof typeof PLATFORM_CONFIGS);
+                return (
+                  <li
+                    key={id}
+                    style={{
+                      display: "grid",
+                      gap: 2,
+                      borderLeft: "2px solid var(--line2)",
+                      paddingLeft: 9,
+                    }}
+                  >
+                    <span style={{ fontSize: 11.5, color: "var(--text2)" }}>
+                      <strong style={{ color: "var(--text)" }}>{spec.name}</strong> — {spec.summary}
+                    </span>
+                    <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                      {spec.media}
+                      {spec.maxCaption ? ` · caption up to ${spec.maxCaption.toLocaleString()} characters` : ""}
+                    </span>
+                    {spec.rules.map((rule) => (
+                      <span key={rule} className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+                        · {rule}
+                      </span>
+                    ))}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
         </div>
 
         <div style={{ display: "grid", gap: 6 }}>
@@ -408,6 +445,20 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
               {mediaRequiredMissing.map((id) => PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id).join(", ")} needs an image or video before it can publish.
             </span>
           ) : null}
+          {/* Rejections the adapter would produce, said before publishing. */}
+          {picked
+            .flatMap((id) =>
+              mediaProblems(id as keyof typeof PLATFORM_CONFIGS, media).map((problem) => ({ id, problem })),
+            )
+            .map(({ id, problem }) => (
+              <span
+                key={`${id}-${problem}`}
+                data-testid="media-problem"
+                style={{ fontSize: 11.5, color: "var(--amber)" }}
+              >
+                {problem}
+              </span>
+            ))}
         </div>
 
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
