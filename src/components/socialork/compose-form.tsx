@@ -39,6 +39,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
   const [genBusy, setGenBusy] = useState(false);
+  const [imgPrompt, setImgPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,15 +139,18 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
    * away — the route stores it as a media asset, so it uploads nothing.
    */
   const generateImage = async () => {
-    const prompt = window.prompt("Describe the image to generate:");
-    if (!prompt || !prompt.trim()) return;
+    const prompt = imgPrompt.trim();
+    if (!prompt) {
+      setError("Describe the image you want first.");
+      return;
+    }
     setGenBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/ai/images", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         id?: string;
@@ -461,6 +465,16 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
                 onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
               />
             </label>
+            <input
+              value={imgPrompt}
+              onChange={(e) => setImgPrompt(e.target.value)}
+              placeholder="Describe an image to generate…"
+              aria-label="Image prompt"
+              style={{
+                flex: "1 1 220px", minWidth: 180, height: 30, padding: "0 10px", borderRadius: 8,
+                border: "1px solid var(--line2)", background: "var(--panel2)", color: "var(--text)", fontSize: 12.5,
+              }}
+            />
             <button
               type="button"
               className="so-btn"

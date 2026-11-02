@@ -17,6 +17,12 @@ const PROVIDERS = [
   { id: "other", label: "Other (OpenAI-compatible)" },
 ];
 
+/** Only OpenAI-shaped image APIs qualify: POST {baseUrl}/images/generations. */
+const IMAGE_PROVIDERS = [
+  { id: "openai", label: "OpenAI (gpt-image-1 / dall-e-3)" },
+  { id: "other", label: "Other (OpenAI-compatible image API)" },
+];
+
 type Hint = { provider?: string; keyHint?: string; baseUrl?: string | null; model?: string | null };
 
 export default function AiKeysPage() {
@@ -101,7 +107,7 @@ export default function AiKeysPage() {
 
       <div className="so-tabs">
         {(["text", "image"] as const).map((k) => (
-          <button key={k} className="so-tab" data-active={keyKind === k} onClick={() => setKeyKind(k)}>
+          <button key={k} className="so-tab" data-active={keyKind === k} onClick={() => { setKeyKind(k); setProvider(k === "image" ? IMAGE_PROVIDERS[0].id : PROVIDERS[0].id); }}>
             {k === "text" ? "Text generation" : "Image generation"}
           </button>
         ))}
@@ -139,8 +145,14 @@ export default function AiKeysPage() {
         <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="provider">Provider</label>
           <select id="provider" value={provider} onChange={(e) => setProvider(e.target.value)} style={field}>
-            {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            {(keyKind === "image" ? IMAGE_PROVIDERS : PROVIDERS).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
+          {keyKind === "image" ? (
+            <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
+              Image keys are separate from text keys. The endpoint must accept
+              POST {"{baseUrl}"}/images/generations and return b64_json or url.
+            </span>
+          ) : null}
         </div>
 
         <div style={{ display: "grid", gap: 6 }}>
@@ -161,7 +173,7 @@ export default function AiKeysPage() {
           <div style={{ display: "grid", gap: 6 }}>
             <label className="so-stat-label" htmlFor="model">Model (optional)</label>
             <input id="model" value={model} onChange={(e) => setModel(e.target.value)}
-              placeholder="gpt-4o-mini" style={field} />
+              placeholder={keyKind === "image" ? "gpt-image-1 (or dall-e-3)" : "gpt-4o-mini"} style={field} />
           </div>
         </div>
 
