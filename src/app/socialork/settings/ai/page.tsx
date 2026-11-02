@@ -28,11 +28,13 @@ export default function AiKeysPage() {
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  // Text and image keys are separate rows: an account can bring one, or both.
+  const [keyKind, setKeyKind] = useState<"text" | "image">("text");
 
   const load = async () => {
     for (const s of ["user", "workspace"] as Scope[]) {
       try {
-        const res = await fetch(`/api/ai/credentials?scope=${s}`);
+        const res = await fetch(`/api/ai/credentials?scope=${s}&kind=${keyKind}`);
         if (!res.ok) continue;
         const data = await res.json();
         const entry =
@@ -46,7 +48,8 @@ export default function AiKeysPage() {
 
   useEffect(() => {
     void load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyKind]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +61,7 @@ export default function AiKeysPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           scope,
-          kind: "text",
+          kind: keyKind,
           provider,
           apiKey: apiKey.trim(),
           baseUrl: baseUrl.trim() || undefined,
@@ -94,6 +97,14 @@ export default function AiKeysPage() {
           Bring your own key. Generation always runs on the key its owner supplied — with no key,
           drafts are written by hand and the product says so.
         </p>
+      </div>
+
+      <div className="so-tabs">
+        {(["text", "image"] as const).map((k) => (
+          <button key={k} className="so-tab" data-active={keyKind === k} onClick={() => setKeyKind(k)}>
+            {k === "text" ? "Text generation" : "Image generation"}
+          </button>
+        ))}
       </div>
 
       <div className="so-tabs">

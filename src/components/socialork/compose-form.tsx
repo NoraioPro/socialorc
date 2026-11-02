@@ -38,6 +38,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   const [accountId, setAccountId] = useState<string>("");
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
+  const [genBusy, setGenBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +131,49 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
     }
     if (added.length) setMedia((m) => [...m, ...added]);
     setUploading(false);
+  };
+
+  /**
+   * Generate an image on the workspace/user image key and attach it straight
+   * away — the route stores it as a media asset, so it uploads nothing.
+   */
+  const generateImage = async () => {
+    const prompt = window.prompt("Describe the image to generate:");
+    if (!prompt || !prompt.trim()) return;
+    setGenBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        url?: string;
+        filename?: string;
+        mimeType?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.url) {
+        setError(data.error ?? `Image generation failed (${res.status}).`);
+        return;
+      }
+      setMedia((m) => [
+        ...m,
+        {
+          id: String(data.id ?? data.url),
+          url: String(data.url),
+          filename: data.filename ?? "ai-image.png",
+          mimeType: data.mimeType ?? "image/png",
+          devOnly: false,
+        },
+      ]);
+    } catch {
+      setError("Network error generating the image.");
+    } finally {
+      setGenBusy(false);
+    }
   };
 
   const toggle = (id: string) =>
@@ -417,6 +461,15 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
                 onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
               />
             </label>
+            <button
+              type="button"
+              className="so-btn"
+              style={{ height: 30, cursor: genBusy ? "wait" : "pointer", opacity: genBusy ? 0.6 : 1 }}
+              disabled={genBusy}
+              onClick={() => void generateImage()}
+            >
+              {genBusy ? "Generating…" : "Generate image with AI"}
+            </button>
             <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
               JPG · PNG · GIF · WebP · MP4 · MOV · WebM · up to 100MB each
             </span>
