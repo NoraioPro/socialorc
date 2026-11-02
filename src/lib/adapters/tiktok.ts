@@ -686,6 +686,51 @@ export class TikTokAdapter extends BasePlatformAdapter {
   }
 
   /**
+   * Send the video to the creator's TikTok inbox instead of posting directly.
+   *
+   * TikTok refuses Direct Post for apps that have not passed its audit
+   * (unaudited_client_can_only_post_to_private_accounts). Failing the whole job
+   * there strands the video: the inbox path (video.upload) is allowed for every
+   * app, and the creator finishes publishing inside TikTok. Returns null when the
+   * bytes or the init call are unusable, so the caller keeps the original error.
+   */
+  private async publishToInbox(
+    accessToken: string,
+    options: PostOptions,
+  ): Promise<PostResult | null> {
+    try {
+      const source = await fetchOwnMedia(options.mediaUrls?.[0] ?? "");
+      if (!source.ok) return null;
+      const bytes = new Uint8Array(await source.arrayBuffer());
+
+      const { publishId, uploadUrl } = await this.initInboxUpload({
+        accessToken,
+        sizeBytes: bytes.byteLength,
+      });
+      if (!uploadUrl) return null;
+
+      const plan = planTikTokChunks(bytes.byteLength);
+      if (!plan.ok) return null;
+      await this.uploadChunks(uploadUrl, bytes, plan.plan);
+
+      return {
+        success: true,
+        pending: true,
+        platformPostId: publishId,
+        rawResponse: {
+          publishId,
+          privacyLevel: "SELF_ONLY",
+          via: "inbox",
+          note:
+            "Video sent to the TikTok inbox (video.upload). TikTok blocks Direct Post until the app passes its audit, so the creator finishes publishing inside the TikTok app.",
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Legacy `createPost` entry point, kept for the existing publish worker.
    * New code should call `publishDirect` / `uploadDraft` with a PublishInput.
    */
@@ -776,6 +821,15 @@ export class TikTokAdapter extends BasePlatformAdapter {
       };
     } catch (error) {
       const social = error instanceof SocialError ? error : null;
+      // An unaudited app cannot Direct Post. Put the video in the creator's inbox
+      // instead of failing the job outright.
+      if (
+        social &&
+        (social.code === "SOCIAL_APP_REVIEW_REQUIRED" || social.code === "SOCIAL_PERMISSION_REQUIRED")
+      ) {
+        const inbox = await this.publishToInbox(accessToken, options);
+        if (inbox) return inbox;
+      }
       if (social) {
         return {
           success: false,
