@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { mediaProblems, platformSpec } from "@/lib/social/platform-rules";
+import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
 
 const PLATFORMS = [
   { id: "LINKEDIN", name: "LinkedIn" },
@@ -85,6 +86,24 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
     const added: typeof media = [];
     for (const file of Array.from(files)) {
       try {
+        // Vercel caps a serverless request body at 4.5MB, so anything bigger goes
+        // straight from the browser to Blob storage instead of through /api/media.
+        if (file.size > DIRECT_UPLOAD_THRESHOLD) {
+          try {
+            const direct = await uploadMediaDirect(file);
+            added.push({
+              id: direct.id,
+              url: direct.url,
+              filename: direct.filename,
+              mimeType: direct.mimeType,
+              devOnly: false,
+            });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : `Upload failed for ${file.name}.`);
+          }
+          continue;
+        }
+
         const form = new FormData();
         form.append("file", file);
         const res = await fetch("/api/media", { method: "POST", body: form });

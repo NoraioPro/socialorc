@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
 
 type Media = { id: string; url: string; mimeType: string; filename: string };
 
@@ -160,6 +161,17 @@ export function DraftEditor({
     const added: Media[] = [];
     for (const file of Array.from(files)) {
       try {
+        // Large files bypass /api/media: Vercel refuses a >4.5MB function body.
+        if (file.size > DIRECT_UPLOAD_THRESHOLD) {
+          try {
+            const direct = await uploadMediaDirect(file);
+            added.push({ id: direct.id, url: direct.url, mimeType: direct.mimeType, filename: direct.filename });
+          } catch (err) {
+            setNote({ kind: "err", text: err instanceof Error ? err.message : `Upload failed for ${file.name}.` });
+          }
+          continue;
+        }
+
         const form = new FormData();
         form.append("file", file);
         const res = await fetch("/api/media", { method: "POST", body: form });
