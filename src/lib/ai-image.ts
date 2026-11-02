@@ -105,13 +105,13 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   }
 
   const first = payload.data?.[0];
-  let bytes: Uint8Array;
+  let bytes: Buffer;
   if (first?.b64_json) {
-    bytes = new Uint8Array(Buffer.from(first.b64_json, "base64"));
+    bytes = Buffer.from(first.b64_json, "base64");
   } else if (first?.url) {
     const download = await fetch(first.url).catch(() => null);
     if (!download?.ok) throw new AiImageError("The provider returned an image URL we could not download.", "ai_image_download_failed");
-    bytes = new Uint8Array(await download.arrayBuffer());
+    bytes = Buffer.from(await download.arrayBuffer());
   } else {
     throw new AiImageError("The provider returned no image.", "ai_image_empty");
   }
@@ -119,16 +119,22 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   if (bytes.byteLength === 0) throw new AiImageError("The provider returned an empty image.", "ai_image_empty");
   if (bytes.byteLength > MAX_BYTES) throw new AiImageError("The generated image is larger than 12MB.", "ai_image_too_large");
 
+  const userId = input.scope.userId;
+  const workspaceId = input.scope.workspaceId;
+  if (!userId || !workspaceId) {
+    throw new AiImageError("A signed-in user inside a workspace is required to store a generated image.", "no_user");
+  }
+
   const filename = `ai-${Date.now()}.png`;
-  const blob = await put(`socialorc/${input.scope.userId ?? "workspace"}/${filename}`, bytes, {
+  const blob = await put(`socialorc/${userId}/${filename}`, bytes, {
     access: "public",
     contentType: "image/png",
   });
 
   const asset = await prisma.mediaAsset.create({
     data: {
-      userId: input.scope.userId ?? null,
-      workspaceId: input.scope.workspaceId ?? null,
+      userId,
+      workspaceId,
       filename,
       mimeType: "image/png",
       size: bytes.byteLength,
