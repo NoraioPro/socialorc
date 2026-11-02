@@ -289,7 +289,9 @@ export class TikTokAdapter extends BasePlatformAdapter {
   }
 
   async getAccountInfo(accessToken: string): Promise<AccountInfo> {
-    const fields = [...TIKTOK_USER_FIELDS, "username"].join(",");
+    // `username` requires the user.info.profile scope, which this connector does not
+    // request; asking for it makes TikTok fail the whole call with scope_permission_missed.
+    const fields = [...TIKTOK_USER_FIELDS].join(",");
     const response = await tiktokFetch(`${TIKTOK_USER_INFO_URL}?fields=${encodeURIComponent(fields)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
