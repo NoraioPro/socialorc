@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { REGISTRY } from "@/lib/portfolio/registry";
 import { responsiveRules, styleDeclarations } from "@/lib/portfolio/css";
 import type { PortfolioDocument, PortfolioNode, TokenTable } from "@/lib/portfolio/types";
@@ -59,32 +60,41 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
 
   const renderNode = (node: PortfolioNode): React.ReactNode => {
     const style = styleDeclarations(node.style, tokens);
-    const common = { key: node.id, "data-pf-node": node.id, style: style ? cssToObject(style) : undefined } as const;
+    // `key` is passed at the call site, never spread (React warns otherwise).
+    const common = { "data-pf-node": node.id, style: style ? cssToObject(style) : undefined } as const;
     const p = props(node);
 
     switch (node.type) {
       case "PAGE":
         return (
           <div {...common} data-pf-page="">
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </div>
         );
       case "SECTION":
         return (
           <section {...common} id={typeof p.anchor === "string" ? p.anchor : undefined}>
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </section>
         );
       case "CONTAINER":
         return (
           <div {...common} style={{ ...cssToObject(style), ...containerBox(p) }}>
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </div>
         );
       case "STACK":
         return (
           <div {...common} style={{ ...cssToObject(style), display: "flex" }}>
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </div>
         );
       case "GRID":
@@ -99,13 +109,17 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
               columnGap: `${Number(p.columnGapPx ?? 24)}px`,
             }}
           >
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </div>
         );
       case "COLUMN":
         return (
           <div {...common} style={{ ...cssToObject(style), gridColumn: `span ${Number(p.span ?? 12)}`, order: Number(p.order ?? 0) }}>
-            {node.children?.map(renderNode)}
+            {node.children?.map((child) => (
+              <Fragment key={child.id}>{renderNode(child)}</Fragment>
+            ))}
           </div>
         );
       case "SPACER":

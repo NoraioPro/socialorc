@@ -12,7 +12,7 @@ import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import { BrainSwitcher } from "@/components/socialork/brain-switcher";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
-  Inbox, LayoutDashboard, PenLine, Settings, ShieldCheck, Sparkles, Users,
+  Inbox, LayoutDashboard, PanelsTopLeft, PenLine, Settings, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 
 export type NavCounts = {
@@ -92,6 +92,7 @@ export function Shell({
       items: [
         { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
         { href: "/socialork/brains", label: "Brains", icon: BookOpen, count: brains },
+        { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
         { href: "/socialork/team", label: "Team", icon: Users },
         { href: "/socialork/settings", label: "Settings", icon: Settings, count: accounts },
       ],

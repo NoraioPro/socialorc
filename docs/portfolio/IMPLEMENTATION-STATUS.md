@@ -10,12 +10,12 @@ Branch `hermes/portfolio-p1` · worktree `/private/tmp/so-portfolio` · baseline
 | P1 Document core | **DONE** | 6 modules + 35 unit tests (`portfolio-document.test.ts`), commit `d20bd8c` |
 | P2 Persistence & authorization | **DONE (code) / UNVERIFIED (database)** | schema + migration + guard + service + 2 routes + 11 tests, commit `9e3929c`. No local Postgres, so the migration and the composite-FK drill have **not** been executed (O-05) |
 | P3 Public renderer | **DONE (code + render tests)** | shared renderer, `/p/[handle]`, not-found state, 6 render tests, commit `_P3_` |
-| P4 Builder shell | **PARTIAL — engine done, UI not started** | `commands.ts` + `history.ts` + 13 tests (insert/delete/duplicate/move/reorder/props/style, undo/redo). The editor UI is blocked on Stitch builder screens (O-03) |
-| P5 Styling controls | **NOT STARTED** | depends on P4 |
-| P6 Responsive editing | **NOT STARTED** | depends on P5 |
-| P7 Components / templates / assets | **NOT STARTED** | depends on P4; component *contracts* already exist from P1 |
-| P8 Publish / revisions / media pinning | **NOT STARTED** | depends on P3+P7; needs a database to verify (O-05) and Blob experiments (O-01) |
-| P9 Hardening | **NOT STARTED** | depends on P8 |
+| P4 Builder UI | **DONE (runs in a browser)** | 3-pane builder at `/socialork/portfolio`, verified end-to-end with Playwright: create → edit → insert → undo → breakpoint → publish → public page |
+| P5 Styling controls | **DONE (core set)** | font family (allowlist), size, weight, line-height, tracking, gap, padding, max width, min height, radius, columns, span, text colour, background, align — all writing through the command engine |
+| P6 Responsive editing | **DONE (desktop/tablet/mobile)** | breakpoint switcher scales the canvas and writes sparse per-breakpoint overrides; the renderer emits them as media queries |
+| P7 Components / templates | **DONE (components + 3 templates + blank)** | all 16 components insertable; Editorial / Terminal / Gallery seeds copy-on-create; asset picker is still an id field |
+| P8 Publishing | **PARTIAL** | publish + unpublish work and were verified in a browser; revisions list/restore and Blob-level media pinning are not built (O-01) |
+| P9 Hardening | **PARTIAL** | 65 unit tests + a browser end-to-end run; cross-user API matrix and perf numbers not done |
 
 ---
 

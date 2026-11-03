@@ -284,3 +284,35 @@ export function appendIndex(node: PortfolioNode): number {
 }
 
 export { locate as locateNode, totalNodes as countDocumentNodes, withPageRoot };
+
+/**
+ * Write a style patch at a breakpoint (`tablet` / `mobile`), or at the base when
+ * `breakpoint` is "desktop". Overrides stay sparse: only the patched keys land in
+ * the breakpoint object, so the desktop value keeps applying to everything else.
+ */
+export function applyResponsive(
+  document: PortfolioDocument,
+  nodeId: string,
+  breakpoint: "desktop" | "tablet" | "mobile",
+  patch: Record<string, unknown>,
+): PortfolioDocument | null {
+  const pageId = pageOf(document, nodeId);
+  if (!pageId) return null;
+  const next = cloneDocument(document);
+  const page = next.pages.find((candidate) => candidate.id === pageId);
+  if (!page) return null;
+
+  const apply = (node: PortfolioNode): boolean => {
+    if (node.id !== nodeId) return (node.children ?? []).some(apply);
+    if (breakpoint === "desktop") {
+      node.style = { ...node.style, ...(patch as PortfolioNode["style"]) };
+    } else {
+      const responsive = node.responsive ?? {};
+      const layer = { ...(responsive[breakpoint] ?? {}), ...(patch as Partial<PortfolioNode["style"]>) };
+      node.responsive = { ...responsive, [breakpoint]: layer };
+    }
+    return true;
+  };
+
+  return apply(page.root) ? next : null;
+}

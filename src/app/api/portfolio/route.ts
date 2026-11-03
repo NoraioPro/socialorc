@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/tenancy/guard";
 import { createPortfolio, getPortfolio, toDto, updateHandle } from "@/lib/portfolio/service";
 import { handleProblem } from "@/lib/portfolio/blank";
+import { templateByKey } from "@/lib/portfolio/templates";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,14 @@ export async function POST(req: NextRequest) {
   const guard = await requirePermission("portfolio:edit");
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
-  const body = (await req.json().catch(() => ({}))) as { handle?: string };
-  const created = await createPortfolio(guard.userId, { handle: body.handle });
+  const body = (await req.json().catch(() => ({}))) as { handle?: string; template?: string };
+  const template = body.template && body.template !== "blank" ? templateByKey(body.template) : undefined;
+  const created = await createPortfolio(guard.userId, {
+    handle: body.handle,
+    templateDocument: template?.build(),
+    templateKey: template?.key,
+    templateVersion: template ? 1 : undefined,
+  });
 
   if (!created.ok) {
     const status = created.code === "exists" || created.code === "handle_taken" ? 409 : 400;
