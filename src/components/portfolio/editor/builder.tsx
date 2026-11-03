@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentRenderer, type RenderMedia } from "@/components/portfolio/render/document-renderer";
 import { applyCommand, applyResponsive, locateNode } from "@/lib/portfolio/commands";
+import { markdownToNodes } from "@/lib/portfolio/markdown";
+import { parseDocument } from "@/lib/portfolio/validate";
 import { REGISTRY, isUserInsertable } from "@/lib/portfolio/registry";
 import { FONT_ALLOWLIST } from "@/lib/portfolio/tokens";
 import type { PortfolioDocument, PortfolioNode, StyleSet } from "@/lib/portfolio/types";
@@ -102,10 +104,15 @@ export function Builder({ initialDocument, initialVersion, handle, status, media
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [markdown, setMarkdown] = useState(
+    "## About me\n\nI design **calm** interfaces for complicated systems.\n\n- Design systems\n- Motion\n- Accessibility\n",
+  );
   const paneRef = useRef<HTMLDivElement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ doc, version });
-  latest.current = { doc, version };
+  useEffect(() => {
+    latest.current = { doc, version };
+  }, [doc, version]);
 
   const commit = useCallback((next: PortfolioDocument | null, error?: string) => {
     if (!next) {
@@ -187,6 +194,39 @@ export function Builder({ initialDocument, initialVersion, handle, status, media
     const node = makeNode(type);
     run({ type: "insert", parentId: insertTarget.id, index: insertTarget.children?.length ?? 0, node });
     setSelected(node.id);
+  };
+
+  /** Markdown → real components. Appends a section, or replaces the page content. */
+  const applyMarkdown = (mode: "append" | "replace") => {
+    const nodes = markdownToNodes(markdown, (kind) => newId(kind));
+    const page = doc.pages[0];
+    if (!page) return;
+
+    if (mode === "replace") {
+      const candidate = {
+        ...doc,
+        pages: [{ ...page, root: { ...page.root, children: nodes } }, ...doc.pages.slice(1)],
+      };
+      const parsed = parseDocument(candidate);
+      if (!parsed.ok) {
+        setMessage(parsed.issues[0]?.message ?? "That Markdown does not produce a valid page.");
+        return;
+      }
+      commit(candidate);
+      setMessage("Page content replaced from Markdown.");
+      return;
+    }
+
+    let next: PortfolioDocument | null = doc;
+    for (const node of nodes) {
+      if (!next) break;
+      const result = applyCommand(next, { type: "insert", parentId: next.pages[0].root.id, index: next.pages[0].root.children?.length ?? 0, node });
+      next = result.ok ? result.document : null;
+    }
+    if (next) {
+      commit(next);
+      setMessage("Section added from Markdown.");
+    }
   };
 
   const styleValue = (node: PortfolioNode, key: keyof StyleSet): number | string | undefined => {
@@ -391,6 +431,41 @@ export function Builder({ initialDocument, initialVersion, handle, status, media
           <div>
             <div className="so-stat-label">Layers</div>
             <div style={{ marginTop: 6 }}>{doc.pages[0]?.root ? renderLayer(doc.pages[0].root, 0) : null}</div>
+          </div>
+
+          <div>
+            <div className="so-stat-label">Write in Markdown</div>
+            <textarea
+              value={markdown}
+              onChange={(event) => setMarkdown(event.target.value)}
+              rows={7}
+              spellCheck={false}
+              style={{
+                marginTop: 6,
+                width: "100%",
+                background: "var(--panel2)",
+                color: "var(--text)",
+                border: "1px solid var(--line2)",
+                borderRadius: 8,
+                padding: "8px 9px",
+                fontSize: 11.5,
+                lineHeight: 1.55,
+                fontFamily: "var(--font-plex-mono), monospace",
+                outline: "none",
+                resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+              <button type="button" className="so-btn" style={{ height: 26, padding: "0 9px", fontSize: 11 }} onClick={() => applyMarkdown("append")}>
+                Add as section
+              </button>
+              <button type="button" className="so-btn" style={{ height: 26, padding: "0 9px", fontSize: 11 }} onClick={() => applyMarkdown("replace")}>
+                Replace page
+              </button>
+            </div>
+            <p style={{ margin: "6px 0 0", fontSize: 10.5, color: "var(--text3)", lineHeight: 1.5 }}>
+              # headings · **bold** · *italic* · `code` · [link](https://…) · - lists · ![alt](/portfolio/cover-aether.png)
+            </p>
           </div>
         </div>
 

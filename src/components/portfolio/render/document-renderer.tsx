@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { REGISTRY } from "@/lib/portfolio/registry";
+import { inlineMarkdown, isSafeSrc, parseMarkdown } from "@/lib/portfolio/markdown";
 import { responsiveRules, styleDeclarations } from "@/lib/portfolio/css";
 import type { PortfolioDocument, PortfolioNode, TokenTable } from "@/lib/portfolio/types";
 
@@ -196,12 +197,21 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
           </Tag>
         );
       }
-      case "TEXT":
+      case "TEXT": {
+        const raw = text(p.text);
+        if (p.markdown === true) {
+          return (
+            <div {...common} style={cssToObject(style)}>
+              {renderMarkdownBlocks(raw)}
+            </div>
+          );
+        }
         return (
           <p {...common} style={{ ...cssToObject(style), whiteSpace: "pre-wrap" }}>
-            {text(p.text)}
+            {raw}
           </p>
         );
+      }
       case "BUTTON": {
         const href = isSafeHref(p.href) ? p.href : undefined;
         const external = href?.startsWith("https://") && p.target === "blank";
@@ -440,6 +450,58 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
   );
 }
 
+
+/** Markdown blocks as React nodes (TEXT with `markdown: true`). */
+function renderMarkdownBlocks(markdown: string): React.ReactNode {
+  return parseMarkdown(markdown).map((block, index) => {
+    switch (block.kind) {
+      case "heading": {
+        const sizes: Record<number, number> = { 1: 40, 2: 30, 3: 22, 4: 18 };
+        const Tag = (`h${block.level}` as unknown) as React.ElementType;
+        return (
+          <Tag key={index} style={{ margin: index === 0 ? 0 : "18px 0 0", fontSize: sizes[block.level], fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+            {inlineMarkdown(block.text, `h${index}`)}
+          </Tag>
+        );
+      }
+      case "paragraph":
+        return (
+          <p key={index} style={{ margin: index === 0 ? 0 : "12px 0 0", fontSize: 15.5, lineHeight: 1.7, color: "#d7d7de" }}>
+            {inlineMarkdown(block.text, `p${index}`)}
+          </p>
+        );
+      case "list": {
+        const Tag = (block.ordered ? "ol" : "ul") as unknown as React.ElementType;
+        return (
+          <Tag key={index} style={{ margin: index === 0 ? 0 : "12px 0 0", paddingLeft: 22, fontSize: 15.5, lineHeight: 1.7, color: "#d7d7de" }}>
+            {block.items.map((item, i) => (
+              <li key={i} style={{ marginTop: i === 0 ? 0 : 6 }}>{inlineMarkdown(item, `l${index}-${i}`)}</li>
+            ))}
+          </Tag>
+        );
+      }
+      case "quote":
+        return (
+          <blockquote
+            key={index}
+            style={{ margin: index === 0 ? 0 : "14px 0 0", paddingLeft: 16, borderLeft: "2px solid rgba(72,237,133,0.4)", color: "#a6a6b0", fontSize: 15.5, lineHeight: 1.7 }}
+          >
+            {inlineMarkdown(block.text, `q${index}`)}
+          </blockquote>
+        );
+      case "image":
+        return isSafeSrc(block.src) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={index} src={block.src} alt={block.alt} style={{ width: "100%", borderRadius: 12, marginTop: index === 0 ? 0 : 16, display: "block" }} loading="lazy" />
+        ) : null;
+      case "divider":
+        return <hr key={index} style={{ margin: "20px 0", border: 0, borderTop: "1px solid rgba(255,255,255,0.12)" }} />;
+      default:
+        return null;
+    }
+  });
+}
+
 /** Parse `a:b;c:d` back into a React style object (only what we emitted). */
 function styleObject(css: string): Record<string, string | number> {
   const out: Record<string, string | number> = {};
@@ -461,7 +523,7 @@ function cssToObject(css: string): React.CSSProperties {
 }
 
 function containerBox(p: Record<string, unknown>): React.CSSProperties {
-  const align = typeof p.align === "string" ? p.align : "center";
+  void p;
   return {
     maxWidth: `${Number(p.maxWidthPx ?? 1080)}px`,
     marginLeft: "auto",

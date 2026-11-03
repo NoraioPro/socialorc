@@ -129,6 +129,24 @@ export function editorialTemplate(): PortfolioDocument {
       ]),
     ]),
 
+    section({ background: { value: "#101014" }, paddingY: { value: 72 } }, [
+      container([
+        n("GRID", { columns: 12, minColumnPx: 280, rowGapPx: 28, columnGapPx: 36 }, {}, [
+          n("COLUMN", { span: 6, order: 0, alignV: "center" }, {}, [
+            stack({ gapPx: 14 }, [
+              eyebrow("ABOUT"),
+              heading("I work where systems and craft meet.", 2, { fontSize: { value: 30 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.02 }, lineHeight: { value: 1.2 } }),
+              text("Twelve years of product design, mostly on tools people use all day: trading terminals, editors, internal platforms. I care about typography, motion and the boring details that make software feel calm.", { fontSize: { value: 15.5 }, color: { value: "#a6a6b0" }, lineHeight: { value: 1.7 }, maxWidth: { value: 520 } }),
+              n("TEXT", { text: "Currently **Staff Product Designer** at Aether — building the design system that powers the trading terminal.", markdown: true }, { fontSize: { value: 14 }, color: { value: "#d7d7de" }, lineHeight: { value: 1.7 } }),
+            ]),
+          ]),
+          n("COLUMN", { span: 6, order: 0, alignV: "center" }, {}, [
+            n("IMAGE", { assetId: "", src: "/portfolio/banner.png", alt: "Studio", aspect: "16:9" }, { radius: { value: 16 }, shadow: { ref: "shadow.lg" } }),
+          ]),
+        ]),
+      ]),
+    ]),
+
     section({ background: { value: "#0f0f13" }, paddingY: { value: 64 } }, [
       container([
         stack({ gapPx: 16 }, [

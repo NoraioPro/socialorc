@@ -113,6 +113,8 @@ export const HEADING_PROPS = z
 export const TEXT_PROPS = z
   .object({
     text: z.string().max(4000).default(""),
+    /** Render the text as Markdown (bold, italic, code, links, lists, quotes). */
+    markdown: z.boolean().default(false),
   })
   .strict();
 
