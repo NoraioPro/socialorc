@@ -10,7 +10,7 @@ Branch `hermes/portfolio-p1` · worktree `/private/tmp/so-portfolio` · baseline
 | P1 Document core | **DONE** | 6 modules + 35 unit tests (`portfolio-document.test.ts`), commit `d20bd8c` |
 | P2 Persistence & authorization | **DONE (code) / UNVERIFIED (database)** | schema + migration + guard + service + 2 routes + 11 tests, commit `9e3929c`. No local Postgres, so the migration and the composite-FK drill have **not** been executed (O-05) |
 | P3 Public renderer | **DONE (code + render tests)** | shared renderer, `/p/[handle]`, not-found state, 6 render tests, commit `_P3_` |
-| P4 Builder shell | **NOT STARTED** | blocked on Stitch builder screens (O-03) — see "Next action" |
+| P4 Builder shell | **PARTIAL — engine done, UI not started** | `commands.ts` + `history.ts` + 13 tests (insert/delete/duplicate/move/reorder/props/style, undo/redo). The editor UI is blocked on Stitch builder screens (O-03) |
 | P5 Styling controls | **NOT STARTED** | depends on P4 |
 | P6 Responsive editing | **NOT STARTED** | depends on P5 |
 | P7 Components / templates / assets | **NOT STARTED** | depends on P4; component *contracts* already exist from P1 |
@@ -77,6 +77,26 @@ and re-running.
 
 ---
 
+## P4 — Builder engine (done) / builder UI (not started)
+
+**Implemented (engine, no UI).**
+- `src/lib/portfolio/commands.ts`: every editing action is a pure command that returns a **new** document.
+  `insert` refuses an unknown type, a `PAGE`, a leaf parent or an illegal parent→child pair, and enforces the
+  depth/node caps; `delete` refuses the page root; `duplicate` copies a subtree with caller-supplied fresh ids
+  (so ids stay unique and deterministic in tests); `move` refuses moving a container into its own descendant
+  and re-validates the child rule and depth; `reorder` swaps siblings; `updateProps` / `updateStyle` /
+  `updateText` patch one node. The input document is never mutated (asserted).
+- `src/lib/portfolio/history.ts`: undo/redo as a capped document stack (`HISTORY_LIMIT = 100`), with a failed
+  command leaving state untouched and no redo entry.
+
+**Tests.** `tests/unit/portfolio-commands.test.ts` — 13/13 pass (legal/illegal insert, PAGE and unknown-type
+refusal, root deletion refusal, duplicate ids, move-into-itself, reorder edge, immutable input, blank-canvas
+flow, undo/redo walk, failed command, stack cap).
+
+**Not started (needs designs).** Canvas, layer tree, selection outlines, drop indicators, pointer drag,
+inspector, pages manager, shortcut overlay, autosave wiring in the UI. The engine above is what those screens
+call — no design decision is embedded in it.
+
 ## P3 — Public renderer (code done, render-tested)
 
 **Implemented.** `src/lib/portfolio/css.ts` (validated style values → declarations; responsive overrides →
@@ -98,7 +118,11 @@ strategy is `dynamic = "force-dynamic"` for now; the `revalidateTag` plan is sti
 
 ## Next action (exact)
 
-1. **P4 requires designs.** The Stitch export has no builder shell, component library, inspector, breakpoint
+1. **P4's UI requires designs.** The engine is done and tested; the canvas, layer tree, inspector and drop
+   indicators are not. Per the architecture these must not be invented. With approval of *"build the builder
+   with the app's existing design language (so-* tokens, Hanken Grotesk), flagged as non-Stitch"*, the UI can
+   start immediately; otherwise it waits for those screens.
+2. (previous item 1) **P4 requires designs.** The Stitch export has no builder shell, component library, inspector, breakpoint
    switcher or mobile editor. Per the architecture these must not be invented. With approval of *"build the
    builder with the app's existing design language (so-* tokens, Hanken Grotesk), flagged as non-Stitch"*, P4
    can start immediately; otherwise it waits for those screens.
@@ -114,8 +138,9 @@ strategy is `dynamic = "force-dynamic"` for now; the `revalidateTag` plan is sti
 tests/unit/portfolio-document.test.ts   35 pass
 tests/unit/portfolio-ownership.test.ts  11 pass
 tests/unit/portfolio-render.test.ts      6 pass
+tests/unit/portfolio-commands.test.ts   13 pass
                                         ───────
-                                        52 pass, 0 fail
+                                        65 pass, 0 fail
 ```
 
 Totals of the whole repo run are **not** claimed: several pre-existing suites fail at baseline
