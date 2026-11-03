@@ -126,6 +126,37 @@ export async function requireWorkspace(
   return tenant;
 }
 
+/**
+ * A user-scoped permission check: authentication plus the role matrix, with **no
+ * workspace requirement**.
+ *
+ * Why it exists: a Professional Portfolio belongs to a person, not to a
+ * workspace. `requireWorkspace()` refuses a user with no membership (403
+ * NO_WORKSPACE_MESSAGE), so using it here would make a personal portfolio depend
+ * on workspace membership. Owned rows are still scoped by `userId` in the route
+ * itself — this guard answers "may this role do this at all", never "is this row
+ * theirs".
+ */
+export type UserGuard =
+  | { ok: true; userId: string; role: Role }
+  | { ok: false; status: 401 | 403; error: string };
+
+export async function requirePermission(permission: Permission): Promise<UserGuard> {
+  const session = await getAuthSession();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, status: 401, error: "Unauthorized" };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (!user) return { ok: false, status: 401, error: "Unauthorized" };
+
+  const sole = await isSoleWorkspaceMember(userId);
+  const role = effectiveRole(user.role, sole);
+  if (!can(role, permission)) {
+    return { ok: false, status: 403, error: `Your role (${role}) is not allowed to ${permission}` };
+  }
+  return { ok: true, userId, role };
+}
+
 /** Whether an already-resolved tenant also holds `permission` (no extra query). */
 export function tenantCan(tenant: TenantContext, permission: Permission): boolean {
   return can(tenant.role, permission);
