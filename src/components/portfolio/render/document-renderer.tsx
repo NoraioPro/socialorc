@@ -27,6 +27,26 @@ export interface DocumentRenderProps {
   slug?: string;
 }
 
+
+function justifyCss(value: unknown): string {
+  switch (value) {
+    case "center": return "center";
+    case "end": return "flex-end";
+    case "between": return "space-between";
+    case "around": return "space-around";
+    default: return "flex-start";
+  }
+}
+
+function alignCss(value: unknown): string {
+  switch (value) {
+    case "start": return "flex-start";
+    case "end": return "flex-end";
+    case "center": return "center";
+    default: return "stretch";
+  }
+}
+
 function props(node: PortfolioNode): Record<string, unknown> {
   return { ...REGISTRY[node.type].defaults, ...node.props };
 }
@@ -75,7 +95,16 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         );
       case "SECTION":
         return (
-          <section {...common} id={typeof p.anchor === "string" ? p.anchor : undefined}>
+          <section
+            {...common}
+            id={typeof p.anchor === "string" ? p.anchor : undefined}
+            style={{
+              paddingLeft: 24,
+              paddingRight: 24,
+              ...(p.minHeightPx ? { minHeight: `${Number(p.minHeightPx)}px` } : {}),
+              ...cssToObject(style),
+            }}
+          >
             {node.children?.map((child) => (
               <Fragment key={child.id}>{renderNode(child)}</Fragment>
             ))}
@@ -91,7 +120,18 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         );
       case "STACK":
         return (
-          <div {...common} style={{ ...cssToObject(style), display: "flex" }}>
+          <div
+            {...common}
+            style={{
+              display: "flex",
+              flexDirection: p.direction === "row" ? "row" : "column",
+              flexWrap: p.wrap === true ? "wrap" : "nowrap",
+              gap: `${Number(p.gapPx ?? 16)}px`,
+              alignItems: alignCss(p.align),
+              justifyContent: justifyCss(p.justify),
+              ...cssToObject(style),
+            }}
+          >
             {node.children?.map((child) => (
               <Fragment key={child.id}>{renderNode(child)}</Fragment>
             ))}
@@ -134,7 +174,20 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "HEADING": {
         const level = Math.min(4, Math.max(1, Number(p.level ?? 2)));
         const Tag = (`h${level}` as unknown) as React.ElementType;
-        return <Tag {...common}>{text(p.text)}</Tag>;
+        return (
+          <Tag
+            {...common}
+            style={{
+              margin: 0,
+              letterSpacing: "-0.02em",
+              lineHeight: 1.12,
+              textWrap: "balance",
+              ...cssToObject(style),
+            }}
+          >
+            {text(p.text)}
+          </Tag>
+        );
       }
       case "TEXT":
         return (
@@ -174,8 +227,22 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
                 style={{ width: "100%", height: "auto", objectFit: (styleObject(style).objectFit as "cover" | "contain" | "none" | undefined) ?? "cover" }}
               />
             ) : (
-              <div data-pf-image-missing style={{ padding: 24, border: "1px dashed rgba(255,255,255,0.2)", color: "#a6a6b0", fontSize: 13 }}>
-                {alt || "Image unavailable"}
+              <div
+                data-pf-image-missing
+                style={{
+                  aspectRatio: "16 / 9",
+                  borderRadius: 12,
+                  display: "grid",
+                  placeItems: "center",
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: 12,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  background:
+                    "radial-gradient(120% 120% at 20% 0%, rgba(72,237,133,0.22) 0%, rgba(18,18,22,1) 60%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 10px)",
+                }}
+              >
+                {alt || "Image"}
               </div>
             )}
             {caption ? <figcaption style={{ fontSize: 12, color: "#a6a6b0", marginTop: 8 }}>{caption}</figcaption> : null}
@@ -186,20 +253,60 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         const cover = p.coverAssetId ? media[text(p.coverAssetId)] : undefined;
         const href = isSafeHref(p.href) ? p.href : undefined;
         return (
-          <article {...common} style={cardBox(style)}>
+          <article {...common} style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0, padding: 20 }}>
             {cover ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={cover.url} alt={text(p.title)} style={{ width: "100%", height: "auto", borderRadius: 8, marginBottom: 12 }} loading="lazy" />
-            ) : null}
-            <div style={{ display: "flex", gap: 8, alignItems: "baseline", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0, fontSize: 18 }}>{text(p.title)}</h3>
-              {text(p.year) ? <span style={{ fontSize: 12, color: "#a6a6b0" }}>{text(p.year)}</span> : null}
+              <img
+                src={cover.url}
+                alt={text(p.title)}
+                style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 10, display: "block" }}
+                loading="lazy"
+              />
+            ) : (
+              <div
+                aria-hidden="true"
+                style={{
+                  aspectRatio: "16 / 9",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  position: "relative",
+                  overflow: "hidden",
+                  display: "grid",
+                  placeItems: "center",
+                  background:
+                    "radial-gradient(120% 120% at 15% 10%, rgba(72,237,133,0.30) 0%, rgba(16,16,20,1) 58%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 9px)",
+                }}
+              >
+                <span style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", color: "rgba(255,255,255,0.16)" }}>
+                  {(text(p.title) || "Project").trim().slice(0, 2).toUpperCase()}
+                </span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7c7c87" }}>
+                {text(p.year) || "Case study"}
+              </span>
+              {p.featured === true ? <span style={{ fontSize: 10, color: "#48ed85" }}>featured</span> : null}
             </div>
-            {text(p.summary) ? <p style={{ margin: "8px 0 0", color: "#a6a6b0", fontSize: 14 }}>{text(p.summary)}</p> : null}
+            <h3 style={{ margin: 0, fontSize: 18, letterSpacing: "-0.01em", lineHeight: 1.25 }}>{text(p.title)}</h3>
+            {text(p.summary) ? <p style={{ margin: 0, color: "#a6a6b0", fontSize: 14, lineHeight: 1.55 }}>{text(p.summary)}</p> : null}
             {Array.isArray(p.tags) && p.tags.length > 0 ? (
               <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6, padding: 0, margin: "12px 0 0" }}>
                 {p.tags.map((tag) => (
-                  <li key={String(tag)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 999, background: "rgba(255,255,255,0.08)" }}>{String(tag)}</li>
+                  <li
+                    key={String(tag)}
+                    style={{
+                      fontSize: 10.5,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      padding: "3px 9px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      color: "#a6a6b0",
+                    }}
+                  >
+                    {String(tag)}
+                  </li>
                 ))}
               </ul>
             ) : null}
@@ -210,30 +317,62 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "EXPERIENCE_ITEM": {
         const bullets = Array.isArray(p.bullets) ? (p.bullets as string[]) : [];
         return (
-          <article {...common} style={{ ...cardBox(style), display: "grid", gap: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <strong style={{ fontSize: 16 }}>{text(p.title)}</strong>
-              <span style={{ fontSize: 12, color: "#a6a6b0" }}>
-                {text(p.start)} — {p.current ? "Present" : text(p.end)}
-              </span>
-            </div>
-            <span style={{ fontSize: 13, color: "#a6a6b0" }}>{text(p.org)}</span>
+          <article
+            {...common}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "150px 1fr",
+              gap: 24,
+              borderLeft: "2px solid rgba(255,255,255,0.12)",
+              padding: "10px 0 10px 24px",
+              position: "relative",
+              borderRadius: 0,
+              ...cssToObject(style),
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{ position: "absolute", left: -7, top: 16, width: 12, height: 12, borderRadius: 999, background: "#48ed85" }}
+            />
+            <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 11, letterSpacing: "0.06em", color: "#9df3bd", textTransform: "uppercase", paddingTop: 2 }}>
+              {text(p.start)} — {p.current ? "Present" : text(p.end)}
+            </span>
+            <div style={{ display: "grid", gap: 4 }}>
+            <strong style={{ fontSize: 16.5, letterSpacing: "-0.01em" }}>{text(p.title)}</strong>
+            <span style={{ fontSize: 14, color: "#a1a1aa" }}>{text(p.org)}</span>
             {bullets.length > 0 ? (
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "#ededf1", fontSize: 14 }}>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#d7d7de", fontSize: 13.5, lineHeight: 1.6, listStyle: "disc" }}>
                 {bullets.map((bullet, index) => <li key={index}>{bullet}</li>)}
               </ul>
             ) : null}
+            </div>
           </article>
         );
       }
       case "SKILL_GROUP": {
         const items = Array.isArray(p.items) ? (p.items as string[]) : [];
         return (
-          <div {...common}>
-            {text(p.title) ? <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>{text(p.title)}</h3> : null}
+          <div {...common} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {text(p.title) ? (
+              <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 10.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7c7c87" }}>
+                {text(p.title)}
+              </span>
+            ) : null}
             <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 8, padding: 0, margin: 0 }}>
               {items.map((item) => (
-                <li key={item} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: "rgba(72,237,133,0.12)", color: "#48ed85" }}>{item}</li>
+                <li
+                  key={item}
+                  style={{
+                    fontSize: 12.5,
+                    padding: "5px 12px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(72,237,133,0.35)",
+                    background: "rgba(72,237,133,0.07)",
+                    color: "#9df3bd",
+                  }}
+                >
+                  {item}
+                </li>
               ))}
             </ul>
           </div>
@@ -255,7 +394,14 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         const email = text(p.email);
         return (
           <div {...common} style={{ display: "grid", gap: 8, justifyItems: "start" }}>
-            {email ? <a href={`mailto:${email}`} style={{ color: "#48ed85", fontSize: 16 }}>{email}</a> : null}
+            {email ? (
+              <a
+                href={`mailto:${email}`}
+                style={{ color: "#48ed85", fontSize: 22, letterSpacing: "-0.01em", textDecoration: "none", borderBottom: "1px solid rgba(72,237,133,0.35)", paddingBottom: 2 }}
+              >
+                {email}
+              </a>
+            ) : null}
             <span style={{ fontSize: 14, color: "#a6a6b0" }}>{text(p.ctaLabel)}</span>
             {text(p.note) ? <span style={{ fontSize: 13, color: "#8f8f99" }}>{text(p.note)}</span> : null}
           </div>
@@ -267,7 +413,17 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
   };
 
   return (
-    <div data-pf-root="" style={{ background: "#131317", color: "#ededf1", fontFamily: "var(--font-hanken), system-ui, sans-serif" }}>
+    <div
+      data-pf-root=""
+      style={{
+        background: "#131317",
+        color: "#ededf1",
+        fontFamily: "var(--font-hanken), system-ui, sans-serif",
+        lineHeight: 1.55,
+        WebkitFontSmoothing: "antialiased",
+        overflowX: "hidden",
+      }}
+    >
       {css ? <style>{css}</style> : null}
       {renderNode(page.root)}
     </div>
@@ -298,9 +454,12 @@ function containerBox(p: Record<string, unknown>): React.CSSProperties {
   const align = typeof p.align === "string" ? p.align : "center";
   return {
     maxWidth: `${Number(p.maxWidthPx ?? 1080)}px`,
-    marginLeft: align === "right" ? "auto" : align === "center" ? "auto" : "0",
-    marginRight: align === "left" ? "auto" : "auto",
+    marginLeft: "auto",
+    marginRight: "auto",
     width: "100%",
+    paddingLeft: 24,
+    paddingRight: 24,
+    boxSizing: "border-box",
   };
 }
 
@@ -310,10 +469,15 @@ function buttonBox(p: Record<string, unknown>): React.CSSProperties {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "10px 18px",
+    alignSelf: "flex-start",
+    flex: "none",
+    width: "auto",
+    height: 42,
+    padding: "0 20px",
     borderRadius: 10,
     fontSize: 14,
     fontWeight: 600,
+    whiteSpace: "nowrap",
     textDecoration: "none",
   };
   if (variant === "primary") return { ...base, background: "#48ed85", color: "#003917" };
