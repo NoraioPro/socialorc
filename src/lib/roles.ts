@@ -78,6 +78,13 @@ export const PERMISSIONS = [
   "engagement:reply",
   "engagement:react",
   "engagement:delete",
+  /**
+   * Professional Portfolio. Ownership is per user (`Portfolio.userId`), so these
+   * permissions gate the ACTION while the route gates the ROW: an EDITOR may
+   * edit their own portfolio and never publish it, an ADMIN may publish theirs.
+   */
+  "portfolio:edit",
+  "portfolio:publish",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -95,6 +102,10 @@ const MATRIX: Record<Permission, readonly Role[]> = {
   "accounts:connect": ["ADMIN", "MANAGER", "EDITOR"],
   "media:upload": ["ADMIN", "MANAGER", "EDITOR"],
   "media:delete": ["ADMIN", "MANAGER"],
+  // Portfolio ownership is enforced separately (Portfolio.userId); these rows only
+  // decide who may perform the action at all.
+  "portfolio:edit": ["ADMIN", "MANAGER", "EDITOR"],
+  "portfolio:publish": ["ADMIN", "MANAGER"],
   "brains:read": ROLES,
   "brains:manage": ["ADMIN", "MANAGER"],
   "feed:post": ["ADMIN", "MANAGER", "EDITOR"],

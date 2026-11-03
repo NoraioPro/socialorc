@@ -120,6 +120,9 @@ model User {
   workspaceMembers WorkspaceMember[]
   conversations   Conversation[]
 
+  /// Professional Portfolio: one per user, never per workspace.
+  portfolio              Portfolio?
+
   // SocialOrc Network relations
   nativePosts            NativePost[]
   friendRequestsSent     Friendship[] @relation("FriendshipRequester")
@@ -361,9 +364,14 @@ model MediaAsset {
   height      Int?
   duration    Int?      // Video duration in seconds
   
-  posts       PostMedia[]
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// PUBLIC assets may be used by a published portfolio; PRIVATE ones may not.
+  /// This is a product flag, not Blob access control (uploads are public blobs).
+  visibility  String    @default("PUBLIC")
+
+  posts          PostMedia[]
+  portfolioPins  PortfolioPinnedMedia[]
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -1007,4 +1015,131 @@ model AuditEvent {
 
   @@index([workspaceId, createdAt])
   @@index([subjectType, subjectId])
+}
+
+// ---------------------------------------------------------------------------
+// Professional Portfolio (full visual builder)
+//
+// The document tree lives in `draftDocument` / `PortfolioRevision.document` as
+// jsonb; ownership, handles, status and the published pointer are relational so
+// the database can enforce them. See docs/portfolio/FINAL-ARCHITECTURE.md.
+// ---------------------------------------------------------------------------
+
+enum PortfolioStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Portfolio {
+  id                  String          @id @default(cuid())
+  /// Ownership: one portfolio per user, independent of any workspace.
+  userId              String          @unique
+  handle              String          @unique
+  status              PortfolioStatus @default(DRAFT)
+  draftDocument       Json
+  /// Compare-and-set token for autosave; a stale write is rejected with 409.
+  documentVersion     Int             @default(1)
+  schemaVersion       Int             @default(1)
+  /// 1:1 pointer to the active immutable snapshot.
+  publishedRevisionId String?         @unique
+  publishedAt         DateTime?
+  /// Provenance only: a template is copied at creation, never re-applied.
+  templateKey         String?
+  templateVersion     Int?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Composite FK: the published revision must belong to THIS portfolio.
+  /// NoAction (not SetNull): the FK includes the required `id`, so deleting a
+  /// revision that is still published is blocked by the database rather than
+  /// silently detaching the pointer.
+  publishedRevision PortfolioRevision?  @relation("PortfolioPublished", fields: [publishedRevisionId, id], references: [id, portfolioId], onDelete: NoAction)
+  revisions         PortfolioRevision[] @relation("PortfolioRevisions")
+  pinnedMedia       PortfolioPinnedMedia[]
+
+  @@unique([publishedRevisionId, id])
+  @@index([status])
+}
+
+model PortfolioRevision {
+  id            String    @id @default(cuid())
+  portfolioId   String
+  /// Frozen, fully resolved document. Published media references use mediaSha.
+  document      Json
+  schemaVersion Int
+  /// sha256 of the canonical document JSON: makes publishing idempotent.
+  hash          String
+  label         String?
+  /// Pinned digest of the Open Graph image for this revision.
+  ogImageSha    String?
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+
+  portfolio   Portfolio              @relation("PortfolioRevisions", fields: [portfolioId], references: [id], onDelete: Cascade)
+  publishedBy Portfolio?             @relation("PortfolioPublished")
+  media       PortfolioPinnedMedia[]
+
+  /// Enables the composite FK from Portfolio (cross-portfolio pointers impossible).
+  @@unique([id, portfolioId])
+  @@unique([portfolioId, hash])
+  @@index([portfolioId, createdAt])
+}
+
+/// The single source of truth for a revision's published media bytes.
+model PortfolioPinnedMedia {
+  id                 String   @id @default(cuid())
+  revisionId         String
+  portfolioId        String
+  /// Full 64-hex digest of the bytes; the pin path is built from it.
+  sha256             String
+  pathname           String   @unique
+  url                String
+  mimeType           String
+  width              Int?
+  height             Int?
+  bytes              Int
+  /// Provenance only: the library row may be deleted (onDelete: SetNull).
+  sourceMediaAssetId String?
+  /// INLINE | SECTION_BG | OG
+  role               String   @default("INLINE")
+  createdAt          DateTime @default(now())
+
+  revision  PortfolioRevision @relation(fields: [revisionId, portfolioId], references: [id, portfolioId], onDelete: Cascade)
+  portfolio Portfolio         @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  source    MediaAsset?       @relation(fields: [sourceMediaAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([revisionId, sha256])
+  @@index([portfolioId])
+}
+
+/// Outbox for retryable Blob work. Blob storage and Postgres are not atomic, so
+/// deletions are queued here and swept by /api/cron/portfolio.
+model PortfolioBlobTask {
+  id            String   @id @default(cuid())
+  kind          String
+  pathname      String
+  state         String   @default("PENDING")
+  attempts      Int      @default(0)
+  lastError     String?
+  nextAttemptAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([state, nextAttemptAt])
+  @@index([pathname])
+}
+
+model PortfolioTemplate {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  name          String
+  description   String?
+  category      String
+  document      Json
+  schemaVersion Int
+  documentHash  String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
