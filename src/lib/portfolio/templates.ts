@@ -152,13 +152,13 @@ export function editorialTemplate(): PortfolioDocument {
           heading("Selected work", 2, { fontSize: { value: 34 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.025 } }),
           n("GRID", { columns: 12, minColumnPx: 280, rowGapPx: 24, columnGapPx: 24 }, {}, [
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders, built around a design system that keeps dense data calm.", year: "2025", href: "https://example.com/aether", tags: ["fintech", "design system"], featured: true, coverSrc: "/portfolio/cover-aether.png" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders, built around a design system that keeps dense data calm.", year: "2025", href: "https://example.com/aether", tags: ["fintech", "design system"], featured: true, coverSrc: "/portfolio/cover-aether.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate, with a shared cursor and a live task graph.", year: "2024", tags: ["ai", "canvas"], featured: false, coverSrc: "/portfolio/cover-strata.png" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate, with a shared cursor and a live task graph.", year: "2024", tags: ["ai", "canvas"], featured: false, coverSrc: "/portfolio/cover-strata.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
             n("COLUMN", { span: 12, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Headless retail engine for a Nordic group: five storefronts, one catalogue and a component API shared by three teams.", year: "2024", tags: ["retail", "platform"], featured: false, coverSrc: "/portfolio/cover-nordic.png" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Headless retail engine for a Nordic group: five storefronts, one catalogue and a component API shared by three teams.", year: "2024", tags: ["retail", "platform"], featured: false, coverSrc: "/portfolio/cover-nordic.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
           ]),
         ]),
@@ -264,10 +264,10 @@ export function galleryTemplate(): PortfolioDocument {
     section({ paddingY: { value: 16 } }, [
       container([
         n("GRID", { columns: 12, minColumnPx: 260, rowGapPx: 20, columnGapPx: 20 }, {}, [
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Aether Protocol", summary: "Terminal UI", year: "2025", tags: [], featured: true, coverSrc: "/portfolio/cover-aether.png" }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Retail engine", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-nordic.png" }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Strata OS", summary: "Agent canvas", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-strata.png" }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Atlas", summary: "Data atlas", year: "2023", tags: [], featured: false, coverSrc: "/portfolio/cover-atlas.png" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Aether Protocol", summary: "Terminal UI", year: "2025", tags: [], featured: true, coverSrc: "/portfolio/cover-aether.jpg" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Retail engine", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-nordic.jpg" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Strata OS", summary: "Agent canvas", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-strata.jpg" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Atlas", summary: "Data atlas", year: "2023", tags: [], featured: false, coverSrc: "/portfolio/cover-atlas.jpg" }, { radius: { value: 14 } })]),
         ]),
       ]),
     ]),
