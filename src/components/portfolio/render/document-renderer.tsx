@@ -102,6 +102,13 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
               paddingLeft: 24,
               paddingRight: 24,
               ...(p.minHeightPx ? { minHeight: `${Number(p.minHeightPx)}px` } : {}),
+              ...(typeof p.backgroundSrc === "string" && p.backgroundSrc
+                ? {
+                    backgroundImage: `linear-gradient(180deg, rgba(10,10,12,0.35) 0%, rgba(10,10,12,0.92) 60%, #0b0b0e 100%), url(${p.backgroundSrc})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }
+                : {}),
               ...cssToObject(style),
             }}
           >
@@ -209,8 +216,9 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         );
       }
       case "IMAGE": {
+        const direct = typeof p.src === "string" && p.src ? { url: p.src, width: null, height: null, mimeType: "image/png" } : null;
         const key = node.mediaSha ?? text(p.assetId);
-        const asset = media[key];
+        const asset = direct ?? media[key];
         const alt = text(p.alt);
         const caption = text(p.caption);
         return (
@@ -250,7 +258,9 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         );
       }
       case "PROJECT_CARD": {
-        const cover = p.coverAssetId ? media[text(p.coverAssetId)] : undefined;
+        const cover =
+          (typeof p.coverSrc === "string" && p.coverSrc ? { url: p.coverSrc, width: null, height: null, mimeType: "image/png" } : undefined) ??
+          (p.coverAssetId ? media[text(p.coverAssetId)] : undefined);
         const href = isSafeHref(p.href) ? p.href : undefined;
         return (
           <article {...common} style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0, padding: 20 }}>

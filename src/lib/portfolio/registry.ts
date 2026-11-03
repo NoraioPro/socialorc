@@ -31,11 +31,20 @@ const gradientLiteral = z
 
 const tokenRef = z.string().regex(/^[a-z]+\.[a-z0-9-]+$/, "Expected a token reference such as color.brand");
 
+const backgroundSrc = z
+  .string()
+  .max(500)
+  .refine((value) => value === "" || /^(\/|https:\/\/)/.test(value), {
+    message: "Background images are site paths (/portfolio/x.png) or https URLs",
+  });
+
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Expected YYYY-MM");
 
 export const SECTION_PROPS = z
   .object({
     fullBleed: z.boolean().default(true),
+    /** Optional cover image behind the section (overlaid with the page colour). */
+    backgroundSrc: backgroundSrc.optional(),
     minHeightPx: z.number().int().min(0).max(2000).optional(),
     anchor: z
       .string()
@@ -116,9 +125,17 @@ export const BUTTON_PROPS = z
   })
   .strict();
 
+const imageSrc = z
+  .string()
+  .max(500)
+  .refine((value) => value === "" || /^(\/|https:\/\/)/.test(value), {
+    message: "Image sources are site paths (/portfolio/x.png) or https URLs",
+  });
+
 export const IMAGE_PROPS = z
   .object({
     assetId: z.string().max(64).default(""),
+    src: imageSrc.optional(),
     alt: z.string().max(200).optional(),
     caption: z.string().max(200).optional(),
     aspect: z.enum(["auto", "1:1", "4:3", "16:9"]).default("auto"),
@@ -133,6 +150,7 @@ export const PROJECT_CARD_PROPS = z
     year: z.string().max(16).default(""),
     tags: z.array(z.string().max(24)).max(6).default([]),
     coverAssetId: z.string().max(64).optional(),
+    coverSrc: imageSrc.optional(),
     href: href.optional(),
     featured: z.boolean().default(false),
   })

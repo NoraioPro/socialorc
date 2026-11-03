@@ -18,8 +18,8 @@ const n = (
   children?: PortfolioNode[],
 ): PortfolioNode => ({ id: id(type.toLowerCase()), type, props, style, ...(children ? { children } : {}) }) as PortfolioNode;
 
-const section = (style: Record<string, unknown>, children: PortfolioNode[]): PortfolioNode =>
-  n("SECTION", { fullBleed: true }, style, children);
+const section = (style: Record<string, unknown>, children: PortfolioNode[], props: Record<string, unknown> = {}): PortfolioNode =>
+  n("SECTION", { fullBleed: true, ...props }, style, children);
 const container = (children: PortfolioNode[], props: Record<string, unknown> = {}): PortfolioNode =>
   n("CONTAINER", { maxWidthPx: 1080, align: "center", ...props }, {}, children);
 const stack = (props: Record<string, unknown>, children: PortfolioNode[]): PortfolioNode =>
@@ -64,15 +64,13 @@ function pageDocument(children: PortfolioNode[], tokens = DEFAULT_TOKENS): Portf
 export function editorialTemplate(): PortfolioDocument {
   return pageDocument([
     section(
-      {
-        background: { value: "radial-gradient(70% 90% at 85% 0%, rgba(72,237,133,0.16) 0%, rgba(12,12,14,1) 60%)" },
-        paddingY: { value: 80 },
-      },
+      { paddingY: { value: 72 } },
       [
         container([
           n("GRID", { columns: 12, minColumnPx: 280, rowGapPx: 28, columnGapPx: 40 }, {}, [
             n("COLUMN", { span: 7, order: 0, alignV: "center" }, {}, [
               stack({ gapPx: 16 }, [
+                n("IMAGE", { assetId: "", src: "/portfolio/avatar.png", alt: "Your Name", aspect: "1:1" }, { width: { value: 96 }, radius: { value: 999 } }),
                 eyebrow("PORTFOLIO 2026"),
                 heading("Your Name", 1, { fontSize: { value: 58 }, fontWeight: { value: 600 }, color: { value: "#ededf1" }, lineHeight: { value: 1.04 }, letterSpacing: { value: -0.03 } }),
                 text("Staff product designer. I build calm interfaces for complicated systems.", { fontSize: { value: 19 }, color: { value: "#a6a6b0" }, maxWidth: { value: 520 }, lineHeight: { value: 1.6 } }),
@@ -98,6 +96,7 @@ export function editorialTemplate(): PortfolioDocument {
           ]),
         ]),
       ],
+      { backgroundSrc: "/portfolio/banner.png", minHeightPx: 440 },
     ),
     section({ background: { value: "#0c0c0f" }, paddingY: { value: 36 } }, [
       container([
@@ -137,10 +136,10 @@ export function editorialTemplate(): PortfolioDocument {
           heading("Selected work", 2, { fontSize: { value: 28 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.02 } }),
           n("GRID", { columns: 12, minColumnPx: 280, rowGapPx: 20, columnGapPx: 20 }, {}, [
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders.", year: "2025", tags: ["fintech", "design system"], featured: true }, { radius: { value: 14 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders.", year: "2025", tags: ["fintech", "design system"], featured: true, coverSrc: "/portfolio/cover-aether.png" }, { radius: { value: 14 }, shadow: { ref: "shadow.md" } }),
             ]),
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate.", year: "2024", tags: ["ai", "canvas"], featured: false }, { radius: { value: 14 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate.", year: "2024", tags: ["ai", "canvas"], featured: false, coverSrc: "/portfolio/cover-strata.png" }, { radius: { value: 14 }, shadow: { ref: "shadow.md" } }),
             ]),
           ]),
         ]),
@@ -151,8 +150,30 @@ export function editorialTemplate(): PortfolioDocument {
         stack({ gapPx: 16 }, [
           eyebrow("02"),
           heading("Experience", 2, { fontSize: { value: 28 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.02 } }),
-          n("EXPERIENCE_ITEM", { title: "Staff Product Designer", org: "Aether", start: "2022-03", current: true, bullets: ["Led the design system", "Shipped the trading terminal"] }, {}),
-          n("EXPERIENCE_ITEM", { title: "Senior Designer", org: "Nordic Commerce", start: "2019-01", end: "2022-02", current: false, bullets: ["Headless retail engine"] }, {}),
+          n("GRID", { columns: 12, minColumnPx: 260, rowGapPx: 24, columnGapPx: 32 }, {}, [
+            n("COLUMN", { span: 8, order: 0, alignV: "start" }, {}, [
+              stack({ gapPx: 22 }, [
+                n("EXPERIENCE_ITEM", { title: "Staff Product Designer", org: "Aether", start: "2022-03", current: true, bullets: ["Led the design system", "Shipped the trading terminal"] }, {}),
+                n("EXPERIENCE_ITEM", { title: "Senior Designer", org: "Nordic Commerce", start: "2019-01", end: "2022-02", current: false, bullets: ["Headless retail engine"] }, {}),
+              ]),
+            ]),
+            n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
+              n("CONTAINER", { maxWidthPx: 380, align: "left" }, {
+                background: { value: "rgba(255,255,255,0.04)" },
+                borderWidth: { value: 1 },
+                borderColor: { value: "rgba(255,255,255,0.10)" },
+                radius: { value: 16 },
+                paddingX: { value: 22 },
+                paddingY: { value: 22 },
+              }, [
+                stack({ gapPx: 10 }, [
+                  n("TEXT", { text: "NOW" }, { fontFamily: { value: "ibm-plex-mono" }, fontSize: { value: 10.5 }, letterSpacing: { value: 0.12 }, color: { value: "#48ed85" } }),
+                  heading("Leading design systems", 3, { fontSize: { value: 18 }, fontWeight: { value: 600 } }),
+                  text("Tokens, motion and accessibility for a trading platform used by institutions.", { fontSize: { value: 13 }, color: { value: "#a6a6b0" }, lineHeight: { value: 1.55 } }),
+                ]),
+              ]),
+            ]),
+          ]),
         ]),
       ]),
     ]),
@@ -161,12 +182,15 @@ export function editorialTemplate(): PortfolioDocument {
         stack({ gapPx: 16 }, [
           eyebrow("03"),
           heading("Skills", 2, { fontSize: { value: 28 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.02 } }),
-          n("GRID", { columns: 12, minColumnPx: 240, rowGapPx: 16, columnGapPx: 24 }, {}, [
-            n("COLUMN", { span: 6, order: 0, alignV: "start" }, {}, [
+          n("GRID", { columns: 12, minColumnPx: 220, rowGapPx: 16, columnGapPx: 24 }, {}, [
+            n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
               n("SKILL_GROUP", { title: "Design", items: ["Design systems", "Motion", "Accessibility", "Prototyping"], variant: "chips" }, {}),
             ]),
-            n("COLUMN", { span: 6, order: 0, alignV: "start" }, {}, [
+            n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
               n("SKILL_GROUP", { title: "Engineering", items: ["React", "TypeScript", "CSS architecture"], variant: "chips" }, {}),
+            ]),
+            n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
+              n("SKILL_GROUP", { title: "Tools", items: ["Figma", "Framer", "Playwright", "Storybook"], variant: "chips" }, {}),
             ]),
           ]),
         ]),
@@ -230,10 +254,10 @@ export function galleryTemplate(): PortfolioDocument {
     section({ paddingY: { value: 16 } }, [
       container([
         n("GRID", { columns: 12, minColumnPx: 260, rowGapPx: 20, columnGapPx: 20 }, {}, [
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Aether Protocol", summary: "Terminal UI", year: "2025", tags: [], featured: true }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Retail engine", year: "2024", tags: [], featured: false }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Strata OS", summary: "Agent canvas", year: "2024", tags: [], featured: false }, { radius: { value: 14 } })]),
-          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Atlas", summary: "Data atlas", year: "2023", tags: [], featured: false }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Aether Protocol", summary: "Terminal UI", year: "2025", tags: [], featured: true, coverSrc: "/portfolio/cover-aether.png" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Retail engine", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-nordic.png" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Strata OS", summary: "Agent canvas", year: "2024", tags: [], featured: false, coverSrc: "/portfolio/cover-strata.png" }, { radius: { value: 14 } })]),
+          n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [n("PROJECT_CARD", { title: "Atlas", summary: "Data atlas", year: "2023", tags: [], featured: false, coverSrc: "/portfolio/cover-atlas.png" }, { radius: { value: 14 } })]),
         ]),
       ]),
     ]),
