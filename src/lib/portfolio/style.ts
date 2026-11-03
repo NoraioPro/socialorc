@@ -69,8 +69,40 @@ function isColorLiteral(value: unknown): boolean {
   return typeof value === "string" && (HEX.test(value) || RGBA.test(value));
 }
 
+/**
+ * CSS lengths in a shadow are commonly written `0 8px 24px rgba(...)` (a unitless
+ * zero is legal), so accept unitless zero as well as px values.
+ */
+/**
+ * A shadow is a comma-separated list of layers, each: optional `inset`, 2–4
+ * lengths (a unitless `0` is legal) and a colour. Splitting respects the commas
+ * inside `rgba(...)`.
+ */
+function splitTopLevel(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of value) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+const SHADOW_LAYER = /^(?:inset\s+)?(?:-?\d+(?:\.\d+)?(?:px)?\s+){2,4}(?:rgba?\([^)]*\)|#[0-9a-fA-F]{3,8})$/;
+
 function isShadowLiteral(value: unknown): boolean {
-  return typeof value === "string" && (value === "none" || /^(\d+px ){2,4}/.test(value) || /inset/.test(value));
+  if (typeof value !== "string") return false;
+  if (value === "none") return true;
+  const layers = splitTopLevel(value);
+  return layers.length > 0 && layers.every((layer) => SHADOW_LAYER.test(layer));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -29,6 +29,55 @@ export interface DocumentRenderProps {
 }
 
 
+/** Static presentation rules: hover/focus/motion are CSS-only so the renderer stays hook-free. */
+const PF_CSS = `
+[data-pf-root]{--pf-accent:#48ed85;--pf-mono:var(--font-plex-mono),ui-monospace,monospace;position:relative;isolation:isolate}
+[data-pf-root] h1,[data-pf-root] h2{font-feature-settings:"ss01","cv11"}
+[data-pf-root] section[id],[data-pf-root] section{scroll-margin-top:24px}
+[data-pf-root] section:not([data-pf-hero]) > [data-pf-node]{position:relative}
+[data-pf-root] a:focus-visible,[data-pf-root] [tabindex]:focus-visible{outline:2px solid var(--pf-accent);outline-offset:3px;border-radius:8px}
+[data-pf-root]::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.035;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+.pf-btn{transition:transform .2s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.pf-btn:hover{transform:translateY(-2px)}
+.pf-btn--primary{box-shadow:0 8px 24px -8px rgba(72,237,133,.55)}
+.pf-btn--primary:hover{box-shadow:0 14px 32px -8px rgba(72,237,133,.7);background:#6bf59d!important}
+.pf-btn--secondary:hover{background:rgba(255,255,255,.14)!important}
+.pf-btn--ghost:hover{border-color:rgba(72,237,133,.8)!important;background:rgba(72,237,133,.08)!important}
+.pf-card{position:relative;overflow:hidden;transition:transform .35s cubic-bezier(.2,.7,.2,1),border-color .3s ease,box-shadow .35s ease}
+.pf-card:hover,.pf-card:focus-within{transform:translateY(-4px);border-color:rgba(72,237,133,.45)!important;box-shadow:0 24px 48px -24px rgba(0,0,0,.8),0 0 0 1px rgba(72,237,133,.15)!important}
+.pf-card__media{position:relative;overflow:hidden;border-radius:10px;aspect-ratio:16/9;background:#101014}
+.pf-card__media img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .7s cubic-bezier(.2,.7,.2,1)}
+.pf-card:hover .pf-card__media img{transform:scale(1.05)}
+.pf-card__media::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);pointer-events:none}
+.pf-card__link{transition:gap .2s ease,color .2s ease}
+.pf-card__link:hover{color:#9df3bd!important}
+.pf-card__link::after{content:"";position:absolute;inset:0}
+.pf-card--featured{display:grid!important;grid-template-columns:1.35fr 1fr;gap:32px!important;align-items:center;padding:24px!important}
+.pf-card--featured .pf-card__title{font-size:28px!important;letter-spacing:-.02em}
+.pf-card--featured .pf-card__summary{font-size:15px!important;-webkit-line-clamp:4!important}
+.pf-chip{transition:border-color .2s ease,color .2s ease,background-color .2s ease}
+.pf-chip:hover{border-color:rgba(72,237,133,.5)!important;color:#d6fbe4!important}
+.pf-exp{transition:background-color .25s ease}
+.pf-exp::before{content:"";position:absolute;left:-1px;top:0;width:2px;height:0;background:var(--pf-accent);transition:height .4s ease}
+.pf-exp:hover::before{height:100%}
+.pf-exp__dot{transition:box-shadow .25s ease,transform .25s ease}
+.pf-exp:hover .pf-exp__dot{transform:scale(1.2);box-shadow:0 0 0 5px rgba(72,237,133,.18),0 0 18px rgba(72,237,133,.6)!important}
+.pf-skill{transition:border-color .3s ease,transform .3s ease,background-color .3s ease}
+.pf-skill:hover{border-color:rgba(72,237,133,.35)!important;transform:translateY(-2px);background:rgba(255,255,255,.05)!important}
+.pf-social{transition:color .2s ease,border-color .2s ease,transform .2s ease}
+.pf-social:hover{color:#fff!important;border-color:rgba(72,237,133,.6)!important;transform:translateY(-1px)}
+.pf-mail{transition:background-color .2s ease,transform .2s ease,box-shadow .2s ease}
+.pf-mail:hover{background:#6bf59d!important;transform:translateY(-2px);box-shadow:0 16px 36px -10px rgba(72,237,133,.7)!important}
+[data-pf-hero] .pf-stack > *{animation:pf-rise .8s cubic-bezier(.2,.7,.2,1) both}
+[data-pf-hero] .pf-stack > *:nth-child(2){animation-delay:.08s}
+[data-pf-hero] .pf-stack > *:nth-child(3){animation-delay:.16s}
+[data-pf-hero] .pf-stack > *:nth-child(4){animation-delay:.24s}
+[data-pf-hero] .pf-stack > *:nth-child(5){animation-delay:.32s}
+@keyframes pf-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@media (max-width:900px){.pf-card--featured{grid-template-columns:1fr;gap:14px!important}.pf-card--featured .pf-card__title{font-size:22px!important}.pf-exp{grid-template-columns:1fr!important;gap:6px!important}}
+@media (prefers-reduced-motion:reduce){[data-pf-root] *,[data-pf-root] *::before,[data-pf-root] *::after{animation:none!important;transition:none!important}.pf-card:hover,.pf-btn:hover,.pf-skill:hover,.pf-mail:hover{transform:none}.pf-card:hover .pf-card__media img{transform:none}}
+`;
+
 function justifyCss(value: unknown): string {
   switch (value) {
     case "center": return "center";
@@ -99,13 +148,15 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
           <section
             {...common}
             id={typeof p.anchor === "string" ? p.anchor : undefined}
+            {...(typeof p.backgroundSrc === "string" && p.backgroundSrc ? { "data-pf-hero": "" } : {})}
             style={{
               paddingLeft: 24,
               paddingRight: 24,
+              position: "relative",
               ...(p.minHeightPx ? { minHeight: `${Number(p.minHeightPx)}px` } : {}),
               ...(typeof p.backgroundSrc === "string" && p.backgroundSrc
                 ? {
-                    backgroundImage: `linear-gradient(180deg, rgba(10,10,12,0.35) 0%, rgba(10,10,12,0.92) 60%, #0b0b0e 100%), url(${p.backgroundSrc})`,
+                    backgroundImage: `radial-gradient(70% 80% at 15% 20%, rgba(72,237,133,0.10) 0%, transparent 60%), linear-gradient(180deg, rgba(10,10,12,0.25) 0%, rgba(10,10,12,0.78) 62%, #0b0b0e 100%), url(${p.backgroundSrc})`,
                     backgroundSize: "cover",
                     backgroundPosition: "center",
                   }
@@ -130,6 +181,7 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         return (
           <div
             {...common}
+            className="pf-stack"
             style={{
               display: "flex",
               flexDirection: p.direction === "row" ? "row" : "column",
@@ -217,12 +269,13 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         const external = href?.startsWith("https://") && p.target === "blank";
         const label = text(p.label) || "Learn more";
         const buttonStyle = { ...cssToObject(style), ...buttonBox(p) };
+        const btnClass = `pf-btn pf-btn--${typeof p.variant === "string" ? p.variant : "primary"}`;
         return href ? (
-          <a {...common} href={href} style={buttonStyle} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+          <a {...common} className={btnClass} href={href} style={buttonStyle} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
             {label}
           </a>
         ) : (
-          <span {...common} style={buttonStyle}>{label}</span>
+          <span {...common} className={btnClass} style={buttonStyle}>{label}</span>
         );
       }
       case "IMAGE": {
@@ -242,7 +295,7 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
                 height={asset.height ?? undefined}
                 loading="lazy"
                 decoding="async"
-                style={{ width: "100%", height: "auto", objectFit: (styleObject(style).objectFit as "cover" | "contain" | "none" | undefined) ?? "cover" }}
+                style={{ width: "100%", height: "auto", display: "block", objectFit: (styleObject(style).objectFit as "cover" | "contain" | "none" | undefined) ?? "cover" }}
               />
             ) : (
               <div
@@ -272,65 +325,78 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
           (typeof p.coverSrc === "string" && p.coverSrc ? { url: p.coverSrc, width: null, height: null, mimeType: "image/png" } : undefined) ??
           (p.coverAssetId ? media[text(p.coverAssetId)] : undefined);
         const href = isSafeHref(p.href) ? p.href : undefined;
+        const featured = p.featured === true;
+        const tags = Array.isArray(p.tags) ? p.tags : [];
+        const category = tags.length > 0 ? String(tags[0]) : "";
+        const meta = [text(p.year), category].filter(Boolean).join(" · ") || "Case study";
         return (
-          <article {...common} style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0, padding: 20 }}>
-            {cover ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={cover.url}
-                alt={text(p.title)}
-                style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 10, display: "block" }}
-                loading="lazy"
-              />
-            ) : (
-              <div
-                aria-hidden="true"
-                style={{
-                  aspectRatio: "16 / 9",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  position: "relative",
-                  overflow: "hidden",
-                  display: "grid",
-                  placeItems: "center",
-                  background:
-                    "radial-gradient(120% 120% at 15% 10%, rgba(72,237,133,0.30) 0%, rgba(16,16,20,1) 58%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 9px)",
-                }}
-              >
-                <span style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", color: "rgba(255,255,255,0.16)" }}>
-                  {(text(p.title) || "Project").trim().slice(0, 2).toUpperCase()}
+          <article
+            {...common}
+            className={featured ? "pf-card pf-card--featured" : "pf-card"}
+            style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 14, width: "100%", minWidth: 0, padding: 18, boxSizing: "border-box", height: "100%" }}
+          >
+            <div className="pf-card__media">
+              {cover ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={cover.url} alt={text(p.title)} loading="lazy" decoding="async" />
+              ) : (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    display: "grid",
+                    placeItems: "center",
+                    background:
+                      "radial-gradient(120% 120% at 15% 10%, rgba(72,237,133,0.30) 0%, rgba(16,16,20,1) 58%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 9px)",
+                  }}
+                >
+                  <span style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", color: "rgba(255,255,255,0.16)" }}>
+                    {(text(p.title) || "Project").trim().slice(0, 2).toUpperCase()}
+                  </span>
+                </div>
+              )}
+              {featured ? (
+                <span
+                  style={{
+                    position: "absolute", top: 12, left: 12, zIndex: 1, fontFamily: "var(--pf-mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase",
+                    padding: "5px 10px", borderRadius: 999, background: "rgba(11,11,14,0.72)", color: "#48ed85", border: "1px solid rgba(72,237,133,0.4)", backdropFilter: "blur(8px)",
+                  }}
+                >
+                  Featured
                 </span>
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7c7c87" }}>
-                {text(p.year) || "Case study"}
-              </span>
-              {p.featured === true ? <span style={{ fontSize: 10, color: "#48ed85" }}>featured</span> : null}
+              ) : null}
             </div>
-            <h3 style={{ margin: 0, fontSize: 18, letterSpacing: "-0.01em", lineHeight: 1.25 }}>{text(p.title)}</h3>
-            {text(p.summary) ? <p style={{ margin: 0, color: "#a6a6b0", fontSize: 14, lineHeight: 1.55 }}>{text(p.summary)}</p> : null}
-            {Array.isArray(p.tags) && p.tags.length > 0 ? (
-              <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6, padding: 0, margin: "12px 0 0" }}>
-                {p.tags.map((tag) => (
-                  <li
-                    key={String(tag)}
-                    style={{
-                      fontSize: 10.5,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      padding: "3px 9px",
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      color: "#a6a6b0",
-                    }}
-                  >
-                    {String(tag)}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {href ? <a href={href} style={{ display: "inline-block", marginTop: 12, color: "#48ed85", fontSize: 13 }}>View project →</a> : null}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, flex: 1 }}>
+              <span style={{ fontFamily: "var(--pf-mono)", fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: "#7c7c87" }}>{meta}</span>
+              <h3 className="pf-card__title" style={{ margin: 0, fontSize: 20, letterSpacing: "-0.015em", lineHeight: 1.22, fontWeight: 600 }}>{text(p.title)}</h3>
+              {text(p.summary) ? (
+                <p
+                  className="pf-card__summary"
+                  style={{ margin: 0, color: "#a6a6b0", fontSize: 14, lineHeight: 1.6, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
+                >
+                  {text(p.summary)}
+                </p>
+              ) : null}
+              {tags.length > 0 ? (
+                <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6, padding: 0, margin: "4px 0 0" }}>
+                  {tags.map((tag) => (
+                    <li
+                      key={String(tag)}
+                      className="pf-chip"
+                      style={{ fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.14)", color: "#a6a6b0" }}
+                    >
+                      {String(tag)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {href ? (
+                <a href={href} className="pf-card__link" style={{ display: "inline-block", marginTop: "auto", paddingTop: 8, color: "#48ed85", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+                  View project →
+                </a>
+              ) : null}
+            </div>
           </article>
         );
       }
@@ -339,12 +405,13 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         return (
           <article
             {...common}
+            className="pf-exp"
             style={{
               display: "grid",
-              gridTemplateColumns: "150px 1fr",
-              gap: 24,
-              borderLeft: "2px solid rgba(255,255,255,0.12)",
-              padding: "10px 0 10px 24px",
+              gridTemplateColumns: "170px 1fr",
+              gap: 28,
+              borderLeft: "1px solid rgba(255,255,255,0.12)",
+              padding: "6px 0 28px 32px",
               position: "relative",
               borderRadius: 0,
               ...cssToObject(style),
@@ -352,19 +419,25 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
           >
             <span
               aria-hidden="true"
-              style={{ position: "absolute", left: -7, top: 16, width: 12, height: 12, borderRadius: 999, background: "#48ed85" }}
+              className="pf-exp__dot"
+              style={{ position: "absolute", left: -6, top: 12, width: 11, height: 11, borderRadius: 999, background: "#48ed85", boxShadow: "0 0 0 4px #131317, 0 0 12px rgba(72,237,133,0.45)" }}
             />
-            <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 11, letterSpacing: "0.06em", color: "#9df3bd", textTransform: "uppercase", paddingTop: 2 }}>
+            <span style={{ fontFamily: "var(--pf-mono)", fontSize: 11, letterSpacing: "0.1em", color: "#9df3bd", textTransform: "uppercase", paddingTop: 5 }}>
               {text(p.start)} — {p.current ? "Present" : text(p.end)}
             </span>
-            <div style={{ display: "grid", gap: 4 }}>
-            <strong style={{ fontSize: 16.5, letterSpacing: "-0.01em" }}>{text(p.title)}</strong>
-            <span style={{ fontSize: 14, color: "#a1a1aa" }}>{text(p.org)}</span>
-            {bullets.length > 0 ? (
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#d7d7de", fontSize: 13.5, lineHeight: 1.6, listStyle: "disc" }}>
-                {bullets.map((bullet, index) => <li key={index}>{bullet}</li>)}
-              </ul>
-            ) : null}
+            <div style={{ display: "grid", gap: 6, alignContent: "start" }}>
+              <strong style={{ fontSize: 19, letterSpacing: "-0.015em", fontWeight: 600, lineHeight: 1.25 }}>{text(p.title)}</strong>
+              <span style={{ fontSize: 14, color: "#8f8f99" }}>{text(p.org)}</span>
+              {bullets.length > 0 ? (
+                <ul style={{ margin: "10px 0 0", padding: 0, color: "#d0d0d8", fontSize: 14.5, lineHeight: 1.7, listStyle: "none", display: "grid", gap: 4 }}>
+                  {bullets.map((bullet, index) => (
+                    <li key={index} style={{ position: "relative", paddingLeft: 20 }}>
+                      <span aria-hidden="true" style={{ position: "absolute", left: 0, top: "0.72em", width: 8, height: 1, background: "#48ed85" }} />
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </article>
         );
@@ -372,9 +445,14 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "SKILL_GROUP": {
         const items = Array.isArray(p.items) ? (p.items as string[]) : [];
         return (
-          <div {...common} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div
+            {...common}
+            className="pf-skill"
+            style={{ display: "flex", flexDirection: "column", gap: 16, padding: 22, borderRadius: 16, border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.025)", height: "100%", boxSizing: "border-box" }}
+          >
             {text(p.title) ? (
-              <span style={{ fontFamily: "var(--font-plex-mono), monospace", fontSize: 10.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7c7c87" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--pf-mono)", fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", color: "#48ed85" }}>
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 2, background: "#48ed85" }} />
                 {text(p.title)}
               </span>
             ) : null}
@@ -382,14 +460,8 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
               {items.map((item) => (
                 <li
                   key={item}
-                  style={{
-                    fontSize: 12.5,
-                    padding: "5px 12px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(72,237,133,0.35)",
-                    background: "rgba(72,237,133,0.07)",
-                    color: "#9df3bd",
-                  }}
+                  className="pf-chip"
+                  style={{ fontSize: 12.5, padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)", color: "#d0d0d8" }}
                 >
                   {item}
                 </li>
@@ -401,10 +473,16 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "SOCIAL_LINKS": {
         const links = Array.isArray(p.links) ? (p.links as { platform: string; url: string }[]) : [];
         return (
-          <ul {...common} style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 12, padding: 0, margin: 0 }}>
+          <ul {...common} style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 10, padding: 0, margin: 0, justifyContent: "center" }}>
             {links.filter((link) => isSafeHref(link.url)).map((link) => (
               <li key={link.platform}>
-                <a href={link.url} style={{ color: "#a6a6b0", fontSize: 13 }}>{link.platform}</a>
+                <a
+                  href={link.url}
+                  className="pf-social"
+                  style={{ display: "inline-block", color: "#a6a6b0", fontSize: 12.5, textDecoration: "none", padding: "7px 14px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.14)", textTransform: "capitalize" }}
+                >
+                  {link.platform} ↗
+                </a>
               </li>
             ))}
           </ul>
@@ -413,16 +491,17 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "CONTACT_BLOCK": {
         const email = text(p.email);
         return (
-          <div {...common} style={{ display: "grid", gap: 8, justifyItems: "start" }}>
+          <div {...common} style={{ display: "grid", gap: 14, justifyItems: "center", textAlign: "center" }}>
             {email ? (
               <a
                 href={`mailto:${email}`}
-                style={{ color: "#48ed85", fontSize: 22, letterSpacing: "-0.01em", textDecoration: "none", borderBottom: "1px solid rgba(72,237,133,0.35)", paddingBottom: 2 }}
+                className="pf-mail"
+                style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "#48ed85", color: "#003917", fontSize: 16, fontWeight: 600, textDecoration: "none", padding: "14px 28px", borderRadius: 14, boxShadow: "0 10px 28px -10px rgba(72,237,133,0.6)" }}
               >
-                {email}
+                {email} <span aria-hidden="true">→</span>
               </a>
             ) : null}
-            <span style={{ fontSize: 14, color: "#a6a6b0" }}>{text(p.ctaLabel)}</span>
+            {text(p.ctaLabel) ? <span style={{ fontFamily: "var(--pf-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8f8f99" }}>{text(p.ctaLabel)}</span> : null}
             {text(p.note) ? <span style={{ fontSize: 13, color: "#8f8f99" }}>{text(p.note)}</span> : null}
           </div>
         );
@@ -444,6 +523,7 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
         overflowX: "hidden",
       }}
     >
+      <style>{PF_CSS}</style>
       {css ? <style>{css}</style> : null}
       {renderNode(page.root)}
     </div>
@@ -525,7 +605,7 @@ function cssToObject(css: string): React.CSSProperties {
 function containerBox(p: Record<string, unknown>): React.CSSProperties {
   void p;
   return {
-    maxWidth: `${Number(p.maxWidthPx ?? 1080)}px`,
+    maxWidth: `${Number(p.maxWidthPx ?? 1120)}px`,
     marginLeft: "auto",
     marginRight: "auto",
     width: "100%",
@@ -544,9 +624,9 @@ function buttonBox(p: Record<string, unknown>): React.CSSProperties {
     alignSelf: "flex-start",
     flex: "none",
     width: "auto",
-    height: 42,
-    padding: "0 20px",
-    borderRadius: 10,
+    height: 46,
+    padding: "0 24px",
+    borderRadius: 12,
     fontSize: 14,
     fontWeight: 600,
     whiteSpace: "nowrap",
@@ -561,8 +641,7 @@ function cardBox(css: string): React.CSSProperties {
   return {
     ...cssToObject(css),
     background: (styleObject(css).background as string | undefined) ?? "#1b1b21",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    padding: 20,
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 18,
   };
 }
