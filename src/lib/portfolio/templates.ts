@@ -77,7 +77,7 @@ export function editorialTemplate(): PortfolioDocument {
                   shadow: { value: "0 0 0 3px #131317, 0 0 0 5px rgba(72,237,133,0.6), 0 18px 40px -8px rgba(0,0,0,0.7)" },
                 }),
                 eyebrow("PORTFOLIO 2026"),
-                heading("Your Name", 1, { fontSize: { value: 68 }, fontWeight: { value: 600 }, color: { value: "#f4f4f7" }, lineHeight: { value: 1.03 }, letterSpacing: { value: -0.035 } }),
+                n("HEADING", { text: "Your Name", level: 1, variant: "display" }, { fontFamily: { value: "source-serif" }, fontWeight: { value: 600 }, color: { value: "#f4f4f7" } }),
                 text("Staff product designer building calm interfaces for complicated systems — trading terminals, editors, internal platforms.", { fontSize: { value: 18 }, color: { value: "#a6a6b0" }, maxWidth: { value: 540 }, lineHeight: { value: 1.65 } }),
                 button("Get in touch", "mailto:you@example.com"),
               ]),
@@ -138,7 +138,7 @@ export function editorialTemplate(): PortfolioDocument {
             ]),
           ]),
           n("COLUMN", { span: 6, order: 0, alignV: "center" }, {}, [
-            n("IMAGE", { assetId: "", src: "/portfolio/banner.png", alt: "Studio", aspect: "16:9" }, { radius: { value: 18 }, shadow: { ref: "shadow.lg" } }),
+            n("IMAGE", { assetId: "", src: "/portfolio/cover-atlas.jpg", alt: "Studio", aspect: "16:9" }, { radius: { value: 18 }, shadow: { ref: "shadow.lg" } }),
           ]),
         ]),
       ]),
@@ -152,13 +152,13 @@ export function editorialTemplate(): PortfolioDocument {
           heading("Selected work", 2, { fontSize: { value: 34 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.025 } }),
           n("GRID", { columns: 12, minColumnPx: 280, rowGapPx: 24, columnGapPx: 24 }, {}, [
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders, built around a design system that keeps dense data calm.", year: "2025", href: "https://example.com/aether", tags: ["fintech", "design system"], featured: true, coverSrc: "/portfolio/cover-aether.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Aether Protocol", summary: "A liquidity terminal for institutional traders. A design system that keeps dense, real-time data calm under pressure.", year: "2025", href: "https://example.com/aether", tags: ["fintech", "design system"], featured: true, coverSrc: "/portfolio/cover-aether.jpg", variant: "wide" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
             n("COLUMN", { span: 6, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate, with a shared cursor and a live task graph.", year: "2024", tags: ["ai", "canvas"], featured: false, coverSrc: "/portfolio/cover-strata.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Strata OS", summary: "A canvas where several AI agents collaborate: shared cursor, live task graph, no tab switching.", year: "2024", tags: ["ai", "canvas"], featured: false, coverSrc: "/portfolio/cover-strata.jpg", variant: "overlay" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
             n("COLUMN", { span: 12, order: 0, alignV: "stretch" }, {}, [
-              n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Headless retail engine for a Nordic group: five storefronts, one catalogue and a component API shared by three teams.", year: "2024", tags: ["retail", "platform"], featured: false, coverSrc: "/portfolio/cover-nordic.jpg" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
+              n("PROJECT_CARD", { title: "Nordic Commerce", summary: "Headless retail for a Nordic group: five storefronts, one catalogue, one component API.", year: "2024", tags: ["retail", "platform"], featured: false, coverSrc: "/portfolio/cover-nordic.jpg", variant: "default" }, { radius: { value: 16 }, shadow: { ref: "shadow.md" } }),
             ]),
           ]),
         ]),
@@ -173,7 +173,7 @@ export function editorialTemplate(): PortfolioDocument {
           heading("Experience", 2, { fontSize: { value: 34 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.025 } }),
           n("EXPERIENCE_ITEM", { title: "Staff Product Designer", org: "Aether", start: "2022-03", current: true, bullets: ["Owned the design system used by four product teams", "Shipped the institutional trading terminal"] }, {}),
           n("EXPERIENCE_ITEM", { title: "Senior Product Designer", org: "Nordic Commerce", start: "2019-01", end: "2022-02", current: false, bullets: ["Built the headless retail engine's interface layer"] }, {}),
-          n("EXPERIENCE_ITEM", { title: "Product Designer", org: "Studio North", start: "2016-05", end: "2018-12", current: false, bullets: ["Client work across fintech and media"] }, {}),
+          n("EXPERIENCE_ITEM", { title: "Product Designer", org: "Studio North", start: "2016-05", end: "2018-12", current: false, bullets: ["Client work across fintech and media"], variant: "card" }, {}),
         ]),
       ]),
     ]),
@@ -187,17 +187,17 @@ export function editorialTemplate(): PortfolioDocument {
           n("GRID", { columns: 12, minColumnPx: 220, rowGapPx: 16, columnGapPx: 20 }, {}, [
             n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
               n("CONTAINER", { maxWidthPx: 400, align: "left" }, { background: { value: "rgba(255,255,255,0.035)" }, borderWidth: { value: 1 }, borderColor: { value: "rgba(255,255,255,0.09)" }, radius: { value: 16 }, paddingX: { value: 20 }, paddingY: { value: 20 } }, [
-                n("SKILL_GROUP", { title: "Design", items: ["Design systems", "Motion", "Accessibility", "Prototyping"], variant: "chips" }, {}),
+                n("SKILL_GROUP", { title: "Design", items: ["Design systems", "Motion", "Accessibility", "Prototyping"], variant: "matrix" }, {}),
               ]),
             ]),
             n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
               n("CONTAINER", { maxWidthPx: 400, align: "left" }, { background: { value: "rgba(255,255,255,0.035)" }, borderWidth: { value: 1 }, borderColor: { value: "rgba(255,255,255,0.09)" }, radius: { value: 16 }, paddingX: { value: 20 }, paddingY: { value: 20 } }, [
-                n("SKILL_GROUP", { title: "Engineering", items: ["React", "TypeScript", "CSS architecture", "Playwright"], variant: "chips" }, {}),
+                n("SKILL_GROUP", { title: "Engineering", items: ["React", "TypeScript", "CSS architecture", "Playwright"], variant: "matrix" }, {}),
               ]),
             ]),
             n("COLUMN", { span: 4, order: 0, alignV: "start" }, {}, [
               n("CONTAINER", { maxWidthPx: 400, align: "left" }, { background: { value: "rgba(255,255,255,0.035)" }, borderWidth: { value: 1 }, borderColor: { value: "rgba(255,255,255,0.09)" }, radius: { value: 16 }, paddingX: { value: 20 }, paddingY: { value: 20 } }, [
-                n("SKILL_GROUP", { title: "Tools", items: ["Figma", "Framer", "Storybook", "Linear"], variant: "chips" }, {}),
+                n("SKILL_GROUP", { title: "Tools", items: ["Figma", "Framer", "Storybook", "Linear"], variant: "matrix" }, {}),
               ]),
             ]),
           ]),
@@ -220,7 +220,7 @@ export function editorialTemplate(): PortfolioDocument {
             eyebrow("04 — CONTACT"),
             heading("Let’s build something calm.", 2, { fontSize: { value: 44 }, fontWeight: { value: 600 }, letterSpacing: { value: -0.03 }, textAlign: { value: "center" }, lineHeight: { value: 1.1 } }),
             text("Tell me what you are building. I usually reply within a day.", { fontSize: { value: 15.5 }, color: { value: "#b4b4be" }, textAlign: { value: "center" }, maxWidth: { value: 460 } }),
-            n("CONTACT_BLOCK", { email: "you@example.com", ctaLabel: "Book a call", note: "" }, {}),
+            n("CONTACT_BLOCK", { email: "you@example.com", ctaLabel: "Book a call", note: "", variant: "card" }, {}),
             n("SOCIAL_LINKS", { links: [{ platform: "linkedin", url: "https://www.linkedin.com/" }, { platform: "github", url: "https://github.com/" }] }, {}),
           ]),
         ]),

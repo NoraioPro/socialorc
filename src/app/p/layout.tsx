@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import { Hanken_Grotesk, IBM_Plex_Mono, Source_Serif_4 } from "next/font/google";
 import "./../socialork.css";
 
 /**
@@ -17,6 +17,13 @@ const hanken = Hanken_Grotesk({
   display: "swap",
 });
 
+const serif = Source_Serif_4({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  display: "swap",
+});
+
 const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
   subsets: ["latin"],
@@ -31,7 +38,7 @@ export const metadata: Metadata = {
 
 export default function PublicPortfolioLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`${hanken.variable} ${plexMono.variable}`} style={{ background: "#0b0b0e", minHeight: "100vh" }}>
+    <div className={`${hanken.variable} ${plexMono.variable} ${serif.variable}`} style={{ background: "#0b0b0e", minHeight: "100vh" }}>
       {children}
     </div>
   );

@@ -107,6 +107,8 @@ export const HEADING_PROPS = z
   .object({
     text: z.string().max(200).default(""),
     level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(2),
+    /** display = the oversized hero treatment (tight tracking, balanced lines) */
+    variant: z.enum(["default", "display"]).default("default"),
   })
   .strict();
 
@@ -155,6 +157,8 @@ export const PROJECT_CARD_PROPS = z
     coverSrc: imageSrc.optional(),
     href: href.optional(),
     featured: z.boolean().default(false),
+    /** default = media on top · wide = media beside copy · overlay = copy on the image */
+    variant: z.enum(["default", "wide", "overlay"]).default("default"),
   })
   .strict();
 
@@ -166,6 +170,8 @@ export const EXPERIENCE_ITEM_PROPS = z
     end: month.optional(),
     current: z.boolean().default(false),
     bullets: z.array(z.string().max(240)).max(8).default([]),
+    /** timeline = rail + dates · card = bordered block */
+    variant: z.enum(["timeline", "card"]).default("timeline"),
   })
   .strict()
   .refine((value) => value.current || value.end !== undefined, {
@@ -177,7 +183,7 @@ export const SKILL_GROUP_PROPS = z
   .object({
     title: z.string().max(80).default(""),
     items: z.array(z.string().max(40)).max(24).default([]),
-    variant: z.enum(["chips", "bars", "list"]).default("chips"),
+    variant: z.enum(["chips", "list", "matrix"]).default("chips"),
   })
   .strict();
 
@@ -202,6 +208,7 @@ export const CONTACT_BLOCK_PROPS = z
     email: z.string().max(160).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Expected an email address"),
     ctaLabel: z.string().max(40).default("Get in touch"),
     note: z.string().max(240).optional(),
+    variant: z.enum(["inline", "card"]).default("inline"),
   })
   .strict();
 

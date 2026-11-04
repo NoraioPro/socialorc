@@ -10,6 +10,15 @@
 import { resolveStyleValue } from "./tokens";
 import type { StyleSet, TokenTable } from "./types";
 
+/** Font ids resolve to the next/font CSS variables loaded by the public layout. */
+const FONT_VARS: Record<string, string> = {
+  "hanken-grotesk": "var(--font-hanken)",
+  "ibm-plex-mono": "var(--font-plex-mono)",
+  geist: "var(--font-geist-sans)",
+  "geist-mono": "var(--font-geist-mono)",
+  "source-serif": "var(--font-serif), Georgia, serif",
+};
+
 /** Turn one resolved style object into `prop: value;` pairs (deterministic order). */
 export function declarations(style: Partial<Record<keyof StyleSet, unknown>>): string {
   const out: string[] = [];
@@ -42,7 +51,7 @@ export function declarations(style: Partial<Record<keyof StyleSet, unknown>>): s
   }
   if (typeof s.background === "string") push("background", String(s.background));
   if (typeof s.color === "string") push("color", String(s.color));
-  if (typeof s.fontFamily === "string") push("font-family", String(s.fontFamily));
+  if (typeof s.fontFamily === "string") push("font-family", FONT_VARS[String(s.fontFamily)] ?? String(s.fontFamily));
   if (typeof s.fontSize === "number") push("font-size", `${s.fontSize}px`);
   if (typeof s.fontWeight === "number") push("font-weight", String(s.fontWeight));
   if (typeof s.lineHeight === "number") push("line-height", String(s.lineHeight));

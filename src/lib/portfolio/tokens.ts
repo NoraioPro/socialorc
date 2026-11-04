@@ -11,7 +11,7 @@
 import type { TokenFamily, TokenPath, TokenTable, StyleValue } from "./types";
 
 /** The only font families a document may reference: build-time next/font imports. */
-export const FONT_ALLOWLIST = ["hanken-grotesk", "ibm-plex-mono", "geist", "geist-mono"] as const;
+export const FONT_ALLOWLIST = ["hanken-grotesk", "ibm-plex-mono", "geist", "geist-mono", "source-serif"] as const;
 export type FontId = (typeof FONT_ALLOWLIST)[number];
 
 export const DEFAULT_TOKENS: TokenTable = {

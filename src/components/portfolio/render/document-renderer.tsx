@@ -13,6 +13,29 @@ import type { PortfolioDocument, PortfolioNode, TokenTable } from "@/lib/portfol
  * React, links are re-checked against the scheme allowlist, and images come from
  * pinned media (published) or the media library (preview).
  */
+const MOTION_CSS = `
+        /* motion: scroll reveal + hover, skipped entirely under reduced motion */
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes pf-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+          @supports (animation-timeline: view()) {
+            [data-pf-root] > div > section { animation: pf-rise both; animation-timeline: view(); animation-range: entry 0% cover 26%; }
+            .pf-card { animation: pf-rise both; animation-timeline: view(); animation-range: entry 6% cover 30%; }
+          }
+          .pf-card { transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease; }
+          .pf-card:hover { transform: translateY(-3px); border-color: rgba(72,237,133,.4); box-shadow: 0 22px 50px rgba(0,0,0,.55); }
+          .pf-card:hover .pf-card-media { transform: scale(1.035); }
+          .pf-card-media { transition: transform .45s cubic-bezier(.16,.84,.3,1); }
+          .pf-email { transition: opacity .2s ease; }
+          .pf-email:hover { opacity: .8; }
+        }
+        .pf-meta { font-family: var(--font-plex-mono), monospace; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: #9a9aa4; }
+        .pf-card { border-radius: 16px; }
+        .pf-card img { display: block; }
+        @media (max-width: 720px) {
+          .pf-card[style*="grid-template-columns"] { grid-template-columns: minmax(0,1fr) !important; }
+        }
+`;
+
 export interface RenderMedia {
   url: string;
   width: number | null;
@@ -234,13 +257,15 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       case "HEADING": {
         const level = Math.min(4, Math.max(1, Number(p.level ?? 2)));
         const Tag = (`h${level}` as unknown) as React.ElementType;
+        const display = p.variant === "display";
         return (
           <Tag
             {...common}
             style={{
               margin: 0,
-              letterSpacing: "-0.02em",
-              lineHeight: 1.12,
+              letterSpacing: display ? "-0.045em" : "-0.02em",
+              lineHeight: display ? 0.98 : 1.12,
+              fontSize: display ? "clamp(44px, 7vw, 96px)" : undefined,
               textWrap: "balance",
               ...cssToObject(style),
             }}
@@ -322,120 +347,104 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       }
       case "PROJECT_CARD": {
         const cover =
-          (typeof p.coverSrc === "string" && p.coverSrc ? { url: p.coverSrc, width: null, height: null, mimeType: "image/png" } : undefined) ??
+          (typeof p.coverSrc === "string" && p.coverSrc ? { url: p.coverSrc } : undefined) ??
           (p.coverAssetId ? media[text(p.coverAssetId)] : undefined);
         const href = isSafeHref(p.href) ? p.href : undefined;
-        const featured = p.featured === true;
-        const tags = Array.isArray(p.tags) ? p.tags : [];
-        const category = tags.length > 0 ? String(tags[0]) : "";
-        const meta = [text(p.year), category].filter(Boolean).join(" · ") || "Case study";
+        const variant = p.variant === "wide" || p.variant === "overlay" ? p.variant : "default";
+        const meta = text(p.year) || "Case study";
+        const tags = Array.isArray(p.tags) ? (p.tags as string[]) : [];
+
+        const chips = tags.length ? (
+          <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6, padding: 0, margin: "12px 0 0" }}>
+            {tags.map((tag) => (
+              <li key={String(tag)} style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", padding: "3px 9px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.14)", color: "#a6a6b0" }}>
+                {String(tag)}
+              </li>
+            ))}
+          </ul>
+        ) : null;
+
+        const mediaBlock = cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={cover.url} alt={text(p.title)} className="pf-card-media" style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 12, display: "block" }} loading="lazy" />
+        ) : (
+          <div aria-hidden="true" className="pf-card-media" style={{ aspectRatio: "16 / 9", borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)", position: "relative", overflow: "hidden", display: "grid", placeItems: "center", background: "radial-gradient(120% 120% at 15% 10%, rgba(72,237,133,0.30) 0%, rgba(16,16,20,1) 58%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 9px)" }}>
+            <span style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", color: "rgba(255,255,255,0.16)" }}>{(text(p.title) || "P").trim().slice(0, 2).toUpperCase()}</span>
+          </div>
+        );
+
+        if (variant === "wide") {
+          return (
+            <article {...common} className="pf-card" style={{ ...cardBox(style), display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1fr)", gap: 24, alignItems: "center", padding: 20, width: "100%" }}>
+              <div style={{ minWidth: 0, overflow: "hidden", borderRadius: 12 }}>{mediaBlock}</div>
+              <div style={{ display: "grid", gap: 10, alignContent: "center" }}>
+                <span className="pf-meta">{meta}</span>
+                <h3 style={{ margin: 0, fontSize: 26, letterSpacing: "-0.02em", lineHeight: 1.15 }}>{text(p.title)}</h3>
+                {text(p.summary) ? <p style={{ margin: 0, color: "#a6a6b0", fontSize: 14.5, lineHeight: 1.6 }}>{text(p.summary)}</p> : null}
+                {chips}
+                {href ? <a href={href} style={{ color: "#48ed85", fontSize: 13, marginTop: 2 }}>View project →</a> : null}
+              </div>
+            </article>
+          );
+        }
+
+        if (variant === "overlay") {
+          return (
+            <article {...common} className="pf-card pf-card-overlay" style={{ ...cardBox(style), position: "relative", overflow: "hidden", padding: 0, minHeight: 320, display: "flex", alignItems: "flex-end", width: "100%" }}>
+              <div style={{ position: "absolute", inset: 0 }}>
+                <div style={{ position: "absolute", inset: 0, transform: "scale(1.001)" }}>{mediaBlock}</div>
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(6,8,10,0.96) 0%, rgba(6,8,10,0.35) 55%, transparent 100%)" }} />
+              </div>
+              <div style={{ position: "relative", padding: 24, display: "grid", gap: 8 }}>
+                <span className="pf-meta">{meta}</span>
+                <h3 style={{ margin: 0, fontSize: 24, letterSpacing: "-0.02em" }}>{text(p.title)}</h3>
+                {text(p.summary) ? <p style={{ margin: 0, color: "#cfcfd6", fontSize: 14, maxWidth: 460, lineHeight: 1.6 }}>{text(p.summary)}</p> : null}
+              </div>
+            </article>
+          );
+        }
+
         return (
-          <article
-            {...common}
-            className={featured ? "pf-card pf-card--featured" : "pf-card"}
-            style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 14, width: "100%", minWidth: 0, padding: 18, boxSizing: "border-box", height: "100%" }}
-          >
-            <div className="pf-card__media">
-              {cover ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={cover.url} alt={text(p.title)} loading="lazy" decoding="async" />
-              ) : (
-                <div
-                  aria-hidden="true"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "grid",
-                    placeItems: "center",
-                    background:
-                      "radial-gradient(120% 120% at 15% 10%, rgba(72,237,133,0.30) 0%, rgba(16,16,20,1) 58%), repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 9px)",
-                  }}
-                >
-                  <span style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", color: "rgba(255,255,255,0.16)" }}>
-                    {(text(p.title) || "Project").trim().slice(0, 2).toUpperCase()}
-                  </span>
-                </div>
-              )}
-              {featured ? (
-                <span
-                  style={{
-                    position: "absolute", top: 12, left: 12, zIndex: 1, fontFamily: "var(--pf-mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase",
-                    padding: "5px 10px", borderRadius: 999, background: "rgba(11,11,14,0.72)", color: "#48ed85", border: "1px solid rgba(72,237,133,0.4)", backdropFilter: "blur(8px)",
-                  }}
-                >
-                  Featured
-                </span>
-              ) : null}
+          <article {...common} className="pf-card" style={{ ...cardBox(style), display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0, padding: 20 }}>
+            <div style={{ overflow: "hidden", borderRadius: 12 }}>{mediaBlock}</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+              <span className="pf-meta">{meta}</span>
+              {p.featured === true ? <span style={{ fontSize: 10, color: "#48ed85", letterSpacing: "0.08em", textTransform: "uppercase" }}>featured</span> : null}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, flex: 1 }}>
-              <span style={{ fontFamily: "var(--pf-mono)", fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: "#7c7c87" }}>{meta}</span>
-              <h3 className="pf-card__title" style={{ margin: 0, fontSize: 20, letterSpacing: "-0.015em", lineHeight: 1.22, fontWeight: 600 }}>{text(p.title)}</h3>
-              {text(p.summary) ? (
-                <p
-                  className="pf-card__summary"
-                  style={{ margin: 0, color: "#a6a6b0", fontSize: 14, lineHeight: 1.6, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
-                >
-                  {text(p.summary)}
-                </p>
-              ) : null}
-              {tags.length > 0 ? (
-                <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6, padding: 0, margin: "4px 0 0" }}>
-                  {tags.map((tag) => (
-                    <li
-                      key={String(tag)}
-                      className="pf-chip"
-                      style={{ fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.14)", color: "#a6a6b0" }}
-                    >
-                      {String(tag)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {href ? (
-                <a href={href} className="pf-card__link" style={{ display: "inline-block", marginTop: "auto", paddingTop: 8, color: "#48ed85", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
-                  View project →
-                </a>
-              ) : null}
-            </div>
+            <h3 style={{ margin: 0, fontSize: 18, letterSpacing: "-0.01em", lineHeight: 1.25 }}>{text(p.title)}</h3>
+            {text(p.summary) ? <p style={{ margin: 0, color: "#a6a6b0", fontSize: 14, lineHeight: 1.55 }}>{text(p.summary)}</p> : null}
+            {chips}
+            {href ? <a href={href} style={{ color: "#48ed85", fontSize: 13, marginTop: 2 }}>View project →</a> : null}
           </article>
         );
       }
       case "EXPERIENCE_ITEM": {
         const bullets = Array.isArray(p.bullets) ? (p.bullets as string[]) : [];
+        const dates = `${text(p.start)} — ${p.current ? "Present" : text(p.end)}`;
+        if (p.variant === "card") {
+          return (
+            <article {...common} className="pf-card" style={{ ...cardBox(style), display: "grid", gap: 6, padding: 20, width: "100%" }}>
+              <span className="pf-meta">{dates}</span>
+              <strong style={{ fontSize: 18, letterSpacing: "-0.01em" }}>{text(p.title)}</strong>
+              <span style={{ fontSize: 14, color: "#a1a1aa" }}>{text(p.org)}</span>
+              {bullets.length ? (
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#d7d7de", fontSize: 13.5, lineHeight: 1.6, listStyle: "disc" }}>
+                  {bullets.map((bullet, index) => <li key={index}>{bullet}</li>)}
+                </ul>
+              ) : null}
+            </article>
+          );
+        }
         return (
-          <article
-            {...common}
-            className="pf-exp"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "170px 1fr",
-              gap: 28,
-              borderLeft: "1px solid rgba(255,255,255,0.12)",
-              padding: "6px 0 28px 32px",
-              position: "relative",
-              borderRadius: 0,
-              ...cssToObject(style),
-            }}
-          >
-            <span
-              aria-hidden="true"
-              className="pf-exp__dot"
-              style={{ position: "absolute", left: -6, top: 12, width: 11, height: 11, borderRadius: 999, background: "#48ed85", boxShadow: "0 0 0 4px #131317, 0 0 12px rgba(72,237,133,0.45)" }}
-            />
-            <span style={{ fontFamily: "var(--pf-mono)", fontSize: 11, letterSpacing: "0.1em", color: "#9df3bd", textTransform: "uppercase", paddingTop: 5 }}>
-              {text(p.start)} — {p.current ? "Present" : text(p.end)}
-            </span>
-            <div style={{ display: "grid", gap: 6, alignContent: "start" }}>
-              <strong style={{ fontSize: 19, letterSpacing: "-0.015em", fontWeight: 600, lineHeight: 1.25 }}>{text(p.title)}</strong>
-              <span style={{ fontSize: 14, color: "#8f8f99" }}>{text(p.org)}</span>
-              {bullets.length > 0 ? (
-                <ul style={{ margin: "10px 0 0", padding: 0, color: "#d0d0d8", fontSize: 14.5, lineHeight: 1.7, listStyle: "none", display: "grid", gap: 4 }}>
-                  {bullets.map((bullet, index) => (
-                    <li key={index} style={{ position: "relative", paddingLeft: 20 }}>
-                      <span aria-hidden="true" style={{ position: "absolute", left: 0, top: "0.72em", width: 8, height: 1, background: "#48ed85" }} />
-                      {bullet}
-                    </li>
-                  ))}
+          <article {...common} style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 24, borderLeft: "2px solid rgba(255,255,255,0.12)", padding: "10px 0 10px 24px", position: "relative", borderRadius: 0, ...cssToObject(style) }}>
+            <span aria-hidden="true" style={{ position: "absolute", left: -7, top: 16, width: 12, height: 12, borderRadius: 999, background: "#48ed85" }} />
+            <span className="pf-meta" style={{ color: "#9df3bd", paddingTop: 2 }}>{dates}</span>
+            <div style={{ display: "grid", gap: 4 }}>
+              <strong style={{ fontSize: 16.5, letterSpacing: "-0.01em" }}>{text(p.title)}</strong>
+              <span style={{ fontSize: 14, color: "#a1a1aa" }}>{text(p.org)}</span>
+              {bullets.length ? (
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#d7d7de", fontSize: 13.5, lineHeight: 1.6, listStyle: "disc" }}>
+                  {bullets.map((bullet, index) => <li key={index}>{bullet}</li>)}
                 </ul>
               ) : null}
             </div>
@@ -444,25 +453,44 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       }
       case "SKILL_GROUP": {
         const items = Array.isArray(p.items) ? (p.items as string[]) : [];
+        const variant = p.variant === "list" || p.variant === "matrix" ? p.variant : "chips";
+        const label = text(p.title) ? <span className="pf-meta">{text(p.title)}</span> : null;
+
+        if (variant === "matrix") {
+          return (
+            <div {...common} className="pf-card" style={{ ...cardBox(style), padding: 20, display: "grid", gap: 10, width: "100%", height: "100%" }}>
+              {label}
+              <ul style={{ listStyle: "none", display: "grid", gap: 6, padding: 0, margin: 0 }}>
+                {items.map((item) => (
+                  <li key={item} style={{ fontSize: 13.5, color: "#ececf2", display: "flex", gap: 8, alignItems: "center" }}>
+                    <span aria-hidden="true" style={{ width: 4, height: 4, borderRadius: 999, background: "#48ed85", flex: "none" }} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        }
+
+        if (variant === "list") {
+          return (
+            <div {...common} style={{ display: "grid", gap: 8 }}>
+              {label}
+              <ul style={{ listStyle: "none", display: "grid", gap: 4, padding: 0, margin: 0 }}>
+                {items.map((item) => (
+                  <li key={item} style={{ fontSize: 14, color: "#d7d7de", fontFamily: "var(--font-plex-mono), monospace" }}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          );
+        }
+
         return (
-          <div
-            {...common}
-            className="pf-skill"
-            style={{ display: "flex", flexDirection: "column", gap: 16, padding: 22, borderRadius: 16, border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.025)", height: "100%", boxSizing: "border-box" }}
-          >
-            {text(p.title) ? (
-              <span style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--pf-mono)", fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", color: "#48ed85" }}>
-                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 2, background: "#48ed85" }} />
-                {text(p.title)}
-              </span>
-            ) : null}
+          <div {...common} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {label}
             <ul style={{ listStyle: "none", display: "flex", flexWrap: "wrap", gap: 8, padding: 0, margin: 0 }}>
               {items.map((item) => (
-                <li
-                  key={item}
-                  className="pf-chip"
-                  style={{ fontSize: 12.5, padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)", color: "#d0d0d8" }}
-                >
+                <li key={item} style={{ fontSize: 12.5, padding: "5px 12px", borderRadius: 999, border: "1px solid rgba(72,237,133,0.35)", background: "rgba(72,237,133,0.07)", color: "#9df3bd" }}>
                   {item}
                 </li>
               ))}
@@ -490,21 +518,25 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       }
       case "CONTACT_BLOCK": {
         const email = text(p.email);
-        return (
-          <div {...common} style={{ display: "grid", gap: 14, justifyItems: "center", textAlign: "center" }}>
+        const body = (
+          <>
             {email ? (
-              <a
-                href={`mailto:${email}`}
-                className="pf-mail"
-                style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "#48ed85", color: "#003917", fontSize: 16, fontWeight: 600, textDecoration: "none", padding: "14px 28px", borderRadius: 14, boxShadow: "0 10px 28px -10px rgba(72,237,133,0.6)" }}
-              >
-                {email} <span aria-hidden="true">→</span>
+              <a href={`mailto:${email}`} className="pf-email" style={{ color: "#6cf59a", fontSize: 24, letterSpacing: "-0.01em", textDecoration: "none", borderBottom: "1px solid rgba(108,245,154,0.45)", paddingBottom: 3 }}>
+                {email}
               </a>
             ) : null}
-            {text(p.ctaLabel) ? <span style={{ fontFamily: "var(--pf-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8f8f99" }}>{text(p.ctaLabel)}</span> : null}
-            {text(p.note) ? <span style={{ fontSize: 13, color: "#8f8f99" }}>{text(p.note)}</span> : null}
-          </div>
+            <span style={{ fontSize: 14.5, color: "#e2e2e8" }}>{text(p.ctaLabel)}</span>
+            {text(p.note) ? <span style={{ fontSize: 13, color: "#b4b4be" }}>{text(p.note)}</span> : null}
+          </>
         );
+        if (p.variant === "card") {
+          return (
+            <div {...common} className="pf-card" style={{ ...cardBox(style), padding: 32, display: "grid", gap: 10, justifyItems: "center", textAlign: "center", width: "100%" }}>
+              {body}
+            </div>
+          );
+        }
+        return <div {...common} style={{ display: "grid", gap: 8, justifyItems: "start" }}>{body}</div>;
       }
       default:
         return null;
@@ -524,7 +556,7 @@ export function DocumentRenderer({ document, media, slug }: DocumentRenderProps)
       }}
     >
       <style>{PF_CSS}</style>
-      {css ? <style>{css}</style> : null}
+      <style>{`${css}${MOTION_CSS}`}</style>
       {renderNode(page.root)}
     </div>
   );
