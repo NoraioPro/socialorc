@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { Menu, X } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import { BrainSwitcher } from "@/components/socialork/brain-switcher";
 import {
@@ -61,6 +62,7 @@ export function Shell({
   const [query, setQuery] = useState("");
   const [viewAs, setViewAs] = useState<string | null>(null);
   const [userMenu, setUserMenu] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const nav: { label?: string; items: NavItem[] }[] = [
@@ -133,7 +135,8 @@ export function Shell({
   };
 
   return (
-    <div className="so-root">
+    <div className="so-root" data-nav={navOpen ? "open" : "closed"}>
+      <button type="button" className="so-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
       <aside className="so-side">
         <div className="so-brand">
           {/* the product's existing mascot mark */}
@@ -240,6 +243,16 @@ export function Shell({
 
       <div className="so-main">
         <header className="so-top">
+          <button
+            type="button"
+            className="so-btn so-nav-toggle"
+            aria-label={navOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+            style={{ width: 32, padding: 0 }}
+          >
+            {navOpen ? <X size={16} /> : <Menu size={16} />}
+          </button>
           <span className="so-crumb">
             <b>{workspaceName}</b>
             <span>/</span>
