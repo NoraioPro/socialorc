@@ -1,56 +1,34 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/tenancy/guard";
-import { saveDraft } from "@/lib/portfolio/service";
+import prisma from "@/lib/prisma";
+import { z } from "zod";
+import { bad, notFound, ownPortfolio, portfolioCaller, readJson } from "@/lib/portfolio/route-helpers";
+import { maybeAutosaveVersion, parseOrError, serialise, toDTO } from "@/lib/portfolio/server";
 
-export const dynamic = "force-dynamic";
+const saveSchema = z.object({ doc: z.unknown(), baseRevision: z.number().int().min(0) });
 
 /**
- * PATCH /api/portfolio/draft — save the draft document.
- *
- * Two guarantees the editor depends on:
- *  - the document passes `parseDocument()` before it is stored (nothing invalid
- *    can ever reach the database or the renderer);
- *  - the write is compare-and-set on `documentVersion`, so a stale tab gets 409
- *    with the current version instead of silently overwriting newer work.
+ * Autosave the draft. A save carrying an older revision than the stored one is
+ * a conflict (another tab or device saved in between): 409 with the server copy.
  */
-export async function PATCH(req: NextRequest) {
-  const guard = await requirePermission("portfolio:edit");
-  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
-
-  const body = (await req.json().catch(() => ({}))) as {
-    document?: unknown;
-    documentVersion?: unknown;
-  };
-
-  const version = typeof body.documentVersion === "number" ? body.documentVersion : Number.NaN;
-  if (!Number.isInteger(version) || version < 1) {
-    return NextResponse.json(
-      { error: "documentVersion is required (integer ≥ 1).", code: "invalid_version" },
-      { status: 400 },
-    );
+export async function PATCH(request: Request) {
+  const caller = portfolioCaller(await requirePermission("portfolio:edit"));
+  if (!caller.ok) return caller.response;
+  const body = saveSchema.safeParse(await readJson(request));
+  if (!body.success) return bad("Nothing to save.");
+  const parsed = parseOrError(body.data.doc);
+  if (!parsed.ok) return bad(parsed.error, 422);
+  const current = await ownPortfolio(caller.userId);
+  if (!current) return notFound();
+  const json = serialise(parsed.doc);
+  const updated = await prisma.portfolio.updateMany({
+    where: { id: current.id, draftRevision: body.data.baseRevision },
+    data: { draftDoc: json, draftRevision: { increment: 1 } },
+  });
+  if (updated.count === 0) {
+    const latest = await ownPortfolio(caller.userId);
+    return NextResponse.json({ error: "This page was changed in another tab or device.", portfolio: latest ? await toDTO(latest) : null }, { status: 409 });
   }
-
-  const result = await saveDraft(guard.userId, body.document, version);
-
-  if (result.ok) {
-    return NextResponse.json({ ok: true, documentVersion: result.documentVersion });
-  }
-  switch (result.code) {
-    case "invalid":
-      return NextResponse.json(
-        { error: "The document is not valid.", code: "invalid_document", issues: result.issues },
-        { status: 422 },
-      );
-    case "conflict":
-      return NextResponse.json(
-        {
-          error: "This portfolio was changed in another tab.",
-          code: "version_conflict",
-          documentVersion: result.documentVersion,
-        },
-        { status: 409 },
-      );
-    case "missing":
-      return NextResponse.json({ error: "No portfolio yet.", code: "missing" }, { status: 404 });
-  }
+  if (current.draftDoc !== json) await maybeAutosaveVersion(current.id, current.draftDoc, caller.userId);
+  return NextResponse.json({ revision: body.data.baseRevision + 1, savedAt: new Date().toISOString() });
 }

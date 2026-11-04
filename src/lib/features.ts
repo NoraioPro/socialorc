@@ -20,3 +20,12 @@ export function teamsDisabledResponse(): Response {
   // Plain Response (not NextResponse) so this module stays importable from client components.
   return Response.json({ error: "Not found" }, { status: 404 });
 }
+
+/**
+ * The portfolio builder (/socialork/portfolio, /portfolio/edit, /p/<handle>).
+ * On unless NEXT_PUBLIC_PORTFOLIO_ENABLED=false, so a deployment can switch it
+ * off; the UI hides the entry points and the API answers 404.
+ */
+export function portfolioEnabled(value: string | undefined = process.env.NEXT_PUBLIC_PORTFOLIO_ENABLED): boolean {
+  return (value ?? "").trim().toLowerCase() !== "false";
+}

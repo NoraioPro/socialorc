@@ -120,8 +120,9 @@ model User {
   workspaceMembers WorkspaceMember[]
   conversations   Conversation[]
 
-  /// Professional Portfolio: one per user, never per workspace.
+  /// Professional Portfolio: one public site per person, never per workspace.
   portfolio              Portfolio?
+  portfolioTemplates     PortfolioTemplate[]
 
   // SocialOrc Network relations
   nativePosts            NativePost[]
@@ -369,7 +370,6 @@ model MediaAsset {
   visibility  String    @default("PUBLIC")
 
   posts          PostMedia[]
-  portfolioPins  PortfolioPinnedMedia[]
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
@@ -1018,128 +1018,68 @@ model AuditEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Professional Portfolio (full visual builder)
-//
-// The document tree lives in `draftDocument` / `PortfolioRevision.document` as
-// jsonb; ownership, handles, status and the published pointer are relational so
-// the database can enforce them. See docs/portfolio/FINAL-ARCHITECTURE.md.
+// Portfolio builder. A portfolio belongs to the person, not the workspace: it
+// is their public professional site at /p/<handle>. Documents are JSON text
+// (validated by src/lib/portfolio/schema.ts) so SQLite and Postgres behave alike.
 // ---------------------------------------------------------------------------
 
-enum PortfolioStatus {
-  DRAFT
-  PUBLISHED
-}
-
 model Portfolio {
-  id                  String          @id @default(cuid())
-  /// Ownership: one portfolio per user, independent of any workspace.
-  userId              String          @unique
-  handle              String          @unique
-  status              PortfolioStatus @default(DRAFT)
-  draftDocument       Json
-  /// Compare-and-set token for autosave; a stale write is rejected with 409.
-  documentVersion     Int             @default(1)
-  schemaVersion       Int             @default(1)
-  /// 1:1 pointer to the active immutable snapshot.
-  publishedRevisionId String?         @unique
-  publishedAt         DateTime?
-  /// Provenance only: a template is copied at creation, never re-applied.
-  templateKey         String?
-  templateVersion     Int?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  /// Public address: /p/<handle>. Lowercase letters, digits and hyphens.
+  handle             String   @unique
+  /// DRAFT (never published) | PUBLISHED | UNPUBLISHED
+  status             String   @default("DRAFT")
+  /// The working copy. Visitors never see it.
+  draftDoc           String
+  /// Bumped on every draft save; a save carrying an older revision is a conflict.
+  draftRevision      Int      @default(0)
+  /// The version visitors see, when status is PUBLISHED.
+  publishedVersionId String?
+  publishedAt        DateTime?
+  searchIndexing     Boolean  @default(true)
+  templateId         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  /// Composite FK: the published revision must belong to THIS portfolio.
-  /// NoAction (not SetNull): the FK includes the required `id`, so deleting a
-  /// revision that is still published is blocked by the database rather than
-  /// silently detaching the pointer.
-  publishedRevision PortfolioRevision?  @relation("PortfolioPublished", fields: [publishedRevisionId, id], references: [id, portfolioId], onDelete: NoAction)
-  revisions         PortfolioRevision[] @relation("PortfolioRevisions")
-  pinnedMedia       PortfolioPinnedMedia[]
-
-  @@unique([publishedRevisionId, id])
-  @@index([status])
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions  PortfolioVersion[]
+  redirects PortfolioRedirect[]
 }
 
-model PortfolioRevision {
-  id            String    @id @default(cuid())
-  portfolioId   String
-  /// Frozen, fully resolved document. Published media references use mediaSha.
-  document      Json
-  schemaVersion Int
-  /// sha256 of the canonical document JSON: makes publishing idempotent.
-  hash          String
-  label         String?
-  /// Pinned digest of the Open Graph image for this revision.
-  ogImageSha    String?
-  createdBy     String
-  createdAt     DateTime  @default(now())
-  publishedAt   DateTime?
+model PortfolioVersion {
+  id          String   @id @default(cuid())
+  portfolioId String
+  /// CREATED | AUTOSAVE | PUBLISHED | NAMED | BEFORE_RESTORE
+  kind        String
+  label       String?
+  doc         String
+  createdById String
+  createdAt   DateTime @default(now())
 
-  portfolio   Portfolio              @relation("PortfolioRevisions", fields: [portfolioId], references: [id], onDelete: Cascade)
-  publishedBy Portfolio?             @relation("PortfolioPublished")
-  media       PortfolioPinnedMedia[]
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
-  /// Enables the composite FK from Portfolio (cross-portfolio pointers impossible).
-  @@unique([id, portfolioId])
-  @@unique([portfolioId, hash])
   @@index([portfolioId, createdAt])
 }
 
-/// The single source of truth for a revision's published media bytes.
-model PortfolioPinnedMedia {
-  id                 String   @id @default(cuid())
-  revisionId         String
-  portfolioId        String
-  /// Full 64-hex digest of the bytes; the pin path is built from it.
-  sha256             String
-  pathname           String   @unique
-  url                String
-  mimeType           String
-  width              Int?
-  height             Int?
-  bytes              Int
-  /// Provenance only: the library row may be deleted (onDelete: SetNull).
-  sourceMediaAssetId String?
-  /// INLINE | SECTION_BG | OG
-  role               String   @default("INLINE")
-  createdAt          DateTime @default(now())
+/// An old address keeps redirecting to the portfolio for 30 days after a rename.
+model PortfolioRedirect {
+  oldHandle   String   @id
+  portfolioId String
+  expiresAt   DateTime
 
-  revision  PortfolioRevision @relation(fields: [revisionId, portfolioId], references: [id, portfolioId], onDelete: Cascade)
-  portfolio Portfolio         @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  source    MediaAsset?       @relation(fields: [sourceMediaAssetId], references: [id], onDelete: SetNull)
-
-  @@unique([revisionId, sha256])
-  @@index([portfolioId])
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 }
 
-/// Outbox for retryable Blob work. Blob storage and Postgres are not atomic, so
-/// deletions are queued here and swept by /api/cron/portfolio.
-model PortfolioBlobTask {
-  id            String   @id @default(cuid())
-  kind          String
-  pathname      String
-  state         String   @default("PENDING")
-  attempts      Int      @default(0)
-  lastError     String?
-  nextAttemptAt DateTime @default(now())
-  createdAt     DateTime @default(now())
-
-  @@index([state, nextAttemptAt])
-  @@index([pathname])
-}
-
+/// A design the person saved with "Save as my template".
 model PortfolioTemplate {
-  id            String   @id @default(cuid())
-  key           String   @unique
-  name          String
-  description   String?
-  category      String
-  document      Json
-  schemaVersion Int
-  documentHash  String
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  doc       String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

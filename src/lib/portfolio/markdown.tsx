@@ -1,225 +1,92 @@
+import { Fragment, type ReactNode } from "react";
+
 /**
- * Markdown for portfolio content (P7).
+ * A small, safe Markdown subset rendered straight to React elements.
  *
- * Two jobs:
- *  1. `parseMarkdown()` turns a Markdown document into portfolio nodes, so a user
- *     can write a page as text and get real, editable components out of it.
- *  2. `inlineMarkdown()` renders the small inline subset a TEXT node supports
- *     (bold, italic, code, links) as React nodes — never as HTML.
- *
- * There is no HTML pass-through anywhere: the parser only recognises the syntax
- * it understands, and everything else stays text.
+ * Supported: `#`/`##`/`###` headings, paragraphs (single newlines become line
+ * breaks), **bold**, *italic*, `code`, [links](https://…), `-`/`1.` lists,
+ * `>` quotes and `---` dividers. There is no HTML pass-through: every character
+ * of user text ends up as a React text node, and links only keep https:,
+ * mailto: and #anchor targets.
  */
-import type { ReactNode } from "react";
-import type { PortfolioNode } from "./types";
 
-export type MarkdownBlock =
-  | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
-  | { kind: "paragraph"; text: string }
-  | { kind: "list"; ordered: boolean; items: string[] }
-  | { kind: "quote"; text: string }
-  | { kind: "image"; src: string; alt: string }
-  | { kind: "divider" };
-
-const IMAGE = /^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
-const SAFE_SRC = /^(\/|https:\/\/)/;
-const SAFE_HREF = /^(https:\/\/|mailto:|\/)/;
-
-export function isSafeSrc(value: string): boolean {
-  return SAFE_SRC.test(value);
+export function safeHref(url: string): string {
+  const u = url.trim();
+  return /^(https:\/\/|http:\/\/|mailto:|#)/i.test(u) ? u : "#";
 }
 
-export function isSafeHref(value: string): boolean {
-  return SAFE_HREF.test(value);
-}
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\n]+\*)/;
 
-/** Split a Markdown document into blocks. Unknown syntax becomes a paragraph. */
-export function parseMarkdown(markdown: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  let list: { ordered: boolean; items: string[] } | null = null;
-
-  const flushList = (): void => {
-    if (list && list.items.length > 0) blocks.push({ kind: "list", ordered: list.ordered, items: list.items });
-    list = null;
-  };
-
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (line.trim() === "") {
-      flushList();
-      continue;
-    }
-
-    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (heading) {
-      flushList();
-      blocks.push({ kind: "heading", level: heading[1].length as 1 | 2 | 3 | 4, text: heading[2].trim() });
-      continue;
-    }
-
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-      flushList();
-      blocks.push({ kind: "divider" });
-      continue;
-    }
-
-    const image = IMAGE.exec(line.trim());
-    if (image) {
-      if (isSafeSrc(image[2])) {
-        flushList();
-        blocks.push({ kind: "image", alt: image[1].trim(), src: image[2] });
-      } else {
-        flushList();
-        blocks.push({ kind: "paragraph", text: line.trim() });
-      }
-      continue;
-    }
-
-    const bullet = /^[-*+]\s+(.*)$/.exec(line.trim());
-    if (bullet) {
-      if (!list || list.ordered) {
-        flushList();
-        list = { ordered: false, items: [] };
-      }
-      list.items.push(bullet[1].trim());
-      continue;
-    }
-
-    const ordered = /^\d+[.)]\s+(.*)$/.exec(line.trim());
-    if (ordered) {
-      if (!list || !list.ordered) {
-        flushList();
-        list = { ordered: true, items: [] };
-      }
-      list.items.push(ordered[1].trim());
-      continue;
-    }
-
-    const quote = /^>\s?(.*)$/.exec(line.trim());
-    if (quote) {
-      flushList();
-      blocks.push({ kind: "quote", text: quote[1].trim() });
-      continue;
-    }
-
-    flushList();
-    blocks.push({ kind: "paragraph", text: line.trim() });
-  }
-
-  flushList();
-  return blocks;
-}
-
-/** Inline marks → React nodes. Links are re-validated; anything else is text. */
-export function inlineMarkdown(text: string, keyPrefix = "md"): ReactNode[] {
+export function renderInline(src: string, keyPrefix = "i"): ReactNode[] {
   const out: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
-  let index = 0;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) out.push(text.slice(last, match.index));
-    const token = match[0];
-    const key = `${keyPrefix}-${index++}`;
-
-    if (token.startsWith("**")) {
-      out.push(<strong key={key}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith("`")) {
-      out.push(
-        <code
-          key={key}
-          style={{
-            fontFamily: "var(--font-plex-mono), monospace",
-            fontSize: "0.92em",
-            padding: "1px 5px",
-            borderRadius: 4,
-            background: "rgba(255,255,255,0.07)",
-          }}
-        >
-          {token.slice(1, -1)}
-        </code>,
-      );
-    } else if (token.startsWith("*")) {
-      out.push(<em key={key}>{token.slice(1, -1)}</em>);
-    } else {
-      const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
-      if (link && isSafeHref(link[2])) {
-        out.push(
-          <a key={key} href={link[2]} style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: 3 }}>
-            {link[1]}
-          </a>,
-        );
-      } else {
-        out.push(token);
-      }
-    }
-    last = match.index + token.length;
+  let rest = src;
+  let k = 0;
+  while (rest.length) {
+    const m = INLINE.exec(rest);
+    if (!m) { out.push(rest); break; }
+    if (m.index > 0) out.push(rest.slice(0, m.index));
+    const tok = m[0];
+    const key = `${keyPrefix}-${k++}`;
+    if (m[1]) out.push(<code key={key} className="pf-code">{tok.slice(1, -1)}</code>);
+    else if (m[2]) out.push(<strong key={key} className="pf-strong">{renderInline(tok.slice(2, -2), key)}</strong>);
+    else if (m[3]) {
+      const lm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)!;
+      out.push(<a key={key} className="pf-link pf-mdlink" href={safeHref(lm[2])}>{renderInline(lm[1], key)}</a>);
+    } else out.push(<em key={key}>{renderInline(tok.slice(1, -1), key)}</em>);
+    rest = rest.slice(m.index + tok.length);
   }
-
-  if (last < text.length) out.push(text.slice(last));
   return out;
 }
 
-export function markdownHasContent(markdown: string): boolean {
-  return parseMarkdown(markdown).length > 0;
-}
+const withBreaks = (lines: string[], key: string): ReactNode[] =>
+  lines.flatMap((l, i) => (i ? [<br key={`${key}-br${i}`} />, ...renderInline(l, `${key}-${i}`)] : renderInline(l, `${key}-${i}`)));
 
-/**
- * Turn a Markdown document into real portfolio nodes: one SECTION containing a
- * CONTAINER and a STACK, with a component per block. The result is ordinary
- * document content — every piece stays editable in the canvas afterwards.
- */
-export function markdownToNodes(markdown: string, nextId: (kind: string) => string): PortfolioNode[] {
-  const blocks = parseMarkdown(markdown);
-  const children: PortfolioNode[] = [];
-
-  for (const block of blocks) {
-    switch (block.kind) {
-      case "heading":
-        children.push({ id: nextId("heading"), type: "HEADING", props: { text: block.text, level: block.level }, style: {} } as PortfolioNode);
-        break;
-      case "paragraph":
-        children.push({ id: nextId("text"), type: "TEXT", props: { text: block.text, markdown: true }, style: {} } as PortfolioNode);
-        break;
-      case "list":
-        children.push({
-          id: nextId("text"),
-          type: "TEXT",
-          props: { text: block.items.map((item, i) => `${block.ordered ? `${i + 1}.` : "-"} ${item}`).join("\n"), markdown: true },
-          style: {},
-        } as PortfolioNode);
-        break;
-      case "quote":
-        children.push({ id: nextId("text"), type: "TEXT", props: { text: `> ${block.text}`, markdown: true }, style: {} } as PortfolioNode);
-        break;
-      case "image":
-        children.push({ id: nextId("image"), type: "IMAGE", props: { assetId: "", src: block.src, alt: block.alt || "Image" }, style: {} } as PortfolioNode);
-        break;
-      case "divider":
-        children.push({ id: nextId("divider"), type: "DIVIDER", props: { thicknessPx: 1, colorToken: "color.border-subtle", widthPct: 100, variant: "solid" }, style: {} } as PortfolioNode);
-        break;
+export function renderMarkdown(src: string): ReactNode {
+  const lines = String(src || "").replace(/\r/g, "").split("\n");
+  const blocks: ReactNode[] = [];
+  const para: string[] = [];
+  let i = 0;
+  const flush = () => {
+    if (para.length) {
+      blocks.push(<p key={`p${blocks.length}`} className="pf-md-p">{withBreaks(para.slice(), `p${blocks.length}`)}</p>);
+      para.length = 0;
     }
+  };
+  while (i < lines.length) {
+    const L = lines[i];
+    let m: RegExpExecArray | null;
+    if (!L.trim()) { flush(); i++; continue; }
+    if ((m = /^(#{1,3})\s+(.*)$/.exec(L))) {
+      flush();
+      const lv = m[1].length;
+      const key = `h${blocks.length}`;
+      const Tag = (["h2", "h3", "h4"] as const)[lv - 1];
+      blocks.push(<Tag key={key} className={`pf-md-h pf-md-h${lv}`}>{renderInline(m[2], key)}</Tag>);
+      i++;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,})$/.test(L.trim())) { flush(); blocks.push(<hr key={`r${blocks.length}`} className="pf-md-hr" />); i++; continue; }
+    if (/^>\s?/.test(L)) {
+      flush();
+      const q: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) { q.push(lines[i].replace(/^>\s?/, "")); i++; }
+      const key = `q${blocks.length}`;
+      blocks.push(<blockquote key={key} className="pf-md-quote">{withBreaks(q, key)}</blockquote>);
+      continue;
+    }
+    if (/^\s*([-*+]|\d+\.)\s+/.test(L)) {
+      flush();
+      const ordered = /^\s*\d+\./.test(L);
+      const items: string[] = [];
+      while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, "")); i++; }
+      const key = `l${blocks.length}`;
+      const lis = items.map((x, j) => <li key={`${key}-${j}`}>{renderInline(x, `${key}-${j}`)}</li>);
+      blocks.push(ordered ? <ol key={key} className="pf-md-list">{lis}</ol> : <ul key={key} className="pf-md-list">{lis}</ul>);
+      continue;
+    }
+    para.push(L);
+    i++;
   }
-
-  return [
-    {
-      id: nextId("section"),
-      type: "SECTION",
-      props: { fullBleed: true },
-      style: { paddingY: { value: 64 } },
-      children: [
-        {
-          id: nextId("container"),
-          type: "CONTAINER",
-          props: { maxWidthPx: 820, align: "center" },
-          style: {},
-          children: [
-            { id: nextId("stack"), type: "STACK", props: { direction: "column", gapPx: 18, align: "stretch", justify: "start" }, style: {}, children },
-          ],
-        },
-      ],
-    } as PortfolioNode,
-  ];
+  flush();
+  return <Fragment>{blocks}</Fragment>;
 }
