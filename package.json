@@ -14,6 +14,7 @@
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e && npm run test:durability",
     "typecheck": "tsc --noEmit",
     "test:durability": "node tests/e2e/durability.mjs",
+    "connector:setup": "node scripts/setup-connector.mjs",
     "test:live": "bash tests/e2e/live.sh",
     "db:pg:schema": "node scripts/make-postgres-schema.mjs",
     "db:pg:generate": "prisma generate",
