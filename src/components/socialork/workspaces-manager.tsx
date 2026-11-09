@@ -147,7 +147,7 @@ export function WorkspacesManager({ rows }: { rows: WorkspaceRow[] }) {
         <span role="status" style={{ fontSize: 12, color: note.kind === "ok" ? "var(--green)" : "var(--red)" }}>{note.text}</span>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(440px, 100%), 1fr))", gap: 12 }}>
         {rows.map((row) => {
           const owner = row.role.toUpperCase() === "OWNER";
           const canRename = ["OWNER", "ADMIN"].includes(row.role.toUpperCase());
