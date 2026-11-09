@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
+import { brainUpdateSchema, readBrainProfile } from "@/lib/brains/profile";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -22,14 +23,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Brain not found" }, { status: 404 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
-  if (!name) {
+  const parsed = brainUpdateSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: issue?.path[0] === "name" ? "A brain needs a name." : `Check ${issue?.path.join(".") || "the form"}: ${issue?.message ?? "invalid value"}` },
+      { status: 400 },
+    );
+  }
+  const { name, color, handle, profile } = parsed.data;
+  if (name === undefined && color === undefined && handle === undefined && profile === undefined) {
     return NextResponse.json({ error: "A brain needs a name." }, { status: 400 });
   }
 
-  const updated = await prisma.brain.update({ where: { id }, data: { name } });
-  return NextResponse.json({ brain: { id: updated.id, name: updated.name, isDefault: updated.isDefault } });
+  const updated = await prisma.brain.update({
+    where: { id },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(color !== undefined ? { color } : {}),
+      ...(handle !== undefined ? { handle: handle || null } : {}),
+      ...(profile !== undefined ? { profile: JSON.stringify(profile) } : {}),
+    },
+  });
+  return NextResponse.json({
+    brain: { id: updated.id, name: updated.name, isDefault: updated.isDefault, color: updated.color, handle: updated.handle, profile: readBrainProfile(updated.profile) },
+  });
 }
 
 /**

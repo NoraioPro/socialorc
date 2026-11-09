@@ -12,6 +12,7 @@ import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext } from "@/types/brand-brain";
 import { loadBrandContext } from "@/lib/brand-context";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { retrieveBrandKnowledge } from "@/lib/brand-knowledge";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
 
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
       // demo brand, which meant the same output whoever you were).
       const brandForPrompt =
         (brandContext as BrandContext | undefined) ??
-        (await loadBrandContext(authz.workspaceId)) ??
+        (await loadBrandContext(authz.workspaceId, await activeBrainId(authz))) ??
         undefined;
 
       // The workspace's knowledge sources most relevant to this idea, bounded.

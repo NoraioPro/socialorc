@@ -126,6 +126,8 @@ model User {
 
   // SocialOrc Network relations
   nativePosts            NativePost[]
+  nativePostReactions    NativePostReaction[]
+  nativePostComments     NativePostComment[]
   friendRequestsSent     Friendship[] @relation("FriendshipRequester")
   friendRequestsReceived Friendship[] @relation("FriendshipAddressee")
 
@@ -146,6 +148,14 @@ model Brain {
   name      String
   /// The brain shown by default (e.g. auto-created on first use).
   isDefault Boolean  @default(false)
+  /// Swatch shown next to the brain's name, e.g. "#48ED85".
+  color     String?
+  /// The brand's own handle, e.g. "@fjordco". Display only.
+  handle    String?
+  /// This brand's voice, audience, pillars, avoid list and example post, as
+  /// JSON text validated by src/lib/brains/profile.ts. Generation reads it
+  /// before the workspace Brand Brain.
+  profile   String?
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace      Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -925,18 +935,55 @@ model AiAgent {
 model NativePost {
   id          String   @id @default(cuid())
   authorId    String
+  /// Team updates on the Timeline belong to one workspace and are never
+  /// published to a channel. Null on rows from the old platform-wide network.
+  workspaceId String?
   body        String
-  /** PUBLIC | CONNECTIONS | PRIVATE */
+  /** PUBLIC (whole workspace) | CONNECTIONS | PRIVATE (author only) */
   visibility  String   @default("PUBLIC")
   /** Soft delete: gone from every timeline, still auditable. */
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author    User                 @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions NativePostReaction[]
+  comments  NativePostComment[]
 
   @@index([createdAt, id])
   @@index([authorId, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+/// A reaction on a team update: one per person per update, like FeedReaction.
+model NativePostReaction {
+  id           String   @id @default(cuid())
+  nativePostId String
+  userId       String
+  type         String   @default("LIKE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  nativePost NativePost @relation(fields: [nativePostId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([nativePostId, userId])
+  @@index([nativePostId])
+}
+
+/// A comment on a team update.
+model NativePostComment {
+  id           String   @id @default(cuid())
+  nativePostId String
+  userId       String
+  content      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  nativePost NativePost @relation(fields: [nativePostId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nativePostId, createdAt])
 }
 
 /** A mutual friendship: one row per pair, recording who asked whom. */

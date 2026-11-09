@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getOrCreateDefaultBrain } from "@/lib/brains";
 import { requireWorkspace } from "@/lib/tenancy/guard";
+import { brainUpdateSchema } from "@/lib/brains/profile";
 
 /** List the workspace's brains (projects), creating the first one if none exist yet. */
 export async function GET() {
@@ -36,12 +37,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: permission.error }, { status: permission.status });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
-
-  if (!name) {
+  const parsed = brainUpdateSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success || !parsed.data.name) {
     return NextResponse.json({ error: "A brain needs a name." }, { status: 400 });
   }
+  const { name, color, handle, profile } = parsed.data;
 
   const brain = await prisma.brain.create({
     data: {
@@ -49,6 +49,9 @@ export async function POST(req: NextRequest) {
       name,
       isDefault: false,
       workspaceId: permission.workspaceId,
+      color: color ?? null,
+      handle: handle || null,
+      profile: profile ? JSON.stringify(profile) : null,
     },
   });
 

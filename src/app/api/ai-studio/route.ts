@@ -14,6 +14,7 @@ import { Platform } from "@prisma/client";
 import { z } from "zod";
 import { BrandContext, MOCK_BRAND_CONTEXT } from "@/types/brand-brain";
 import { loadBrandContext } from "@/lib/brand-context";
+import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { retrieveBrandKnowledge } from "@/lib/brand-knowledge";
 import type { KnowledgeUsage } from "@/lib/brain/knowledge";
 import { enforceRateLimit } from "@/lib/rate-limit-guard";
@@ -171,7 +172,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AIStudioRespo
       // to the Brand Brain this workspace actually filled in.
       const brandForPrompt =
         (brandContext as BrandContext | undefined) ??
-        (await loadBrandContext(authz.workspaceId)) ??
+        (await loadBrandContext(authz.workspaceId, await activeBrainId(authz))) ??
         undefined;
 
       // The workspace's knowledge sources most relevant to this idea, bounded.
