@@ -23,6 +23,9 @@ export type ApprovalPost = {
   approvedBy: string | null;
   rejectionReason: string | null;
   url: string | null;
+  authorId?: string;
+  author?: string;
+  mediaCount?: number;
 };
 
 const TABS = [
@@ -77,26 +80,6 @@ export function ApprovalsBoard({ posts, canApprove = true }: { posts: ApprovalPo
 
   return (
     <>
-      <div className="so-row" style={{ justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div className="so-tabs" style={{ borderBottom: 0, paddingBottom: 0 }}>
-          {TABS.map((t) => (
-            <button key={t.id} className="so-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
-              {t.label} <span>{counts[t.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by title, text or handle"
-          style={{
-            height: 30, minWidth: 240, padding: "0 10px", borderRadius: 8,
-            border: "1px solid var(--line2)", background: "var(--panel2)",
-            color: "var(--text)", fontSize: 12.5, outline: "none",
-          }}
-        />
-      </div>
-
       {!canApprove ? (
         <div className="so-frame" style={{ fontSize: 12 }}>
           Your role is read-and-review only here. You can open any post and read it; a manager or an
@@ -104,11 +87,30 @@ export function ApprovalsBoard({ posts, canApprove = true }: { posts: ApprovalPo
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 12, alignItems: "start" }}>
-        <section className="so-card">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
+        <section className="so-card" style={{ overflow: "hidden" }}>
+          <div role="tablist" aria-label="Approval status" style={{ display: "flex", gap: 4, padding: 8, borderBottom: "1px solid var(--line)" }}>
+            {TABS.map((t) => (
+              <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+                style={{ flex: 1, height: 28, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 6px", border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer",
+                  background: tab === t.id ? "var(--panel2)" : "transparent", color: tab === t.id ? "var(--text)" : "var(--text2)" }}>
+                {t.label}<span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>{counts[t.id] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ padding: "8px 8px 0" }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter posts"
+              placeholder="Filter by title, text or handle"
+              style={{ width: "100%", height: 30, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line2)", background: "var(--panel2)", color: "var(--text)", fontSize: 12.5, outline: "none" }}
+            />
+          </div>
           {rows.length === 0 ? (
             <div className="so-empty">
-              {tab === "review" ? "Nothing waiting — every post in this list has been handled." : "Nothing here yet."}
+              <div style={{ fontWeight: 600, color: "var(--text)" }}>{tab === "review" ? "Nothing waiting" : "Nothing here yet"}</div>
+              <div style={{ fontSize: 12.5 }}>{tab === "review" ? "Every post in this list has been handled." : "Posts will appear here as they move through review."}</div>
             </div>
           ) : (
             <div className="so-list" style={{ display: "grid" }}>
@@ -130,8 +132,8 @@ export function ApprovalsBoard({ posts, canApprove = true }: { posts: ApprovalPo
                         {p.handle ?? "no account"} · {p.changed}
                       </span>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.title ?? "Untitled post"}</div>
-                    <div style={{ color: "var(--text2)", fontSize: 12.5, maxHeight: 40, overflow: "hidden" }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title ?? "Untitled post"}</div>
+                    <div style={{ color: "var(--text2)", fontSize: 12, maxHeight: 36, overflow: "hidden" }}>
                       {p.content.slice(0, 140)}{p.content.length > 140 ? "…" : ""}
                     </div>
                   </button>

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import { Hanken_Grotesk, IBM_Plex_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getAuthSession } from "@/lib/auth";
@@ -19,6 +19,14 @@ const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
+});
+
+/** Arabic text: the Timeline's Arabic mode and anything people write in Arabic. */
+const plexArabic = IBM_Plex_Sans_Arabic({
+  variable: "--font-plex-arabic",
+  subsets: ["arabic"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -50,7 +58,7 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
   ]);
 
   return (
-    <div className={`${hanken.variable} ${plexMono.variable}`} style={{ height: "100dvh" }}>
+    <div className={`${hanken.variable} ${plexMono.variable} ${plexArabic.variable}`} style={{ height: "100dvh" }}>
       <Shell
         workspaceName={shell.workspaceName}
         role={String(tenant.role)}

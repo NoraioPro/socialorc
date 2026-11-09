@@ -103,6 +103,10 @@ export function SignInForm() {
         </>
       ) : null}
 
+      <a className="so-btn" href="/register" style={{ height: 36, textDecoration: "none", color: "#ededf1" }}>
+        New here? Set up a workspace
+      </a>
+
       <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
         <span style={{ fontSize: 12, color: "var(--text2)" }}>
           Got an invitation? Open the link in your email.

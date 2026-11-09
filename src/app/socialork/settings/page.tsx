@@ -48,6 +48,15 @@ export default async function SettingsPage() {
     ),
     recentAudit(tenant.workspaceId, 60),
   ]);
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const since30 = new Date(); since30.setDate(since30.getDate() - 30);
+  const [members, brains, postsThisMonth, published30d, me] = await Promise.all([
+    prisma.workspaceMember.count({ where: { workspaceId: tenant.workspaceId } }),
+    prisma.brain.count({ where: { workspaceId: tenant.workspaceId } }),
+    prisma.post.count({ where: { workspaceId: tenant.workspaceId, createdAt: { gte: monthStart } } }),
+    prisma.post.count({ where: { workspaceId: tenant.workspaceId, status: "PUBLISHED", publishedAt: { gte: since30 } } }),
+    prisma.user.findUnique({ where: { id: tenant.userId }, select: { password: true, accounts: { select: { provider: true } } } }),
+  ]);
 
   const connections = ALL.map((platform) => {
     const match = accounts.find((a) => a.platform === platform);
@@ -89,6 +98,12 @@ export default async function SettingsPage() {
         canConfigure={can(parseRole(String(tenant.role)), "brains:manage")}
         connections={connections}
         aiConfigured={Boolean(key)}
+        usage={{ members, brains, channels: accounts.length, postsThisMonth, published30d, aiKey: Boolean(key) }}
+        security={{
+          email: account?.email ?? session.user.email ?? "",
+          hasPassword: Boolean(me?.password),
+          providers: [...new Set((me?.accounts ?? []).map((a) => a.provider).filter((p) => p !== "credentials"))],
+        }}
         audit={audit.map((a) => ({
           id: a.id,
           action: a.action,

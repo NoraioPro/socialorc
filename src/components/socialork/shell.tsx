@@ -8,12 +8,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Menu, X } from "lucide-react";
+import { Bell, LogOut, Menu, Plus, X } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import { BrainSwitcher } from "@/components/socialork/brain-switcher";
 import {
   Blocks, BookOpen, CalendarClock, ChevronDown, CircleDot, Command, FileText,
-  Inbox, LayoutDashboard, PanelsTopLeft, PenLine, Settings, ShieldCheck, Sparkles, Users,
+  ImageIcon, Inbox, LayoutDashboard, TrendingUp, Workflow, Zap, PanelsTopLeft, PenLine, Settings, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 
 export type NavCounts = {
@@ -63,6 +63,8 @@ export function Shell({
   const [viewAs, setViewAs] = useState<string | null>(null);
   const [userMenu, setUserMenu] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const bellRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const nav: { label?: string; items: NavItem[] }[] = [
@@ -71,6 +73,7 @@ export function Shell({
         { href: "/socialork/overview", label: "Overview", icon: LayoutDashboard },
         { href: "/socialork/create", label: "Create", icon: PenLine },
         { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
+        { href: "/socialork/media", label: "Media", icon: ImageIcon },
         { href: "/socialork/drafts", label: "Drafts", icon: FileText, count: counts.drafts },
         { href: "/socialork/approvals", label: "Approvals", icon: ShieldCheck, count: counts.review, tone: "amber" },
         {
@@ -88,7 +91,20 @@ export function Shell({
         { href: "/socialork/inbox", label: "Inbox", icon: Inbox },
       ],
     },
-    { label: "Learn", items: [{ href: "/socialork/insights", label: "Insights", icon: CircleDot }] },
+    {
+      label: "Learn",
+      items: [
+        { href: "/socialork/insights", label: "Insights", icon: CircleDot },
+        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
+      ],
+    },
+    {
+      label: "Automate",
+      items: [
+        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
+        { href: "/socialork/automations", label: "Automations", icon: Workflow },
+      ],
+    },
     {
       label: "Workspace",
       items: [
@@ -109,11 +125,28 @@ export function Shell({
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
-      if (e.key === "Escape") setPaletteOpen(false);
+      if (e.key === "Escape") { setPaletteOpen(false); setBellOpen(false); }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) setBellOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+    };
   }, []);
+
+  // Notifications are derived from the real queue counts, nothing is invented.
+  const notes: { href: string; text: string; tone: "amber" | "red" | "green" }[] = [];
+  if (counts.failed > 0)
+    notes.push({ href: "/socialork/publishing", text: `${counts.failed} ${counts.failed === 1 ? "post" : "posts"} failed to publish`, tone: "red" });
+  if (counts.review > 0)
+    notes.push({ href: "/socialork/approvals", text: `${counts.review} ${counts.review === 1 ? "post is" : "posts are"} waiting for approval`, tone: "amber" });
+  if (counts.approved > 0)
+    notes.push({ href: "/socialork/publishing", text: `${counts.approved} approved, ready to schedule`, tone: "green" });
+  const unread = counts.failed + counts.review;
 
   useEffect(() => {
     if (paletteOpen) setTimeout(() => inputRef.current?.focus(), 20);
@@ -177,7 +210,7 @@ export function Shell({
           ))}
         </nav>
 
-        <div className="so-side-foot" style={{ position: "relative" }}>
+        <div className="so-side-foot" style={{ position: "relative", display: "flex", alignItems: "center", gap: 4 }}>
           {userMenu ? (
             <div
               className="so-card so-palette"
@@ -219,7 +252,7 @@ export function Shell({
             aria-expanded={userMenu}
             aria-haspopup="menu"
             style={{
-              gap: 8, width: "100%", padding: 4, borderRadius: 8, border: 0,
+              gap: 8, flex: 1, minWidth: 0, padding: 4, borderRadius: 8, border: 0,
               background: userMenu ? "var(--panel2)" : "transparent", color: "inherit", cursor: "pointer", textAlign: "left",
             }}
           >
@@ -237,6 +270,17 @@ export function Shell({
               <span className="so-brain-meta">{role.toLowerCase()}</span>
             </span>
             <ChevronDown size={13} strokeWidth={2} style={{ marginLeft: "auto", color: "var(--text3)", flex: "none" }} />
+          </button>
+          <button
+            type="button"
+            className="so-btn"
+            data-variant="ghost"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => signOut({ callbackUrl: "/signin" })}
+            style={{ width: 28, height: 28, padding: 0, flex: "none", display: "grid", placeItems: "center" }}
+          >
+            <LogOut size={15} strokeWidth={1.8} />
           </button>
         </div>
       </aside>
@@ -261,25 +305,96 @@ export function Shell({
 
           <button className="so-search" onClick={() => setPaletteOpen(true)}>
             <Command size={13} strokeWidth={2} />
-            Search
+            <span style={{ flex: 1, textAlign: "left" }}>Search</span>
             <span className="so-kbd">⌘K</span>
           </button>
 
-          <label className="so-viewas" style={{ cursor: "pointer" }}>
-            View as
-            <select
-              value={viewAs ?? role.toUpperCase()}
-              onChange={(e) => setViewAs(e.target.value === role.toUpperCase() ? null : e.target.value)}
-              style={{
-                height: 24, borderRadius: 7, border: "1px solid var(--line2)", background: "var(--panel2)",
-                color: "var(--text2)", fontSize: 11.5, padding: "0 6px", fontFamily: "inherit",
-              }}
+          <div className="so-viewas" role="group" aria-label="View as">
+            <span>View as</span>
+            <div style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)" }}>
+              {["ADMIN", "MANAGER", "EDITOR", "VIEWER"].map((r) => {
+                const on = (viewAs ?? role.toUpperCase()) === r;
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setViewAs(r === role.toUpperCase() ? null : r)}
+                    style={{
+                      height: 24, padding: "0 9px", border: 0, borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 500,
+                      fontFamily: "inherit", background: on ? "var(--panel2)" : "transparent", color: on ? "var(--text)" : "var(--text3)",
+                    }}
+                  >
+                    {r.toLowerCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <span ref={bellRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="so-btn"
+              aria-label="Notifications"
+              aria-expanded={bellOpen}
+              aria-haspopup="dialog"
+              title="Notifications"
+              onClick={() => setBellOpen((v) => !v)}
+              style={{ width: 32, padding: 0, position: "relative", display: "grid", placeItems: "center" }}
             >
-              {["ADMIN", "MANAGER", "EDITOR", "VIEWER"].map((r) => (
-                <option key={r} value={r}>{r.toLowerCase()}</option>
-              ))}
-            </select>
-          </label>
+              <Bell size={15} strokeWidth={1.8} />
+              {unread > 0 ? (
+                <span
+                  style={{
+                    position: "absolute", top: -5, insetInlineEnd: -5, minWidth: 17, height: 17, padding: "0 4px",
+                    borderRadius: 9, background: "var(--red)", color: "#fff",
+                    font: "600 10px/17px var(--font-plex-mono), monospace", textAlign: "center",
+                  }}
+                >{unread}</span>
+              ) : null}
+            </button>
+            {bellOpen ? (
+              <div
+                role="dialog"
+                aria-label="Notifications"
+                className="so-palette"
+                style={{
+                  position: "absolute", top: 40, insetInlineEnd: 0, zIndex: 45, width: "min(360px, calc(100vw - 24px))",
+                  border: "1px solid var(--line2)", borderRadius: 12, background: "var(--panel)",
+                  boxShadow: "var(--shadow)", overflow: "hidden",
+                }}
+              >
+                <div className="so-row" style={{ padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
+                  <span style={{ fontWeight: 600, flex: 1 }}>Notifications</span>
+                  <a href="/socialork/settings" style={{ fontSize: 12, color: "var(--text3)" }} onClick={() => setBellOpen(false)}>Settings</a>
+                </div>
+                {notes.length === 0 ? (
+                  <div style={{ padding: "28px 16px", textAlign: "center", color: "var(--text3)", fontSize: 12.5 }}>
+                    Nothing needs you right now.
+                  </div>
+                ) : (
+                  notes.map((n) => (
+                    <a
+                      key={n.text}
+                      href={n.href}
+                      className="so-nav-item"
+                      onClick={() => setBellOpen(false)}
+                      style={{ height: "auto", padding: "11px 14px", borderRadius: 0, borderTop: "1px solid var(--line)", gap: 10 }}
+                    >
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", flex: "none", background: n.tone === "red" ? "var(--red)" : n.tone === "amber" ? "var(--amber)" : "var(--green)" }} />
+                      <span style={{ fontSize: 12.5, lineHeight: 1.45 }}>{n.text}</span>
+                    </a>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </span>
+
+          <a href="/socialork/create" className="so-btn" data-variant="primary" style={{ gap: 6, textDecoration: "none" }}>
+            <Plus size={14} strokeWidth={2.4} />
+            <span>New post</span>
+          </a>
         </header>
 
         {viewAs ? (

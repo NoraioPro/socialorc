@@ -59,9 +59,10 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
 
   return (
     <>
-      <div className="so-tabs">
+      <div role="group" aria-label="Filter drafts" style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)", alignSelf: "flex-start" }}>
         {FILTERS.map((f) => (
-          <button key={f.id} className="so-tab" data-active={filter === f.id} onClick={() => setFilter(f.id)}>
+          <button key={f.id} className="so-tab" aria-pressed={filter === f.id} data-active={filter === f.id} onClick={() => setFilter(f.id)}
+            style={{ height: 28, borderRadius: 6, whiteSpace: "nowrap" }}>
             {f.label}
             <span>{f.id === "changes" ? rows.filter((r) => r.rejectionReason).length : rows.length}</span>
           </button>
@@ -70,8 +71,17 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
 
       <section className="so-card">
         {visible.length === 0 ? (
-          <div className="so-empty">
-            No drafts here. Start one from <a href="/socialork/create">Create</a>.
+          <div className="so-empty" style={{ padding: "32px 16px" }}>
+            <svg width="120" height="96" viewBox="0 0 120 96" fill="none" aria-hidden style={{ margin: "0 auto 4px", display: "block", overflow: "visible" }}>
+              <path d="M36 8h34l18 18v58a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z" fill="var(--panel2)" stroke="var(--line2)" />
+              <path d="M70 8v18h18" stroke="var(--line2)" />
+              <rect x="40" y="40" width="34" height="5" rx="2.5" fill="var(--line2)" />
+              <rect x="40" y="52" width="40" height="5" rx="2.5" fill="var(--line2)" />
+              <rect x="40" y="64" width="22" height="5" rx="2.5" fill="var(--line2)" />
+              <path d="M98 54 82 70l-4 10 10-4 16-16a4.2 4.2 0 0 0-6-6z" fill="var(--panel)" stroke="var(--accent)" strokeLinejoin="round" />
+            </svg>
+            <div style={{ fontWeight: 600, color: "var(--text)" }}>No drafts here</div>
+            <div>Start one from <a href="/socialork/create">New post</a>.</div>
           </div>
         ) : (
           <table className="so-table">

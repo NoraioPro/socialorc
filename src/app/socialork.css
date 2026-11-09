@@ -32,7 +32,7 @@
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-hanken), system-ui, sans-serif;
+  font-family: var(--font-hanken), var(--font-plex-arabic), system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -252,7 +252,7 @@
 .so-signin {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   min-height: 100dvh; background: var(--bg, #0b0b0e); color: var(--text, #ededf1);
-  font-family: var(--font-hanken), system-ui, sans-serif; font-size: 13px;
+  font-family: var(--font-hanken), var(--font-plex-arabic), system-ui, sans-serif; font-size: 13px;
 }
 .so-signin-brand {
   display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
@@ -320,4 +320,70 @@
 
 @media (prefers-reduced-motion: reduce) {
   .so-side { transition: none; }
+}
+
+
+/* ── lively layer (handoff), class-based ──────────────────────────────────
+   Decorative only. The handoff targeted inline styles; here it hangs off the
+   shell's own classes. All of it is switched off for reduced-motion below. */
+@keyframes so-ink { from { stroke-dasharray: 120; stroke-dashoffset: 120; } to { stroke-dasharray: 120; stroke-dashoffset: 0; } }
+@keyframes so-wiggle { 0%, 100% { transform: rotate(0) scale(1); } 30% { transform: rotate(-14deg) scale(1.18); } 65% { transform: rotate(9deg) scale(1.1); } }
+@keyframes so-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes so-glowp { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 5px rgba(72, 237, 133, 0.7)); } }
+@keyframes so-sheen { from { transform: translateX(-140%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
+@keyframes so-aurora {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
+  50% { transform: translate3d(5%, 4%, 0) scale(1.12); opacity: 1; }
+  100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
+}
+@keyframes so-chip { from { opacity: 0; transform: scale(0.55) rotate(-14deg); } to { opacity: 1; transform: none; } }
+@keyframes so-logo { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-2px) rotate(-4deg); } }
+
+/* sidebar icons draw themselves, wiggle on hover, glow when active */
+.so-nav-item svg { overflow: visible; transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.so-nav-item svg * { transform-box: fill-box; transform-origin: center; }
+.so-nav-item svg path { animation: so-ink 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) backwards; }
+.so-nav-item:hover svg { animation: so-wiggle 0.55s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.so-nav-item[data-active="true"] svg { animation: so-bob 2.4s ease-in-out infinite, so-glowp 2.4s ease-in-out infinite; }
+.so-brand-img { animation: so-logo 4s ease-in-out infinite; }
+
+/* icon in any hovered button reacts */
+.so-btn svg { transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.so-btn:hover:not(:disabled) svg { transform: scale(1.14) rotate(-4deg); }
+.so-btn:active:not(:disabled) { transform: scale(0.97); }
+
+/* primary buttons: light sweep + glow */
+.so-btn[data-variant="primary"] { position: relative; overflow: hidden; transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, filter 0.16s; }
+.so-btn[data-variant="primary"]::after {
+  content: ""; position: absolute; inset: 0; width: 40%; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-140%) skewX(-20deg);
+}
+.so-btn[data-variant="primary"]:hover:not(:disabled)::after { animation: so-sheen 0.8s ease; }
+.so-btn[data-variant="primary"]:hover:not(:disabled) { box-shadow: 0 6px 22px -6px color-mix(in srgb, var(--accent) 70%, transparent); }
+
+/* living surface: slow aurora behind the content, cards lift on hover */
+.so-main { position: relative; isolation: isolate; }
+.so-main::before {
+  content: ""; position: absolute; z-index: -1; inset: -10% -10% auto auto; width: 70%; height: 70%;
+  pointer-events: none; filter: blur(10px); animation: so-aurora 18s ease-in-out infinite;
+  background:
+    radial-gradient(closest-side, color-mix(in srgb, var(--accent) 13%, transparent), transparent),
+    radial-gradient(closest-side at 20% 80%, color-mix(in srgb, var(--blue) 7%, transparent), transparent);
+}
+.so-card { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.28s ease, border-color 0.2s, background-color 0.16s; }
+.so-card:hover { border-color: var(--line2); }
+.so-grid-2 > .so-card:hover, .so-grid-3 > .so-card:hover, .so-grid-4 > .so-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.so-grid-2 > *, .so-grid-3 > *, .so-grid-4 > * { animation: so-row 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+.so-grid-2 > *:nth-child(2), .so-grid-3 > *:nth-child(2), .so-grid-4 > *:nth-child(2) { animation-delay: 0.05s; }
+.so-grid-3 > *:nth-child(3), .so-grid-4 > *:nth-child(3) { animation-delay: 0.1s; }
+.so-grid-4 > *:nth-child(4) { animation-delay: 0.15s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .so-main::before, .so-brand-img, .so-nav-item svg, .so-nav-item svg path { animation: none !important; }
+  .so-btn[data-variant="primary"]::after { display: none; }
+  .so-card, .so-grid-2 > *, .so-grid-3 > *, .so-grid-4 > * { transform: none !important; animation: none !important; }
 }

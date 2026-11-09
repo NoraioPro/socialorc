@@ -81,7 +81,34 @@ export function PublishCalendar({ scheduled, approved }: { scheduled: Item[]; ap
   const weekLabel = `${days[0].date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${days[6].date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 12, alignItems: "start" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="so-card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px" }}>
+        <span style={{ fontSize: 12, color: "var(--text2)", whiteSpace: "nowrap" }}>Approved · ready to schedule <span className="so-mono" style={{ color: "var(--text3)" }}>{approved.length}</span></span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, flex: 1, minWidth: 0 }}>
+          {approved.length === 0 ? (
+            <span style={{ fontSize: 12, color: "var(--text3)" }}>No approved posts waiting to be scheduled.</span>
+          ) : approved.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              draggable
+              aria-pressed={picked === a.id}
+              onDragStart={(e) => { e.dataTransfer.setData("text/plain", a.id); setPicked(a.id); }}
+              onClick={() => setPicked(picked === a.id ? null : a.id)}
+              style={{
+                height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 10px", borderRadius: 7, cursor: "grab", maxWidth: 280, color: "var(--text)",
+                border: `1px solid ${picked === a.id ? "var(--accent)" : "var(--line2)"}`,
+                background: picked === a.id ? "var(--accentSoft)" : "var(--panel2)",
+              }}
+            >
+              <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>{PLATFORM_CONFIGS[a.platform]?.name ?? a.platform}</span>
+              <span style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title ?? "Untitled post"}</span>
+            </button>
+          ))}
+        </div>
+        {busy ? <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>Scheduling…</span> : null}
+      </div>
+
       <section className="so-card">
         <div className="so-card-pad so-row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line)" }}>
           <div className="so-row" style={{ gap: 8 }}>
@@ -143,48 +170,12 @@ export function PublishCalendar({ scheduled, approved }: { scheduled: Item[]; ap
           ))}
         </div>
       </section>
-
-      <aside className="so-card so-card-pad" style={{ display: "grid", gap: 10, position: "sticky", top: 12 }}>
-        <div className="so-row" style={{ justifyContent: "space-between" }}>
-          <span className="so-stat-label">Approved · ready to schedule</span>
-          <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>{approved.length}</span>
-        </div>
-        {approved.length === 0 ? (
-          <div className="so-empty" style={{ padding: "18px 6px" }}>
-            No approved posts waiting to be scheduled.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            {approved.map((a) => (
-              <div
-                key={a.id}
-                draggable
-                onDragStart={(e) => { e.dataTransfer.setData("text/plain", a.id); setPicked(a.id); }}
-                onClick={() => setPicked(picked === a.id ? null : a.id)}
-                style={{
-                  display: "grid", gap: 3, padding: "8px 10px", borderRadius: 8, cursor: "grab",
-                  border: `1px solid ${picked === a.id ? "var(--accent)" : "var(--line2)"}`,
-                  background: picked === a.id ? "var(--accentSoft)" : "var(--panel2)",
-                }}
-              >
-                <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                  {PLATFORM_CONFIGS[a.platform]?.name ?? a.platform}
-                </span>
-                <span style={{ fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {a.title ?? "Untitled post"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-        <p style={{ margin: 0, fontSize: 11.5, color: "var(--text3)" }}>
-          {picked ? "Now tap a slot on the grid (or drop it there)." : "Drag a post onto the week, or tap it then tap a slot."}
-        </p>
-        {note ? (
-          <span style={{ fontSize: 11.5, color: note.kind === "ok" ? "var(--green)" : "var(--red)" }}>{note.text}</span>
-        ) : null}
-        {busy ? <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>Scheduling…</span> : null}
-      </aside>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "var(--text3)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--blue)" }} />Scheduled</span>
+        <span style={{ flex: 1 }} />
+        <span>{picked ? "Now tap a slot on the grid (or drop it there)." : "Drag a post onto the week, or tap it then tap a slot."}</span>
+        {note ? <span style={{ color: note.kind === "ok" ? "var(--green)" : "var(--red)" }} role="status">{note.text}</span> : null}
+      </div>
     </div>
   );
 }

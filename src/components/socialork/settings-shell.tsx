@@ -6,12 +6,14 @@
  * /api/settings/profile); everything else states what is configured, missing or
  * simply not built yet.
  */
+import "./settings-layout.css";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
 import { ConnectionGuide } from "@/components/socialork/connection-guide";
 import { AppCredentialsForm } from "@/components/socialork/app-credentials-form";
 import { TelegramConnectForm } from "@/components/socialork/telegram-connect-form";
+import { BillingTab, SecurityTab, downloadAuditCsv, type SecurityInfo, type Usage } from "@/components/socialork/settings-extras";
 
 type Connection = {
   platform: string; name: string; handle: string | null; capability: string;
@@ -27,6 +29,8 @@ const TABS = [
   { id: "app-credentials", label: "App credentials" },
   { id: "audit", label: "Audit" },
   { id: "notifications", label: "Notifications" },
+  { id: "billing", label: "Billing" },
+  { id: "security", label: "Security" },
 ];
 
 type AuditRowView = { id: string; action: string; actor: string; subject: string; ip: string; when: string };
@@ -53,6 +57,8 @@ export function SettingsShell({
   aiConfigured,
   audit,
   canConfigure,
+  usage,
+  security,
 }: {
   profile: { name: string; email: string; timezone: string; headline: string; bio: string; location: string; website: string };
   workspaceName: string;
@@ -67,6 +73,8 @@ export function SettingsShell({
    * "not available yet", not a developer checklist.
    */
   canConfigure: boolean;
+  usage: Usage;
+  security: SecurityInfo;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("profile");
@@ -113,14 +121,16 @@ export function SettingsShell({
   const reconnectCount = connections.filter((c) => c.state === "reconnect").length;
 
   return (
-    <>
-      <div className="so-tabs">
+    <div className="so-set">
+      <nav className="so-set-nav" aria-label="Settings sections">
         {TABS.map((t) => (
-          <button key={t.id} className="so-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
+          <button key={t.id} type="button" data-active={tab === t.id}
+            aria-current={tab === t.id ? "page" : undefined} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
         ))}
-      </div>
+      </nav>
+      <div className="so-set-body">
 
       {tab === "profile" ? (
         <form onSubmit={save} className="so-card so-card-pad" style={{ display: "grid", gap: 12, maxWidth: 620 }}>
@@ -328,6 +338,7 @@ export function SettingsShell({
               <span className="so-mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text3)" }}>
                 {audit.length} events
               </span>
+              <button className="so-btn" style={{ height: 28 }} disabled={!audit.length} onClick={() => downloadAuditCsv(audit)}>Export CSV</button>
             </div>
           </div>
           {audit.length === 0 ? (
@@ -364,6 +375,9 @@ export function SettingsShell({
         </section>
       ) : null}
 
+      {tab === "billing" ? <BillingTab usage={usage} workspaceName={workspaceName} /> : null}
+      {tab === "security" ? <SecurityTab info={security} onAudit={() => setTab("audit")} /> : null}
+
       {tab === "notifications" ? (
         <section className="so-card so-card-pad" style={{ display: "grid", gap: 8, maxWidth: 620 }}>
           <span className="so-stat-label">Notifications</span>
@@ -380,6 +394,7 @@ export function SettingsShell({
           ? " App credentials are stored encrypted per workspace and are never shown again after saving; the deployment app is only the fallback."
           : null}
       </div>
-    </>
+      </div>
+    </div>
   );
 }

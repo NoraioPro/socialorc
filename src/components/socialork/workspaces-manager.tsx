@@ -28,12 +28,14 @@ export function WorkspacesManager({ rows }: { rows: WorkspaceRow[] }) {
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newKind, setNewKind] = useState<"TEAM" | "PERSONAL">("TEAM");
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
   const field: React.CSSProperties = {
-    height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line2)",
-    background: "var(--panel2)", color: "var(--text)", fontSize: 12.5, outline: "none",
+    height: 36, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line2)",
+    background: "var(--bg)", color: "var(--text)", fontSize: 13, outline: "none",
   };
 
   const call = async (label: string, url: string, init: RequestInit) => {
@@ -69,7 +71,7 @@ export function WorkspacesManager({ rows }: { rows: WorkspaceRow[] }) {
     const data = (await call("create", "/api/workspaces", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: newName.trim(), kind: "TEAM" }),
+      body: JSON.stringify({ name: newName.trim(), kind: newKind }),
     })) as { workspace?: { id: string } } | null;
     if (!data?.workspace) return;
     setCreating(false);
@@ -94,118 +96,123 @@ export function WorkspacesManager({ rows }: { rows: WorkspaceRow[] }) {
     const data = await call(`${deleteIt ? "delete" : "leave"}:${row.id}`,
       `/api/workspaces/${row.id}${deleteIt ? "" : "?leave=1"}`,
       { method: "DELETE" });
+    setConfirming(null);
     if (data) {
       setNote({ kind: "ok", text: deleteIt ? "Workspace deleted." : "You left the workspace." });
       router.refresh();
     }
   };
 
+  const initials = (s: string) => s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
+  const tints = ["#48ED85", "#7CB6FF", "#F5B454", "#C79BFF", "#FF8FA3", "#5EE0D0"];
+  const tintOf = (id: string) => tints[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % tints.length];
+
   return (
     <>
-      <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <div className="so-row" style={{ gap: 8 }}>
-          <span className="so-pill">{rows.length} workspace{rows.length === 1 ? "" : "s"}</span>
-          <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-            each one has its own channels, brains, posts and people
-          </span>
-        </div>
-        <button className="so-btn" data-variant="primary" onClick={() => setCreating((v) => !v)}>
-          {creating ? "Cancel" : "New workspace"}
+      <div className="so-spread" style={{ marginTop: -4 }}>
+        <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
+          {rows.length} workspace{rows.length === 1 ? "" : "s"} · each one has its own channels, brains, posts and people
+        </span>
+        <button className="so-btn" data-variant="primary" style={{ height: 32 }} onClick={() => setCreating((v) => !v)}>
+          {creating ? "Cancel" : "+ New workspace"}
         </button>
       </div>
 
       {creating ? (
-        <form onSubmit={create} className="so-card so-card-pad" style={{ display: "grid", gap: 8, maxWidth: 480 }}>
-          <label className="so-stat-label" htmlFor="ws-name">Workspace name</label>
-          <input id="ws-name" autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
-            placeholder="Nordic Studio" style={{ ...field, width: "100%" }} />
-          <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
-            You become its owner. Invite people and connect channels afterwards.
-          </span>
-          <button className="so-btn" data-variant="primary" type="submit"
-            style={{ justifySelf: "start" }} disabled={busy === "create" || newName.trim().length < 2}>
-            {busy === "create" ? "Creating…" : "Create and open"}
-          </button>
+        <form onSubmit={create} className="so-card" style={{ padding: "16px 20px", display: "grid", gap: 12 }}>
+          <div style={{ fontWeight: 600 }}>New workspace</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <label style={{ display: "grid", gap: 6, flex: "1 1 260px" }}>
+              <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 500 }}>Workspace name</span>
+              <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Nordbyte" style={{ ...field, width: "100%" }} />
+            </label>
+            <div style={{ display: "grid", gap: 6 }}>
+              <span id="ws-kind" style={{ fontSize: 12, color: "var(--text2)", fontWeight: 500 }}>Kind</span>
+              <div role="group" aria-labelledby="ws-kind" style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--bg)" }}>
+                {([["TEAM", "Team"], ["PERSONAL", "Personal"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" aria-pressed={newKind === k} onClick={() => setNewKind(k)}
+                    style={{ height: 30, padding: "0 12px", border: 0, borderRadius: 6, fontSize: 12.5, fontWeight: 500, cursor: "pointer", background: newKind === k ? "var(--panel2)" : "transparent", color: newKind === k ? "var(--text)" : "var(--text2)" }}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <button className="so-btn" data-variant="primary" type="submit" style={{ height: 36 }} disabled={busy === "create" || newName.trim().length < 2}>
+              {busy === "create" ? "Creating…" : "Create workspace"}
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text3)" }}>You become its owner. Invite people and connect channels afterwards.</div>
         </form>
       ) : null}
 
       {note ? (
-        <span style={{ fontSize: 12, color: note.kind === "ok" ? "var(--green)" : "var(--red)" }}>{note.text}</span>
+        <span role="status" style={{ fontSize: 12, color: note.kind === "ok" ? "var(--green)" : "var(--red)" }}>{note.text}</span>
       ) : null}
 
-      <div className="so-list" style={{ display: "grid", gap: 10 }}>
-        {rows.map((row) => (
-          <section key={row.id} className="so-card so-card-pad" style={{ display: "grid", gap: 10 }}>
-            <div className="so-row" style={{ gap: 10, flexWrap: "wrap" }}>
-              {renaming === row.id ? (
-                <div className="so-row" style={{ gap: 6 }}>
-                  <input value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                    style={{ ...field, minWidth: 220 }} autoFocus />
-                  <button className="so-btn" style={{ height: 32 }} disabled={busy === `rename:${row.id}`}
-                    onClick={() => void rename(row)}>
-                    Save
-                  </button>
-                  <button className="so-btn" style={{ height: 32 }} onClick={() => setRenaming(null)}>Cancel</button>
-                </div>
-              ) : (
-                <span style={{ fontSize: 15, fontWeight: 600 }}>{row.name}</span>
-              )}
-              <span className="so-pill">{row.kind.toLowerCase()}</span>
-              <span className="so-pill" data-tone={row.role.toUpperCase() === "OWNER" ? "approved" : undefined}>
-                {row.role.toLowerCase()}
-              </span>
-              {row.isCurrent ? <span className="so-pill" data-tone="scheduled">current</span> : null}
-
-              <span style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {!row.isCurrent ? (
-                  <button className="so-btn" data-variant="primary" style={{ height: 28 }}
-                    disabled={busy === `open:${row.id}`} onClick={() => void open(row)}>
-                    {busy === `open:${row.id}` ? "Opening…" : "Open"}
-                  </button>
-                ) : null}
-                {["OWNER", "ADMIN"].includes(row.role.toUpperCase()) ? (
-                  <button className="so-btn" style={{ height: 28 }}
-                    onClick={() => { setRenaming(row.id); setRenameValue(row.name); }}>
-                    Rename
-                  </button>
-                ) : null}
-                {row.role.toUpperCase() === "OWNER" ? (
-                  <button className="so-btn" style={{ height: 28, color: "var(--red)" }}
-                    disabled={busy === `delete:${row.id}`}
-                    onClick={() => {
-                      if (window.confirm(`Delete "${row.name}" permanently? Its posts, channels and brains go with it.`)) {
-                        void leave(row, true);
-                      }
-                    }}>
-                    Delete
-                  </button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))", gap: 12 }}>
+        {rows.map((row) => {
+          const owner = row.role.toUpperCase() === "OWNER";
+          const canRename = ["OWNER", "ADMIN"].includes(row.role.toUpperCase());
+          const isConfirm = confirming === row.id;
+          const verb = owner ? "Delete" : "Leave";
+          const doBusy = busy === `${owner ? "delete" : "leave"}:${row.id}`;
+          return (
+            <section key={row.id} className="so-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, borderColor: row.isCurrent ? "var(--accent)" : undefined }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span aria-hidden="true" style={{ width: 34, height: 34, flex: "none", borderRadius: 9, background: tintOf(row.id), display: "grid", placeItems: "center", fontWeight: 700, fontSize: 12, color: "#06140B" }}>{initials(row.name)}</span>
+                {renaming === row.id ? (
+                  <input aria-label="Workspace name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} style={{ ...field, height: 32, flex: 1, minWidth: 120 }} autoFocus />
                 ) : (
-                  <button className="so-btn" style={{ height: 28, color: "var(--red)" }}
-                    disabled={busy === `leave:${row.id}`}
-                    onClick={() => {
-                      if (window.confirm(`Leave "${row.name}"? You lose access to its content.`)) {
-                        void leave(row, false);
-                      }
-                    }}>
-                    Leave
-                  </button>
+                  <span style={{ fontWeight: 600, fontSize: 15, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.name}</span>
                 )}
-              </span>
-            </div>
+                <span className="so-pill">{row.kind.toLowerCase()}</span>
+                <span className="so-pill" data-tone={owner ? "approved" : undefined}>{row.role.toLowerCase()}</span>
+                {row.isCurrent ? <span className="so-pill" data-tone="scheduled">Current</span> : null}
+              </div>
 
-            <div className="so-row" style={{ gap: 18, flexWrap: "wrap" }}>
-              {[["Members", row.members], ["Brains", row.brains], ["Channels", row.channels], ["Posts", row.posts]]
-                .map(([label, value]) => (
-                  <span key={String(label)} style={{ display: "grid", gap: 1 }}>
-                    <span className="so-mono" style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                      {label}
-                    </span>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>{value}</span>
-                  </span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                {[["Members", row.members], ["Brains", row.brains], ["Channels", row.channels], ["Posts", row.posts]].map(([label, value]) => (
+                  <div key={String(label)} style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--bg)" }}>
+                    <div className="so-mono" style={{ fontWeight: 600, fontSize: 16 }}>{value}</div>
+                    <div className="so-mono" style={{ fontSize: 9.5, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text3)" }}>{label}</div>
+                  </div>
                 ))}
-            </div>
-          </section>
-        ))}
+              </div>
+
+              {isConfirm ? (
+                <div role="alert" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", border: "1px solid var(--red)", borderRadius: 8, background: "var(--redSoft)", fontSize: 12.5, flexWrap: "wrap" }}>
+                  <span style={{ flex: 1, minWidth: 180 }}>
+                    {owner ? `Delete "${row.name}" permanently? Its posts, channels and brains go with it.` : `Leave "${row.name}"? You lose access to its content.`}
+                  </span>
+                  <button className="so-btn" style={{ height: 32, color: "var(--red)", borderColor: "var(--red)" }} disabled={doBusy} onClick={() => void leave(row, owner)}>
+                    {doBusy ? "…" : verb}
+                  </button>
+                  <button className="so-btn" style={{ height: 32 }} onClick={() => setConfirming(null)}>Cancel</button>
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {renaming === row.id ? (
+                  <>
+                    <button className="so-btn" data-variant="primary" style={{ height: 32 }} disabled={busy === `rename:${row.id}` || renameValue.trim().length < 2} onClick={() => void rename(row)}>Save</button>
+                    <button className="so-btn" style={{ height: 32 }} onClick={() => setRenaming(null)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    {!row.isCurrent ? (
+                      <button className="so-btn" data-variant="primary" style={{ height: 32 }} disabled={busy === `open:${row.id}`} onClick={() => void open(row)}>
+                        {busy === `open:${row.id}` ? "Opening…" : "Open"}
+                      </button>
+                    ) : null}
+                    {canRename ? (
+                      <button className="so-btn" style={{ height: 32 }} onClick={() => { setRenaming(row.id); setRenameValue(row.name); }}>Rename</button>
+                    ) : null}
+                  </>
+                )}
+                <span style={{ flex: 1 }} />
+                <button className="so-btn" style={{ height: 32, color: "var(--red)" }} onClick={() => setConfirming(row.id)}>{verb}</button>
+              </div>
+            </section>
+          );
+        })}
       </div>
     </>
   );

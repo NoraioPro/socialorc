@@ -1,0 +1,18 @@
+/* Settings: left nav + content column, as in the design handoff. */
+.so-set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+.so-set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
+.so-set-nav button {
+  height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text2); font-size: 13px; font-weight: 500; text-align: start; cursor: pointer;
+}
+.so-set-nav button:hover { background: var(--panel2); }
+.so-set-nav button[data-active="true"] { background: var(--panel2); color: var(--text); font-weight: 600; }
+.so-set-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 800px) {
+  .so-set { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .so-set-nav { flex-direction: row; overflow-x: auto; position: static; padding-bottom: 4px; }
+  .so-set-nav button { flex: none; }
+}
+
+/* AI Studio: stack on narrow screens */
+@media (max-width: 900px) { .so-studio { grid-template-columns: minmax(0, 1fr) !important; } }

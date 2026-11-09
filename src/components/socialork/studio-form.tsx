@@ -4,11 +4,21 @@
  * AI Studio: the variant studio the old app had at /dashboard/ai-studio.
  * One idea plus brand context, a few variants back, each savable as a draft.
  */
+import "./settings-layout.css";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 const PLATFORMS = ["LINKEDIN", "TWITTER", "INSTAGRAM", "FACEBOOK", "YOUTUBE", "TIKTOK", "TELEGRAM"] as const;
+const TONES = ["professional", "casual", "humorous", "inspirational", "educational", "conversational"];
+function capPerChannel(list: Variant[], n: number): Variant[] {
+  const seen: Record<string, number> = {};
+  return list.filter((v) => {
+    const k = String(v.platform);
+    seen[k] = (seen[k] ?? 0) + 1;
+    return seen[k] <= n;
+  });
+}
 type Variant = { platform: string; content: string; title?: string | null; usedMock?: boolean };
 
 export function StudioForm() {
@@ -16,7 +26,7 @@ export function StudioForm() {
   const [idea, setIdea] = useState("");
   const [audience, setAudience] = useState("");
   const [tone, setTone] = useState("professional");
-  const [platform, setPlatform] = useState<string>("LINKEDIN");
+  const [platforms, setPlatforms] = useState<string[]>(["LINKEDIN"]);
   const [count, setCount] = useState(3);
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +52,7 @@ export function StudioForm() {
         body: JSON.stringify({
           action: "generate",
           idea: idea.trim(),
-          platforms: [platform],
+          platforms,
           tone,
           additionalContext: audience.trim() ? `Audience: ${audience.trim()}` : undefined,
         }),
@@ -57,7 +67,7 @@ export function StudioForm() {
         setError("The model returned nothing usable. Try a sharper idea.");
         return;
       }
-      setVariants(list.slice(0, count).map((v) => ({ ...v, platform: String(v.platform ?? platform) })));
+      setVariants(capPerChannel(list, count).map((v) => ({ ...v, platform: String(v.platform ?? platforms[0]) })));
     } catch {
       setError("Network error — nothing was generated.");
     } finally {
@@ -85,75 +95,94 @@ export function StudioForm() {
     }
   };
 
+  const toggle = (p: string) =>
+    setPlatforms((cur) => (cur.includes(p) ? (cur.length > 1 ? cur.filter((x) => x !== p) : cur) : [...cur, p]));
+  const lbl: React.CSSProperties = { fontSize: 12, color: "var(--text2)", fontWeight: 500 };
+  const chip = (on: boolean): React.CSSProperties => ({
+    borderColor: on ? "var(--accent)" : undefined,
+    color: on ? "var(--accentText, var(--accent))" : "var(--text2)",
+    background: on ? "var(--accentSoft)" : "var(--panel2)",
+  });
+
   return (
-    <>
-      <form className="so-card so-card-pad" style={{ display: "grid", gap: 12 }}
+    <div className="so-studio" style={{ display: "grid", gridTemplateColumns: "minmax(0,380px) minmax(0,1fr)", gap: 16, alignItems: "start" }}>
+      <form className="so-card so-card-pad" style={{ display: "grid", gap: 14, boxShadow: "var(--card)" }}
         onSubmit={(e) => { e.preventDefault(); void run(); }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="idea">Idea</label>
-          <textarea id="idea" rows={3} value={idea} onChange={(e) => setIdea(e.target.value)}
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={lbl}>Idea</span>
+          <textarea id="idea" rows={5} value={idea} onChange={(e) => setIdea(e.target.value)}
             placeholder="The thing you want to say, in your own words."
-            style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
-        </div>
-        <div className="so-grid so-grid-3">
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="so-stat-label" htmlFor="audience">Audience</label>
-            <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)}
-              placeholder="Who is this for?" style={field} />
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="so-stat-label" htmlFor="tone">Tone</label>
-            <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} style={field}>
-              {["professional", "casual", "humorous", "inspirational", "educational", "conversational"].map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="so-stat-label" htmlFor="platform">Channel</label>
-            <select id="platform" value={platform} onChange={(e) => setPlatform(e.target.value)} style={field}>
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>{PLATFORM_CONFIGS[p]?.name ?? p}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="so-row" style={{ gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
-          <div className="so-row" style={{ gap: 8 }}>
-            <span className="so-stat-label">Variants</span>
-            {[1, 2, 3, 4].map((n) => (
-              <button key={n} type="button" onClick={() => setCount(n)}
-                className="so-btn"
-                style={{
-                  height: 26, padding: "0 9px",
-                  borderColor: count === n ? "var(--accent)" : undefined,
-                  color: count === n ? "var(--accent)" : "var(--text2)",
-                  background: count === n ? "var(--accentSoft)" : "var(--panel2)",
-                }}>{n}</button>
+            style={{ ...field, resize: "vertical", lineHeight: 1.55, background: "var(--bg)", padding: "10px 12px", borderRadius: 10 }} />
+        </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={lbl}>Audience</span>
+          <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)}
+            placeholder="Who is this for?" style={{ ...field, background: "var(--bg)", height: 36 }} />
+        </label>
+        <div role="group" aria-label="Tone" style={{ display: "grid", gap: 6 }}>
+          <span style={lbl}>Tone</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {TONES.map((t) => (
+              <button key={t} type="button" className="so-btn" aria-pressed={tone === t} onClick={() => setTone(t)}
+                style={{ height: 28, borderRadius: 999, padding: "0 10px", fontSize: 12, textTransform: "capitalize", ...chip(tone === t) }}>{t}</button>
             ))}
           </div>
-          <button className="so-btn" data-variant="primary" type="submit" disabled={busy}>
-            {busy ? "Generating…" : "Generate variants"}
-          </button>
         </div>
-        {error ? <span style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
+        <div role="group" aria-label="Channels" style={{ display: "grid", gap: 6 }}>
+          <span style={lbl}>Channels</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {PLATFORMS.map((p) => (
+              <button key={p} type="button" className="so-btn" aria-pressed={platforms.includes(p)} onClick={() => toggle(p)}
+                style={{ height: 30, fontSize: 12, ...chip(platforms.includes(p)) }}>{PLATFORM_CONFIGS[p]?.name ?? p}</button>
+            ))}
+          </div>
+        </div>
+        <div className="so-row" style={{ gap: 8 }}>
+          <span style={lbl}>Variants per channel</span>
+          {[1, 2, 3, 4].map((n) => (
+            <button key={n} type="button" className="so-btn" aria-pressed={count === n} onClick={() => setCount(n)}
+              style={{ height: 26, padding: "0 9px", ...chip(count === n) }}>{n}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text3)" }}>
+          Voice follows the active brain. <a href="/socialork/brains">Change it on Brains.</a>
+        </div>
+        <button className="so-btn" data-variant="primary" type="submit" disabled={busy} style={{ height: 36 }}>
+          {busy ? "Generating…" : "Generate variants"}
+        </button>
+        {error ? <span role="alert" style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
       </form>
 
-      {variants ? (
-        <div className="so-list" style={{ display: "grid", gap: 12 }}>
-          {variants.map((v, i) => (
-            <article key={i} className="so-card so-card-pad" style={{ display: "grid", gap: 8 }}>
-              <div className="so-row" style={{ justifyContent: "space-between" }}>
-                <span className="so-pill">variant {i + 1} · {PLATFORM_CONFIGS[v.platform as keyof typeof PLATFORM_CONFIGS]?.name ?? v.platform}</span>
-                <button className="so-btn" style={{ height: 26 }} onClick={() => void save(v)} disabled={busy}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+        {!variants ? (
+          <section style={{ border: "1px dashed var(--line2)", borderRadius: 12, padding: "40px 20px", textAlign: "center", color: "var(--text3)" }}>
+            {busy ? "Generating variants…" : "Variants appear here, one per channel, each checked against the channel's length."}
+          </section>
+        ) : null}
+        {variants?.map((v, i) => {
+          const cfg = PLATFORM_CONFIGS[v.platform as keyof typeof PLATFORM_CONFIGS];
+          const max = cfg?.maxTextLength;
+          const len = v.content.length;
+          return (
+            <article key={i} className="so-card so-card-pad" style={{ display: "grid", gap: 10, boxShadow: "var(--card)" }}>
+              <div className="so-row" style={{ gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>{cfg?.name ?? v.platform}</span>
+                <span style={{ flex: 1 }} />
+                <span className="so-mono" style={{ fontSize: 11.5, color: max && len > max ? "var(--red)" : "var(--text3)" }}>
+                  {max ? `${len} / ${max}` : len}
+                </span>
+              </div>
+              <div style={{ whiteSpace: "pre-line", lineHeight: 1.6, fontSize: 13.5, padding: 12, borderRadius: 10, background: "var(--bg)" }}>{v.content}</div>
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                <button className="so-btn" type="button" onClick={() => void navigator.clipboard?.writeText(v.content)}>Copy</button>
+                <button className="so-btn" data-variant="primary" type="button" onClick={() => void save(v)} disabled={busy}>
                   Save as draft
                 </button>
               </div>
-              <div style={{ whiteSpace: "pre-wrap", fontSize: 13, color: "var(--text2)" }}>{v.content}</div>
             </article>
-          ))}
-        </div>
-      ) : null}
-    </>
+          );
+        })}
+      </div>
+    </div>
   );
 }

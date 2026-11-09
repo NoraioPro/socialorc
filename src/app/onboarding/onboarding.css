@@ -1,0 +1,8 @@
+/* Setup screen, using the SocialOrk handoff tokens (scoped: this route has no .so-root). */
+.so-onb {
+  --bg: #0b0b0e; --panel: #131317; --panel2: #1b1b21; --line: rgba(255,255,255,0.07); --line2: rgba(255,255,255,0.13);
+  --text: #ededf1; --text2: #a6a6b0; --text3: #7c7c87; --accent: #48ed85; --onAccent: #06140b;
+  --accentSoft: rgba(72,237,133,0.12); --red: oklch(0.73 0.17 25);
+  min-height: 100dvh; display: flex; flex-direction: column; background: var(--bg); color: var(--text);
+  font-family: var(--font-hanken), system-ui, sans-serif; font-size: 13px; line-height: 1.45;
+}

@@ -296,7 +296,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   };
 
   const chip = (active: boolean): React.CSSProperties => ({
-    height: 30, padding: "0 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer",
+    height: 30, padding: "0 10px", borderRadius: 7, fontSize: 12.5, cursor: "pointer",
     border: `1px solid ${active ? "var(--accent)" : "var(--line2)"}`,
     background: active ? "var(--accentSoft)" : "var(--panel2)",
     color: active ? "var(--accent)" : "var(--text2)",
@@ -325,22 +325,25 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
         </div>
       ) : null}
 
+      <style>{`.so-create-grid{display:grid;grid-template-columns:380px minmax(0,1fr);gap:16px;align-items:start}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}`}</style>
+      <div className="so-create-grid">
       <form
-        className="so-card so-card-pad"
-        style={{ display: "grid", gap: 14 }}
+        className="so-card"
+        style={{ display: "grid", gap: 16, padding: 18 }}
         onSubmit={(e) => {
           e.preventDefault();
           void generate();
         }}
       >
+        <div style={{ fontWeight: 600 }}>Brief</div>
         <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="brief">Brief</label>
+          <label className="so-stat-label" htmlFor="brief">Core message</label>
           <textarea id="brief" rows={4} value={brief} onChange={(e) => setBrief(e.target.value)}
             placeholder="What are you announcing, and who is it for?"
             style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
         </div>
 
-        <div className="so-grid so-grid-2">
+        <div className="so-grid" style={{ gridTemplateColumns: "minmax(0,1fr)" }}>
           <div style={{ display: "grid", gap: 6 }}>
             <label className="so-stat-label" htmlFor="brain">Brain</label>
             <select id="brain" value={brainId} onChange={(e) => setBrainId(e.target.value)} style={field}>
@@ -566,23 +569,23 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
         {error ? <span style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
       </form>
 
-      {variants ? (
-        <section style={{ display: "grid", gap: 12 }}>
-          <div className="so-row" style={{ justifyContent: "space-between" }}>
-            <span className="so-stat-label">Generated for {channelsLabel}</span>
-            <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-              {variants[0]?.model ?? "model"} · nothing saved yet
-            </span>
-          </div>
-          <div className="so-grid so-grid-2">
+      <section className="so-card" style={{ display: "flex", flexDirection: "column", minHeight: 600, overflow: "hidden" }}>
+        {variants ? (
+          <div style={{ display: "grid", gap: 12, padding: 18 }}>
+            <div className="so-row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 600 }}>Generated for {channelsLabel}</span>
+              <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
+                {variants[0]?.model ?? "model"} · nothing saved yet
+              </span>
+            </div>
             {variants.map((v, i) => (
-              <article key={`${v.platform}-${i}`} className="so-card so-card-pad" style={{ display: "grid", gap: 8 }}>
+              <article key={`${v.platform}-${i}`} style={{ display: "grid", gap: 8, padding: 14, border: "1px solid var(--line2)", borderRadius: 10, background: "var(--bg)" }}>
                 <div className="so-row" style={{ justifyContent: "space-between" }}>
                   <span className="so-pill">{PLATFORMS.find((p) => p.id === v.platform)?.name ?? v.platform}</span>
                   {v.usedMock ? <span className="so-mock">mock</span> : null}
                 </div>
                 {v.title ? <div style={{ fontWeight: 600 }}>{v.title}</div> : null}
-                <div style={{ color: "var(--text2)", fontSize: 12.5, whiteSpace: "pre-wrap" }}>{v.content}</div>
+                <div style={{ color: "var(--text2)", fontSize: 12.5, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{v.content}</div>
                 <div className="so-row" style={{ justifyContent: "flex-end" }}>
                   <button className="so-btn" style={{ height: 28 }} onClick={() => void saveVariant(v)}
                     disabled={busy === `save:${v.platform}`}>
@@ -592,8 +595,31 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
               </article>
             ))}
           </div>
-        </section>
-      ) : null}
+        ) : busy === "generate" ? (
+          <div style={{ padding: 20, display: "grid", gap: 12 }} role="status">
+            <div style={{ fontSize: 12.5, color: "var(--text2)" }}>Generating a draft for {channelsLabel || "each channel"}…</div>
+            {[60, 92, 84, 40].map((w) => (
+              <div key={w} style={{ height: 12, width: `${w}%`, borderRadius: 4, background: "linear-gradient(90deg,var(--panel2) 0%,var(--line2) 50%,var(--panel2) 100%)", backgroundSize: "800px 100%", animation: "so-shimmer 1.4s linear infinite" }} />
+            ))}
+          </div>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 40, textAlign: "center" }}>
+            <svg width="200" height="128" viewBox="0 0 200 128" fill="none" aria-hidden style={{ marginBottom: 6, overflow: "visible" }}>
+              <rect x="18" y="38" width="84" height="64" rx="11" fill="var(--panel2)" stroke="var(--line2)" />
+              <rect x="98" y="46" width="84" height="64" rx="11" fill="var(--panel2)" stroke="var(--line2)" />
+              <rect x="56" y="18" width="88" height="68" rx="12" fill="var(--panel)" stroke="var(--accent)" strokeOpacity="0.7" />
+              <rect x="69" y="33" width="44" height="6" rx="3" fill="var(--accent)" opacity="0.8" />
+              <rect x="69" y="47" width="62" height="5" rx="2.5" fill="var(--accentSoft)" />
+              <rect x="69" y="58" width="52" height="5" rx="2.5" fill="var(--accentSoft)" />
+            </svg>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>One draft per channel appears here</div>
+            <div style={{ color: "var(--text2)", maxWidth: 360 }}>
+              Each variant respects its channel&apos;s length and media rules. Generate with AI, or write the post yourself and create a draft per channel.
+            </div>
+          </div>
+        )}
+      </section>
+      </div>
     </>
   );
 }

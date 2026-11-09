@@ -4,7 +4,9 @@ import prisma from "@/lib/prisma";
 import { formatWhen, relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { tenantCan } from "@/lib/tenancy/guard";
-import { ApprovalsBoard, type ApprovalPost } from "@/components/socialork/approvals-board";
+import { type ApprovalPost } from "@/components/socialork/approvals-board";
+import { ApprovalsScreen } from "@/components/socialork/approvals-screen";
+import { isSoleWorkspaceMember } from "@/lib/tenancy/solo";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +30,10 @@ export default async function ApprovalsPage() {
     select: {
       id: true, title: true, content: true, platform: true, status: true,
       scheduledFor: true, approvedAt: true, approvedBy: true, rejectionReason: true,
-      platformPostUrl: true, updatedAt: true,
+      platformPostUrl: true, updatedAt: true, userId: true,
       socialAccount: { select: { platformUsername: true } },
+      user: { select: { name: true, email: true } },
+      _count: { select: { mediaAssets: true } },
     },
   });
 
@@ -51,18 +55,19 @@ export default async function ApprovalsPage() {
     approvedBy: r.approvedBy ? approverName.get(r.approvedBy) ?? "a teammate" : null,
     rejectionReason: r.rejectionReason,
     url: r.platformPostUrl,
+    authorId: r.userId,
+    author: r.user?.name ?? r.user?.email ?? "a teammate",
+    mediaCount: r._count.mediaAssets,
   }));
 
   return (
     <div className="so-page">
-      <div style={{ display: "grid", gap: 6 }}>
-        <h1 className="so-h1">Approvals</h1>
-        <p className="so-sub">
-          Every post needs a recorded approval before it can be scheduled. Editing a post clears its
-          approval — that rule lives on the server, not on this screen.
-        </p>
-      </div>
-      <ApprovalsBoard posts={posts} canApprove={tenantCan(tenant, "posts:approve")} />
+      <ApprovalsScreen
+        posts={posts}
+        canApprove={tenantCan(tenant, "posts:approve")}
+        viewerId={tenant.userId}
+        solo={await isSoleWorkspaceMember(tenant.userId)}
+      />
     </div>
   );
 }
