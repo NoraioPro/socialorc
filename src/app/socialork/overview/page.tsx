@@ -6,7 +6,6 @@ import {
 import { Check, CircleAlert, FileText, Send, ShieldCheck, CalendarClock } from "lucide-react";
 import { GLYPHS, type GlyphName } from "@/components/socialork/platform-glyphs";
 import { PostActions } from "@/components/socialork/post-actions";
-import { Hero3D } from "@/components/socialork/hero-3d";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 export const dynamic = "force-dynamic";
@@ -63,31 +62,24 @@ export default async function OverviewPage() {
   ];
   const failedN = c.FAILED ?? 0;
   const healthy = accounts.filter((a) => a.isActive && !a.needsReconnect).length;
+  const stamp = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Oslo", hourCycle: "h23",
+  }).format(new Date()).replace(/,/g, "").toUpperCase();
 
   return (
     <div className="so-page" data-gap="20">
-      <div className="so-hero">
-        <div
-          style={{
-            display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 8, padding: "26px 28px",
-            border: "1px solid var(--line)", borderRadius: 14, background: "var(--panel)", boxShadow: "var(--card)", minHeight: 156,
-          }}
-        >
-          <span className="so-mono" style={{ color: "var(--text3)", fontSize: 11.5, letterSpacing: "0.03em" }}>
-            {formatWhen(new Date())} · Europe/Oslo
-          </span>
-          <h1 className="so-h1" style={{ fontSize: 26 }}>{greeting}, {firstName}</h1>
-          <p className="so-sub">
-            {c.PENDING_APPROVAL ?? 0} waiting for a decision · {c.SCHEDULED ?? 0} scheduled ·{" "}
-            {overview.published30} published in the last 30 days.
-          </p>
+      <div className="so-banner-hero">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="so-banner-art" src="/socialork/orc-face.png" alt="" />
+        <div>
+          <div className="so-mono" style={{ color: "#8a8a95", fontSize: 11.5, letterSpacing: "0.03em" }}>
+            {stamp} CET
+          </div>
+          <h1 className="so-h1" style={{ fontSize: 26, marginTop: 6 }}>{greeting}, {firstName}</h1>
         </div>
-
-        {/* the brand's own art, with the 3D object the handoff drew for it */}
-        <div className="so-stage" aria-hidden="true">
-          <Hero3D />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="so-stage-orc" src="/socialork/orc-head.png" alt="" />
+        <div className="so-banner-chip">
+          {c.SCHEDULED ?? 0} scheduled · {overview.published30} published in 30 days
         </div>
       </div>
 
@@ -129,7 +121,7 @@ export default async function OverviewPage() {
       ) : null}
 
       <section className="so-card" style={{ display: "flex", alignItems: "stretch", overflow: "hidden" }}>
-        <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", padding: "18px 8px 16px" }}>
+        <div className="so-pipe">
           {pipe.map((p) => {
             const Icon = p.icon;
             return (

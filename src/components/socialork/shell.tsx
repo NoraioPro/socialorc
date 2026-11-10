@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Bell, LogOut, Menu, Plus, X } from "lucide-react";
+import { Bell, LogOut, Menu, Moon, Plus, Sun, X } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import { BrainSwitcher } from "@/components/socialork/brain-switcher";
 import {
@@ -64,6 +64,7 @@ export function Shell({
   const [userMenu, setUserMenu] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const bellRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -72,52 +73,47 @@ export function Shell({
       items: [
         { href: "/socialork/overview", label: "Overview", icon: LayoutDashboard },
         { href: "/socialork/create", label: "Create", icon: PenLine },
-        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
-        { href: "/socialork/media", label: "Media", icon: ImageIcon },
         { href: "/socialork/drafts", label: "Drafts", icon: FileText, count: counts.drafts },
         { href: "/socialork/approvals", label: "Approvals", icon: ShieldCheck, count: counts.review, tone: "amber" },
         {
           href: "/socialork/publishing", label: "Publishing", icon: CalendarClock,
-          count: counts.failed > 0 ? counts.failed : counts.scheduled,
+          count: counts.failed,
           tone: counts.failed > 0 ? "red" : undefined,
-          hint: counts.failed > 0 ? `${counts.failed} failed` : `${counts.scheduled} scheduled`,
+          hint: counts.failed > 0 ? `${counts.failed} failed` : undefined,
         },
-      ],
-    },
-    {
-      label: "Listen",
-      items: [
-        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
         { href: "/socialork/inbox", label: "Inbox", icon: Inbox },
-      ],
-    },
-    {
-      label: "Learn",
-      items: [
-        { href: "/socialork/insights", label: "Insights", icon: CircleDot },
-        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
-      ],
-    },
-    {
-      label: "Automate",
-      items: [
-        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
-        { href: "/socialork/automations", label: "Automations", icon: Workflow },
+        { href: "/socialork/insights", label: "Insights", icon: TrendingUp },
       ],
     },
     {
       label: "Workspace",
       items: [
-        { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
-        { href: "/socialork/brains", label: "Brains", icon: BookOpen, count: brains },
-        { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
+        { href: "/socialork/brains", label: "Brains", icon: BookOpen },
         { href: "/socialork/team", label: "Team", icon: Users },
-        { href: "/socialork/settings", label: "Settings", icon: Settings, count: accounts },
+        { href: "/socialork/settings", label: "Settings", icon: Settings },
+      ],
+    },
+    {
+      label: "More",
+      items: [
+        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
+        { href: "/socialork/media", label: "Media", icon: ImageIcon },
+        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
+        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
+        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
+        { href: "/socialork/automations", label: "Automations", icon: Workflow },
+        { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
+        { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
       ],
     },
   ];
 
   const flat = useMemo(() => nav.flatMap((g) => g.items), [nav]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("so-theme");
+    if (saved === "light" || saved === "dark") setTheme(saved);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -168,16 +164,14 @@ export function Shell({
   };
 
   return (
-    <div className="so-root" data-nav={navOpen ? "open" : "closed"}>
+    <div className="so-root" data-nav={navOpen ? "open" : "closed"} data-theme={theme}>
       <button type="button" className="so-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
       <aside className="so-side">
         <div className="so-brand">
           {/* the product's existing mascot mark */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/socialork-logo.svg" alt="SocialOrk" width={26} height={24} className="so-brand-img" />
-          <span className="so-brand-name">
-            Social<span style={{ color: "var(--accent)" }}>Ork</span>
-          </span>
+          <img src="/socialork/orc-logo.png" alt="" width={28} height={28} className="so-brand-img" style={{ borderRadius: 8 }} />
+          <span className="so-brand-name">SocialOrk</span>
         </div>
 
         <WorkspaceSwitcher currentName={workspaceName} brains={brains} accounts={accounts} />
@@ -198,8 +192,8 @@ export function Shell({
                     data-active={active}
                     title={item.hint}
                   >
-                    <Icon size={15} strokeWidth={1.8} />
-                    <span>{item.label}</span>
+                    <Icon size={16} strokeWidth={1.8} style={{ color: active ? "var(--accentText)" : "currentColor" }} />
+                    <span style={{ flex: 1 }}>{item.label}</span>
                     {typeof item.count === "number" && item.count > 0 ? (
                       <span className="so-nav-count" data-tone={item.tone}>{item.count}</span>
                     ) : null}
@@ -258,9 +252,9 @@ export function Shell({
           >
             <span
               style={{
-                width: 24, height: 24, borderRadius: 999, display: "grid", placeItems: "center",
-                background: "var(--panel2)", border: "1px solid var(--line2)",
-                font: "600 10px var(--font-plex-mono), monospace", color: "var(--text2)", flex: "none",
+                width: 30, height: 30, borderRadius: "50%", display: "grid", placeItems: "center",
+                background: "var(--accentSoft)", color: "var(--accentText)",
+                fontSize: 11, fontWeight: 600, flex: "none",
               }}
             >{initials}</span>
             <span style={{ display: "grid", minWidth: 0 }}>
@@ -300,8 +294,9 @@ export function Shell({
           <span className="so-crumb">
             <b>{workspaceName}</b>
             <span>/</span>
-            <span>{current?.label ?? "Overview"}</span>
+            <span style={{ fontWeight: 600, color: "var(--text)" }}>{current?.label ?? "Overview"}</span>
           </span>
+          <div style={{ flex: 1 }} />
 
           <button className="so-search" onClick={() => setPaletteOpen(true)}>
             <Command size={13} strokeWidth={2} />
@@ -312,25 +307,40 @@ export function Shell({
           <div className="so-viewas" role="group" aria-label="View as">
             <span>View as</span>
             <div style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)" }}>
-              {["ADMIN", "MANAGER", "EDITOR", "VIEWER"].map((r) => {
-                const on = (viewAs ?? role.toUpperCase()) === r;
+              {["Admin", "Manager", "Editor"].map((r) => {
+                const on = (viewAs ?? role).toLowerCase() === r.toLowerCase();
                 return (
                   <button
                     key={r}
                     type="button"
                     aria-pressed={on}
-                    onClick={() => setViewAs(r === role.toUpperCase() ? null : r)}
+                    onClick={() => setViewAs(r.toLowerCase() === role.toLowerCase() ? null : r.toUpperCase())}
                     style={{
-                      height: 24, padding: "0 9px", border: 0, borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 500,
-                      fontFamily: "inherit", background: on ? "var(--panel2)" : "transparent", color: on ? "var(--text)" : "var(--text3)",
+                      height: 26, padding: "0 10px", border: 0, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 500,
+                      fontFamily: "inherit", background: on ? "var(--panel2)" : "transparent", color: on ? "var(--text)" : "var(--text2)",
                     }}
                   >
-                    {r.toLowerCase()}
+                    {r}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          <button
+            type="button"
+            className="so-btn"
+            title="Toggle light / dark"
+            aria-label="Toggle light / dark"
+            onClick={() => {
+              const next = theme === "dark" ? "light" : "dark";
+              setTheme(next);
+              window.localStorage.setItem("so-theme", next);
+            }}
+            style={{ width: 32, padding: 0, display: "grid", placeItems: "center" }}
+          >
+            {theme === "dark" ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
+          </button>
 
           <span ref={bellRef} style={{ position: "relative" }}>
             <button

@@ -100,12 +100,20 @@ export function WorkspaceSwitcher({
         aria-expanded={open}
         aria-haspopup="menu"
         style={{
-          display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 10px",
+          display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 10px",
           borderRadius: 9, border: "1px solid var(--line)", background: "var(--panel)",
           color: "var(--text)", cursor: "pointer", textAlign: "left",
         }}
       >
-        <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
+        <span
+          style={{
+            width: 24, height: 24, flex: "none", borderRadius: 6, background: "var(--accent)",
+            display: "grid", placeItems: "center", fontSize: 11, fontWeight: 700, color: "var(--onAccent)",
+          }}
+        >
+          {(currentName.trim()[0] ?? "S").toUpperCase()}
+        </span>
+        <span style={{ display: "grid", gap: 0, minWidth: 0, flex: 1 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {currentName}
           </span>
@@ -113,7 +121,7 @@ export function WorkspaceSwitcher({
             {brains} {brains === 1 ? "brain" : "brains"} · {accounts} {accounts === 1 ? "channel" : "channels"}
           </span>
         </span>
-        <ChevronDown size={14} strokeWidth={2} style={{ marginLeft: "auto", color: "var(--text3)", flex: "none" }} />
+        <ChevronDown size={14} strokeWidth={2} style={{ color: "var(--text3)", flex: "none" }} />
       </button>
 
       {open ? (

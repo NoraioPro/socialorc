@@ -25,6 +25,10 @@
   --blue: oklch(0.78 0.11 245);
   --blueSoft: oklch(0.78 0.11 245 / 0.13);
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  --card: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --glow: rgba(72, 237, 133, 0.06);
+  --accentText: #48ed85;
+  color-scheme: dark;
 
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
@@ -36,6 +40,34 @@
   font-size: 13px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Light set from the handoff. The hero art stays dark on purpose. */
+.so-root[data-theme="light"] {
+  --bg: #f6f6f7;
+  --side: #fbfbfc;
+  --panel: #ffffff;
+  --panel2: #f1f1f3;
+  --hover: rgba(0, 0, 0, 0.035);
+  --line: rgba(0, 0, 0, 0.08);
+  --line2: rgba(0, 0, 0, 0.14);
+  --text: #111114;
+  --text2: #55555f;
+  --text3: #83838d;
+  --accentText: oklch(0.5 0.14 152);
+  --accentSoft: oklch(0.8 0.16 152 / 0.22);
+  --green: oklch(0.5 0.13 155);
+  --greenSoft: oklch(0.6 0.15 155 / 0.12);
+  --amber: oklch(0.55 0.12 70);
+  --amberSoft: oklch(0.75 0.14 80 / 0.18);
+  --red: oklch(0.55 0.19 25);
+  --redSoft: oklch(0.6 0.19 25 / 0.1);
+  --blue: oklch(0.5 0.14 250);
+  --blueSoft: oklch(0.6 0.14 250 / 0.11);
+  --shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  --card: 0 1px 2px rgba(16, 16, 20, 0.05);
+  --glow: rgba(72, 237, 133, 0.12);
+  color-scheme: light;
 }
 
 .so-root a { color: var(--accent); text-decoration: none; }
@@ -53,7 +85,7 @@
   background: var(--accentSoft); color: var(--accent); font: 700 13px var(--font-plex-mono), monospace;
   border: 1px solid rgba(72, 237, 133, 0.25);
 }
-.so-brand-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
+.so-brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
 .so-brand-img { display: block; flex: none; object-fit: contain; }
 .so-brain-switch {
   margin: 0 12px 12px; padding: 9px 10px; border-radius: 9px; display: flex; gap: 8px; align-items: center;
@@ -64,35 +96,35 @@
 .so-brain-meta { font-size: 10.5px; color: var(--text3); }
 .so-nav { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px 12px; }
 .so-nav-label {
-  padding: 10px 10px 6px; font: 500 10px var(--font-plex-mono), monospace;
-  letter-spacing: 0.09em; text-transform: uppercase; color: var(--text3);
+  margin: 14px 12px 4px; padding: 0; font-size: 11px; font-weight: 500; color: var(--text3);
 }
 .so-nav-item {
-  display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border-radius: 7px;
-  color: var(--text2); font-size: 12.5px; text-decoration: none;
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 7px;
+  color: var(--text2); font-size: 13px; text-decoration: none;
 }
 .so-nav-item:hover { background: var(--hover); color: var(--text); text-decoration: none; }
 .so-nav-item[data-active="true"] { background: var(--panel2); color: var(--text); font-weight: 600; }
 .so-nav-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.5; }
 .so-nav-count {
-  margin-left: auto; font: 500 10.5px var(--font-plex-mono), monospace; color: var(--text3);
+  margin-left: auto; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: 5px;
+  font: 500 11px var(--font-plex-mono), monospace; background: var(--panel2); color: var(--text2);
 }
-.so-nav-count[data-tone="amber"] { color: var(--amber); }
-.so-nav-count[data-tone="red"] { color: var(--red); }
+.so-nav-count[data-tone="amber"] { background: var(--amberSoft); color: var(--amber); }
+.so-nav-count[data-tone="red"] { background: var(--redSoft); color: var(--red); }
 .so-side-foot { margin-top: auto; padding: 12px; border-top: 1px solid var(--line); }
 
 /* ── topbar ──────────────────────────────────────────────────────────── */
 .so-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .so-top {
-  display: flex; align-items: center; gap: 10px; height: 52px; flex: none;
-  padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--side);
+  display: flex; align-items: center; gap: 12px; height: 56px; flex: none;
+  padding: 0 20px 0 32px; border-bottom: 1px solid var(--line); background: transparent;
 }
 .so-crumb { font-size: 12px; color: var(--text3); display: flex; gap: 6px; align-items: center; }
 .so-crumb b { color: var(--text2); font-weight: 500; }
 .so-search {
-  margin-left: auto; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 10px;
-  border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text3);
-  font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; height: 32px; width: 200px; flex: 0 1 200px; min-width: 0;
+  padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  color: var(--text3); font-size: 13px; cursor: pointer;
 }
 .so-search:hover { border-color: var(--line2); color: var(--text2); }
 .so-kbd {
@@ -100,7 +132,10 @@
   border: 1px solid var(--line2); border-radius: 4px;
 }
 .so-viewas { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text3); }
-.so-scroll { flex: 1; overflow-y: auto; }
+.so-scroll {
+  flex: 1; overflow-y: auto;
+  background: radial-gradient(1000px 340px at 30% -140px, var(--glow), transparent 70%);
+}
 
 /* ── page frame ──────────────────────────────────────────────────────── */
 /* Screen rhythm taken from the handoff: padding 28/32/56, gap 16 (20 on Overview,
@@ -114,7 +149,7 @@
 .so-spread { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 
 /* ── cards ───────────────────────────────────────────────────────────── */
-.so-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.so-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--card); }
 .so-card-pad { padding: 16px 18px; }
 .so-grid { display: grid; gap: 12px; }
 .so-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -220,19 +255,33 @@
 .so-list > *:nth-child(8) { animation-delay: 0.23s; }
 .so-card { transition: border-color 0.16s, background-color 0.16s; }
 
-/* ── overview stage: the brand's orc art + the 3D object, in-app ───────── */
-.so-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: stretch; }
-@media (max-width: 1000px) { .so-hero { grid-template-columns: minmax(0, 1fr); } .so-stage { min-height: 220px; } }
-.so-stage {
-  position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 12px;
-  background: radial-gradient(closest-side at 60% 45%, rgba(72, 237, 133, 0.14), rgba(19, 19, 23, 0) 70%), var(--panel);
-  min-height: 190px;
+/* ── overview banner: orc face, masked in from the right, as in the handoff ─ */
+.so-banner-hero {
+  position: relative; isolation: isolate; overflow: hidden; min-height: 156px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 26px 28px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px;
+  background: #0e0e12; box-shadow: var(--card); color: #ededf1;
 }
-.so-stage-orc {
-  position: absolute; right: -18px; bottom: -18px; width: 200px; opacity: 0.34;
-  pointer-events: none; animation: so-ken 24s ease-in-out infinite alternate;
-  -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent 78%);
-  mask-image: radial-gradient(closest-side, #000 40%, transparent 78%);
+.so-banner-hero h1, .so-banner-hero p { color: #ededf1; }
+.so-banner-art {
+  position: absolute; z-index: -1; right: 0; top: 0; height: 100%; width: 72%;
+  object-fit: cover; object-position: right center; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%);
+  mask-image: linear-gradient(90deg, transparent, #000 50%);
+  animation: so-ken 24s ease-in-out infinite alternate;
+}
+.so-banner-chip {
+  color: #ededf1; font-size: 12.5px; padding: 6px 10px; border-radius: 8px;
+  background: rgba(11, 11, 14, 0.6); backdrop-filter: blur(6px); white-space: nowrap;
+}
+.so-pipe {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 18px 8px 16px;
+}
+.so-pipe a { position: relative; }
+.so-pipe a:not(:last-child)::after {
+  content: ""; position: absolute; top: 25px; left: calc(50% + 28px); width: calc(100% - 56px); height: 1.5px;
+  background: linear-gradient(90deg, var(--line2), var(--line2)); pointer-events: none;
 }
 .so-stat { transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1), border-color 0.18s, box-shadow 0.18s; }
 .so-stat:hover { transform: translateY(-2px); border-color: var(--line2); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35); }
@@ -310,6 +359,11 @@
   .so-grid-3, .so-grid-2 { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (max-width: 800px) {
+  .so-pipe { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .so-pipe a::after { display: none; }
+  .so-banner-hero { flex-wrap: wrap; }
+}
 @media (max-width: 640px) {
   .so-viewas { display: none; }
   .so-page { padding: 14px 12px 44px; }
@@ -323,67 +377,5 @@
 }
 
 
-/* ── lively layer (handoff), class-based ──────────────────────────────────
-   Decorative only. The handoff targeted inline styles; here it hangs off the
-   shell's own classes. All of it is switched off for reduced-motion below. */
-@keyframes so-ink { from { stroke-dasharray: 120; stroke-dashoffset: 120; } to { stroke-dasharray: 120; stroke-dashoffset: 0; } }
-@keyframes so-wiggle { 0%, 100% { transform: rotate(0) scale(1); } 30% { transform: rotate(-14deg) scale(1.18); } 65% { transform: rotate(9deg) scale(1.1); } }
-@keyframes so-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-@keyframes so-glowp { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 5px rgba(72, 237, 133, 0.7)); } }
-@keyframes so-sheen { from { transform: translateX(-140%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
-@keyframes so-aurora {
-  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
-  50% { transform: translate3d(5%, 4%, 0) scale(1.12); opacity: 1; }
-  100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
-}
-@keyframes so-chip { from { opacity: 0; transform: scale(0.55) rotate(-14deg); } to { opacity: 1; transform: none; } }
-@keyframes so-logo { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-2px) rotate(-4deg); } }
-
-/* sidebar icons draw themselves, wiggle on hover, glow when active */
-.so-nav-item svg { overflow: visible; transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
-.so-nav-item svg * { transform-box: fill-box; transform-origin: center; }
-.so-nav-item svg path { animation: so-ink 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) backwards; }
-.so-nav-item:hover svg { animation: so-wiggle 0.55s cubic-bezier(0.2, 0.7, 0.2, 1); }
-.so-nav-item[data-active="true"] svg { animation: so-bob 2.4s ease-in-out infinite, so-glowp 2.4s ease-in-out infinite; }
-.so-brand-img { animation: so-logo 4s ease-in-out infinite; }
-
-/* icon in any hovered button reacts */
-.so-btn svg { transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
-.so-btn:hover:not(:disabled) svg { transform: scale(1.14) rotate(-4deg); }
-.so-btn:active:not(:disabled) { transform: scale(0.97); }
-
-/* primary buttons: light sweep + glow */
-.so-btn[data-variant="primary"] { position: relative; overflow: hidden; transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, filter 0.16s; }
-.so-btn[data-variant="primary"]::after {
-  content: ""; position: absolute; inset: 0; width: 40%; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
-  transform: translateX(-140%) skewX(-20deg);
-}
-.so-btn[data-variant="primary"]:hover:not(:disabled)::after { animation: so-sheen 0.8s ease; }
-.so-btn[data-variant="primary"]:hover:not(:disabled) { box-shadow: 0 6px 22px -6px color-mix(in srgb, var(--accent) 70%, transparent); }
-
-/* living surface: slow aurora behind the content, cards lift on hover */
-.so-main { position: relative; isolation: isolate; }
-.so-main::before {
-  content: ""; position: absolute; z-index: -1; inset: -10% -10% auto auto; width: 70%; height: 70%;
-  pointer-events: none; filter: blur(10px); animation: so-aurora 18s ease-in-out infinite;
-  background:
-    radial-gradient(closest-side, color-mix(in srgb, var(--accent) 13%, transparent), transparent),
-    radial-gradient(closest-side at 20% 80%, color-mix(in srgb, var(--blue) 7%, transparent), transparent);
-}
-.so-card { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.28s ease, border-color 0.2s, background-color 0.16s; }
-.so-card:hover { border-color: var(--line2); }
-.so-grid-2 > .so-card:hover, .so-grid-3 > .so-card:hover, .so-grid-4 > .so-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.so-grid-2 > *, .so-grid-3 > *, .so-grid-4 > * { animation: so-row 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
-.so-grid-2 > *:nth-child(2), .so-grid-3 > *:nth-child(2), .so-grid-4 > *:nth-child(2) { animation-delay: 0.05s; }
-.so-grid-3 > *:nth-child(3), .so-grid-4 > *:nth-child(3) { animation-delay: 0.1s; }
-.so-grid-4 > *:nth-child(4) { animation-delay: 0.15s; }
-
-@media (prefers-reduced-motion: reduce) {
-  .so-main::before, .so-brand-img, .so-nav-item svg, .so-nav-item svg path { animation: none !important; }
-  .so-btn[data-variant="primary"]::after { display: none; }
-  .so-card, .so-grid-2 > *, .so-grid-3 > *, .so-grid-4 > * { transform: none !important; animation: none !important; }
-}
+.so-btn:active:not(:disabled) { transform: scale(0.98); }
+.so-btn[data-variant="primary"]:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 0 0 4px var(--accentSoft); }
