@@ -192,7 +192,7 @@ export function Shell({
                     data-active={active}
                     title={item.hint}
                   >
-                    <Icon size={16} strokeWidth={1.8} style={{ color: active ? "var(--accentText)" : "currentColor" }} />
+                    <Icon size={16} strokeWidth={1.8} />
                     <span style={{ flex: 1 }}>{item.label}</span>
                     {typeof item.count === "number" && item.count > 0 ? (
                       <span className="so-nav-count" data-tone={item.tone}>{item.count}</span>
