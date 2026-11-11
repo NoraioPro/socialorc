@@ -52,7 +52,8 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   if (!prompt) throw new AiImageError("Give the image a prompt.", "invalid_prompt");
   if (prompt.length > 2000) throw new AiImageError("The prompt is too long (2000 characters max).", "invalid_prompt");
 
-  if (mediaStorage() !== "blob") {
+  const storage = mediaStorage();
+  if (storage === "unconfigured") {
     throw new AiImageError(
       "Media storage is not configured in this deployment (BLOB_READ_WRITE_TOKEN), so generated images cannot be stored.",
       "media_storage_unconfigured",
@@ -126,10 +127,17 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   }
 
   const filename = `ai-${Date.now()}.png`;
-  const blob = await put(`socialorc/${userId}/${filename}`, bytes, {
-    access: "public",
-    contentType: "image/png",
-  });
+  // Local development without a Blob token stores a data: URL, like uploads do
+  // (not publishable to social APIs, fine for trying the flow).
+  let url: string;
+  let blobPath: string | null = null;
+  if (storage === "blob") {
+    const blob = await put(`socialorc/${userId}/${filename}`, bytes, { access: "public", contentType: "image/png" });
+    url = blob.url;
+    blobPath = blob.pathname;
+  } else {
+    url = `data:image/png;base64,${bytes.toString("base64")}`;
+  }
 
   const asset = await prisma.mediaAsset.create({
     data: {
@@ -138,8 +146,8 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
       filename,
       mimeType: "image/png",
       size: bytes.byteLength,
-      url: blob.url,
-      blobPath: blob.pathname,
+      url,
+      blobPath,
     },
   });
 
