@@ -385,29 +385,35 @@ export function ComposeForm({
         </div>
       ) : null}
 
-      <style>{`.so-create-grid{display:grid;grid-template-columns:380px minmax(0,1fr);gap:16px;align-items:start}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}`}</style>
+      <style>{`.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
       <div className="so-create-grid">
       <form
         className="so-card"
-        style={{ display: "grid", gap: 16, padding: 18 }}
+        style={{ display: "grid", gap: 12, padding: 16 }}
         onSubmit={(e) => {
           e.preventDefault();
           void generate();
         }}
       >
         <div style={{ fontWeight: 600 }}>Brief</div>
+        <div className="so-cf2">
         <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="post-title">Title</label>
           <input id="post-title" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} placeholder="Internal name for the post" style={field} />
         </div>
         <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="audience">Audience</label>
+          <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Who is this for?" style={field} />
+        </div>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="brief">Core message</label>
-          <textarea id="brief" rows={4} value={brief} onChange={(e) => setBrief(e.target.value)}
+          <textarea id="brief" rows={3} value={brief} onChange={(e) => setBrief(e.target.value)}
             placeholder="What are you announcing, and who is it for?"
             style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
         </div>
 
-        <div className="so-grid" style={{ gridTemplateColumns: "minmax(0,1fr)" }}>
+        <div className="so-cf2">
           <div style={{ display: "grid", gap: 6 }}>
             <label className="so-stat-label" htmlFor="brain">Brain</label>
             <select id="brain" value={brainId} onChange={(e) => setBrainId(e.target.value)} style={field}>
@@ -419,10 +425,6 @@ export function ComposeForm({
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="audience">Audience</label>
-          <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Who is this for?" style={field} />
-        </div>
         <div style={{ display: "grid", gap: 6 }}>
           <span className="so-stat-label">Tone</span>
           <div role="radiogroup" aria-label="Tone" style={{ display: "flex", padding: 2, border: "1px solid var(--line2)", borderRadius: 8, background: "var(--panel2)" }}>
@@ -643,6 +645,7 @@ export function ComposeForm({
             ))}
         </div>
 
+        <div className="so-cf-actions">
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
             {picked.length} channel{picked.length === 1 ? "" : "s"} ·{" "}
@@ -667,6 +670,7 @@ export function ComposeForm({
         </div>
 
         {error ? <span style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
+        </div>
       </form>
 
       <section className="so-card" style={{ display: "flex", flexDirection: "column", minHeight: 600, overflow: "hidden" }}>
