@@ -8,6 +8,7 @@ import { getBrains, getCurrentUser, getShellData, tenantFor } from "@/lib/social
 import { activeBrainId } from "@/lib/tenancy/active-brain";
 import { Shell } from "@/components/socialork/shell";
 import "../socialork.css";
+import "../socialork-lively.css";
 
 const hanken = Hanken_Grotesk({
   variable: "--font-hanken",

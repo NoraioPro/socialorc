@@ -300,7 +300,7 @@ export function Shell({
 
           <button className="so-search" onClick={() => setPaletteOpen(true)}>
             <Command size={13} strokeWidth={2} />
-            <span style={{ flex: 1, textAlign: "left" }}>Search</span>
+            <span className="so-search-text" style={{ flex: 1, textAlign: "left" }}>Search</span>
             <span className="so-kbd">⌘K</span>
           </button>
 
@@ -345,7 +345,7 @@ export function Shell({
           <span ref={bellRef} style={{ position: "relative" }}>
             <button
               type="button"
-              className="so-btn"
+              className={`so-btn${unread > 0 ? " so-bell-has" : ""}`}
               aria-label="Notifications"
               aria-expanded={bellOpen}
               aria-haspopup="dialog"
@@ -356,6 +356,7 @@ export function Shell({
               <Bell size={15} strokeWidth={1.8} />
               {unread > 0 ? (
                 <span
+                  className="so-bell-badge"
                   style={{
                     position: "absolute", top: -5, insetInlineEnd: -5, minWidth: 17, height: 17, padding: "0 4px",
                     borderRadius: 9, background: "var(--red)", color: "#fff",
@@ -403,7 +404,7 @@ export function Shell({
 
           <a href="/socialork/create" className="so-btn" data-variant="primary" style={{ gap: 6, textDecoration: "none" }}>
             <Plus size={14} strokeWidth={2.4} />
-            <span>New post</span>
+            <span className="so-hide-sm">New post</span>
           </a>
         </header>
 
@@ -429,6 +430,31 @@ export function Shell({
         ) : null}
 
         <div className="so-scroll">{children}</div>
+
+        {/* Phone only: the four places people go all day, plus the full menu. */}
+        <nav className="so-tabbar" aria-label="Quick navigation">
+          {[
+            { href: "/socialork/overview", label: "Overview", Icon: LayoutDashboard, count: 0 },
+            { href: "/socialork/create", label: "Create", Icon: PenLine, count: 0 },
+            { href: "/socialork/approvals", label: "Approvals", Icon: ShieldCheck, count: counts.review },
+            { href: "/socialork/inbox", label: "Inbox", Icon: Inbox, count: 0 },
+          ].map(({ href, label, Icon, count }) => (
+            <a
+              key={href}
+              href={href}
+              data-active={pathname === href || pathname.startsWith(`${href}/`)}
+              aria-label={label}
+            >
+              <Icon size={20} strokeWidth={1.9} />
+              <span>{label}</span>
+              {count > 0 ? <span className="so-tab-count">{count}</span> : null}
+            </a>
+          ))}
+          <button type="button" data-active={navOpen} aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}>
+            <Menu size={20} strokeWidth={1.9} />
+            <span>Menu</span>
+          </button>
+        </nav>
       </div>
 
       {paletteOpen ? (
