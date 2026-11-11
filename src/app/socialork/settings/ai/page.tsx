@@ -9,17 +9,34 @@ import { useEffect, useState } from "react";
 
 type Scope = "user" | "workspace";
 
-const PROVIDERS = [
-  { id: "openai", label: "OpenAI" },
-  { id: "anthropic", label: "Anthropic" },
-  { id: "groq", label: "Groq" },
-  { id: "nous", label: "Nous Research" },
+type Preset = { id: string; label: string; baseUrl?: string; model?: string };
+
+/** Picking a preset fills Base URL + Model; the user can still edit both. */
+const PROVIDERS: Preset[] = [
+  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { id: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash" },
+  { id: "xai", label: "xAI Grok", baseUrl: "https://api.x.ai/v1", model: "grok-4" },
+  { id: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", model: "claude-sonnet-4-5" },
+  { id: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+  { id: "mistral", label: "Mistral", baseUrl: "https://api.mistral.ai/v1", model: "mistral-large-latest" },
+  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { id: "together", label: "Together AI", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+  { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+  { id: "perplexity", label: "Perplexity", baseUrl: "https://api.perplexity.ai", model: "sonar" },
+  { id: "fireworks", label: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  { id: "deepinfra", label: "DeepInfra", baseUrl: "https://api.deepinfra.com/v1/openai" },
+  { id: "nous", label: "Nous Research", baseUrl: "https://inference-api.nousresearch.com/v1" },
   { id: "other", label: "Other (OpenAI-compatible)" },
 ];
 
 /** Only OpenAI-shaped image APIs qualify: POST {baseUrl}/images/generations. */
-const IMAGE_PROVIDERS = [
-  { id: "openai", label: "OpenAI (gpt-image-1 / dall-e-3)" },
+const IMAGE_PROVIDERS: Preset[] = [
+  { id: "openai", label: "OpenAI (gpt-image-1 / dall-e-3)", baseUrl: "https://api.openai.com/v1", model: "gpt-image-1" },
+  { id: "gemini", label: "Google Gemini (Nano Banana)", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash-image" },
+  { id: "xai", label: "xAI Grok Imagine", baseUrl: "https://api.x.ai/v1", model: "grok-imagine-image-2.0" },
+  { id: "together", label: "Together AI (FLUX)", baseUrl: "https://api.together.xyz/v1", model: "black-forest-labs/FLUX.1-schnell" },
+  { id: "deepinfra", label: "DeepInfra", baseUrl: "https://api.deepinfra.com/v1/openai" },
+  { id: "fireworks", label: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
   { id: "other", label: "Other (OpenAI-compatible image API)" },
 ];
 
@@ -56,6 +73,15 @@ export default function AiKeysPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyKind]);
+
+  const pickProvider = (id: string) => {
+    setProvider(id);
+    const p = (keyKind === "image" ? IMAGE_PROVIDERS : PROVIDERS).find((x) => x.id === id);
+    if (p) {
+      setBaseUrl(p.baseUrl ?? "");
+      setModel(p.model ?? "");
+    }
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,7 +170,7 @@ export default function AiKeysPage() {
       <form onSubmit={save} className="so-card so-card-pad" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="provider">Provider</label>
-          <select id="provider" value={provider} onChange={(e) => setProvider(e.target.value)} style={field}>
+          <select id="provider" value={provider} onChange={(e) => pickProvider(e.target.value)} style={field}>
             {(keyKind === "image" ? IMAGE_PROVIDERS : PROVIDERS).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
           {keyKind === "image" ? (
