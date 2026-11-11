@@ -413,6 +413,8 @@ export function ComposeForm({
             style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
         </div>
 
+        <details className="so-cf-more" style={{ display: "grid", gap: 12 }}>
+        <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text2)", fontWeight: 500 }}>More options: brain, tone, call to action, publish as</summary>
         <div className="so-cf2">
           <div style={{ display: "grid", gap: 6 }}>
             <label className="so-stat-label" htmlFor="brain">Brain</label>
@@ -453,6 +455,7 @@ export function ComposeForm({
             Your own connections, plus any the team shared. A personal account is never used by someone else.
           </span>
         </div>
+        </details>
 
         <div style={{ display: "grid", gap: 8 }}>
           <span className="so-stat-label">Channels</span>
@@ -527,6 +530,10 @@ export function ComposeForm({
           </div>
         </div>
 
+        <details className="so-cf-media" style={{ display: "grid", gap: 8 }}>
+        <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text2)", fontWeight: 500 }}>
+          Media{media.length > 0 ? ` (${media.length} attached)` : ""}
+        </summary>
         <div style={{ display: "grid", gap: 8 }}>
           <span className="so-stat-label">Attachments</span>
           <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -644,6 +651,7 @@ export function ComposeForm({
               </span>
             ))}
         </div>
+        </details>
 
         <div className="so-cf-actions">
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
