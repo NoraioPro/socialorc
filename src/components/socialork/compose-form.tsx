@@ -77,9 +77,10 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
           fetch("/api/ai/credentials?scope=user").then((r) => (r.ok ? r.json() : null)),
           fetch("/api/ai/credentials?scope=workspace").then((r) => (r.ok ? r.json() : null)),
         ]);
-        const hasKey = Boolean(
-          mine?.scopes?.user ?? mine?.user ?? shared?.scopes?.workspace ?? shared?.workspace,
-        );
+        // The endpoint reports the key that would actually be used for a text
+        // request (the person's, else the team's). Image keys are a separate kind
+        // and never count here.
+        const hasKey = Boolean(mine?.effectiveSource ?? shared?.effectiveSource);
         setAiReady(hasKey);
       } catch {
         setAiReady(false);
@@ -364,8 +365,8 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
           <div style={{ display: "grid", gap: 2 }}>
             <strong>AI generation is off</strong>
             <span style={{ color: "var(--text2)" }}>
-              No API key is set for you or for this workspace. You can still write each variant
-              yourself.
+              No text key is set for you or for this workspace. Image keys do not count here: add a
+              text key under Settings → AI keys (Text). You can still write each variant yourself.
             </span>
           </div>
           <a href="/socialork/settings/ai" className="so-btn" style={{ marginLeft: "auto", flex: "none", height: 28 }}>
