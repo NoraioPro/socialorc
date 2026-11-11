@@ -5,7 +5,7 @@ export const LANG_COOKIE = "so-lang";
 const AR: Record<string, string> = {
   Overview: "نظرة عامة", "Market Intel": "ذكاء السوق", Create: "إنشاء", "AI Studio": "استوديو الذكاء", Autopilot: "الطيار الآلي",
   Automations: "الأتمتة", Drafts: "المسودات", Approvals: "الموافقات", Publishing: "النشر", Inbox: "صندوق الوارد", Timeline: "الخط الزمني",
-  Insights: "التحليلات", Workspace: "مساحة العمل", Brains: "العقول", Media: "الوسائط", Portfolio: "المعرض", Workspaces: "مساحات العمل",
+  Insights: "التحليلات", Workspace: "مساحة العمل", "Automate & grow": "الأتمتة والنمو", Brains: "العقول", Media: "الوسائط", Portfolio: "المعرض", Workspaces: "مساحات العمل",
   Team: "الفريق", Settings: "الإعدادات", "New post": "منشور جديد", Search: "بحث", "View as": "عرض كـ", Admin: "مدير", Manager: "مشرف",
   Editor: "محرر", "Sign out": "تسجيل الخروج", Menu: "القائمة", "Quick navigation": "تنقل سريع",
   "Quick review": "مراجعة سريعة", "Review queue": "قائمة المراجعة", "Audit trail": "سجل التدقيق",

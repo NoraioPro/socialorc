@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireWorkspace } from "@/lib/tenancy/guard";
 import { PostStatus } from "@prisma/client";
 import { z } from "zod";
+import { blockingMediaProblems } from "@/lib/social/platform-rules";
 import { requeueJobData } from "@/lib/jobs/pending-publish";
 import { INVALID_DATE_MESSAGE, parseInstant } from "@/lib/posts/schedule-time";
 import { PUBLIC_SOCIAL_ACCOUNT_SELECT } from "@/lib/social/account-select";
@@ -47,7 +48,10 @@ export async function POST(
 
     const post = await prisma.post.findFirst({
       where: { id, workspaceId: guard.workspaceId },
-      include: { socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT } },
+      include: {
+        socialAccount: { select: PUBLIC_SOCIAL_ACCOUNT_SELECT },
+        mediaAssets: { select: { mediaAsset: { select: { mimeType: true, filename: true } } } },
+      },
     });
 
     if (!post) {
@@ -79,6 +83,16 @@ export async function POST(
         },
         { status: 400 }
       );
+    }
+
+    // Refuse what the platform will reject at its slot (wrong media type, media
+    // missing) while the writer can still fix it.
+    const mediaIssues = blockingMediaProblems(
+      post.platform,
+      post.mediaAssets.map((m) => ({ mimeType: m.mediaAsset.mimeType, filename: m.mediaAsset.filename })),
+    );
+    if (mediaIssues.length) {
+      return NextResponse.json({ error: mediaIssues.join(" "), code: "MEDIA_NOT_PUBLISHABLE" }, { status: 422 });
     }
 
     const scheduledFor = parseInstant(validation.data.scheduledFor);

@@ -197,3 +197,20 @@ export function mediaProblems(platform: Platform, media: AttachedMedia[]): strin
 
   return problems;
 }
+
+/**
+ * The problems that make a publish fail outright, as opposed to advice
+ * ("extra attachments are ignored"). Used server-side before a post may enter
+ * the schedule: a post the platform will reject at its slot should be refused
+ * now, while the writer is still looking at it.
+ */
+export function blockingMediaProblems(platform: Platform, media: AttachedMedia[]): string[] {
+  const problems = mediaProblems(platform, media).filter((p) => !p.includes("extra attachments are ignored"));
+  // The marketing spec can list what the platform allows while the connector
+  // does not send it yet (TikTok photos); the connector is what actually runs.
+  const caps = PLATFORM_CONFIGS[platform]?.capabilities;
+  if (caps && !caps.image && media.some((m) => m.mimeType.startsWith("image/")) && !problems.some((p) => p.includes("does not accept images"))) {
+    problems.push(`${platformSpec(platform).name} cannot publish images yet — attach a video instead.`);
+  }
+  return problems;
+}

@@ -72,15 +72,13 @@ export function Shell({
   const bellRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const nav: { label?: string; items: NavItem[] }[] = [
+  // Everyday work stays visible; the rest folds into two groups that open
+  // themselves when you are inside one of their pages.
+  const nav: { label?: string; fold?: boolean; items: NavItem[] }[] = [
     {
       items: [
         { href: "/socialork/overview", label: "Overview", icon: LayoutDashboard },
-        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
         { href: "/socialork/create", label: "Create", icon: PenLine },
-        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
-        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
-        { href: "/socialork/automations", label: "Automations", icon: Workflow },
         { href: "/socialork/drafts", label: "Drafts", icon: FileText, count: counts.drafts },
         { href: "/socialork/approvals", label: "Approvals", icon: ShieldCheck, count: counts.review, tone: "amber" },
         {
@@ -90,12 +88,23 @@ export function Shell({
           hint: counts.failed > 0 ? `${counts.failed} failed` : undefined,
         },
         { href: "/socialork/inbox", label: "Inbox", icon: Inbox },
-        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
         { href: "/socialork/insights", label: "Insights", icon: TrendingUp },
       ],
     },
     {
+      label: "Automate & grow",
+      fold: true,
+      items: [
+        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
+        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
+        { href: "/socialork/automations", label: "Automations", icon: Workflow },
+        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
+        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
+      ],
+    },
+    {
       label: "Workspace",
+      fold: true,
       items: [
         { href: "/socialork/brains", label: "Brains", icon: BookOpen },
         { href: "/socialork/media", label: "Media", icon: ImageIcon },
@@ -106,6 +115,7 @@ export function Shell({
       ],
     },
   ];
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const flat = useMemo(() => nav.flatMap((g) => g.items), [nav]);
 
@@ -177,30 +187,42 @@ export function Shell({
         <BrainSwitcher brains={brainsList} activeId={activeBrain} />
 
         <nav className="so-nav">
-          {nav.map((group, gi) => (
-            <div key={group.label ?? `g${gi}`} style={{ display: "grid", gap: 1 }}>
-              {group.label ? <div className="so-nav-label">{tr(lang, group.label)}</div> : null}
-              {group.items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                const Icon = item.icon;
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    className="so-nav-item"
-                    data-active={active}
-                    title={item.hint}
-                  >
-                    <Icon size={16} strokeWidth={1.8} />
-                    <span style={{ flex: 1 }}>{tr(lang, item.label)}</span>
-                    {typeof item.count === "number" && item.count > 0 ? (
-                      <span className="so-nav-count" data-tone={item.tone}>{item.count}</span>
-                    ) : null}
-                  </a>
-                );
-              })}
-            </div>
-          ))}
+          {nav.map((group, gi) => {
+            const holdsActive = group.items.some((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
+            const key = group.label ?? `g${gi}`;
+            const open = !group.fold || holdsActive || openGroups[key] === true;
+            const badge = group.items.reduce((n, i) => n + (typeof i.count === "number" ? i.count : 0), 0);
+            return (
+              <div key={key} style={{ display: "grid", gap: 1 }}>
+                {group.label ? (
+                  group.fold ? (
+                    <button type="button" className="so-nav-label" aria-expanded={open}
+                      data-testid={`nav-fold-${gi}`}
+                      onClick={() => setOpenGroups((g) => ({ ...g, [key]: !open }))}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", border: 0, background: "transparent", cursor: "pointer", textAlign: "start" }}>
+                      <span>{tr(lang, group.label)}</span>
+                      <span style={{ fontSize: 10, opacity: 0.7 }}>{!open && badge > 0 ? `${badge} · ` : ""}{open ? "▾" : "▸"}</span>
+                    </button>
+                  ) : (
+                    <div className="so-nav-label">{tr(lang, group.label)}</div>
+                  )
+                ) : null}
+                {open ? group.items.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const Icon = item.icon;
+                  return (
+                    <a key={item.href} href={item.href} className="so-nav-item" data-active={active} title={item.hint}>
+                      <Icon size={16} strokeWidth={1.8} />
+                      <span style={{ flex: 1 }}>{tr(lang, item.label)}</span>
+                      {typeof item.count === "number" && item.count > 0 ? (
+                        <span className="so-nav-count" data-tone={item.tone}>{item.count}</span>
+                      ) : null}
+                    </a>
+                  );
+                }) : null}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="so-side-foot" style={{ position: "relative", display: "flex", alignItems: "center", gap: 4 }}>

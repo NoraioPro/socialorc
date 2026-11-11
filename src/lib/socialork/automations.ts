@@ -10,6 +10,7 @@
  *  - Each rule is off until someone switches it on, per workspace.
  */
 import { PostStatus } from "@prisma/client";
+import { blockingMediaProblems } from "@/lib/social/platform-rules";
 import prisma from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { mintReviewToken, reviewPath } from "@/lib/review-link";
@@ -121,7 +122,15 @@ export async function nextFreeSlot(workspaceId: string, now = new Date()): Promi
 export async function onApproved(ctx: Actor, postId: string): Promise<RunResult | null> {
   try {
     if (!(await isRuleOn(ctx.workspaceId, "autoSchedule"))) return null;
-    const post = await prisma.post.findFirst({ where: { id: postId, workspaceId: ctx.workspaceId }, select: { title: true, socialAccountId: true } });
+    const post = await prisma.post.findFirst({ where: { id: postId, workspaceId: ctx.workspaceId }, select: { title: true, socialAccountId: true, platform: true, mediaAssets: { select: { mediaAsset: { select: { mimeType: true, filename: true } } } } } });
+    if (post) {
+      const issues = blockingMediaProblems(post.platform, post.mediaAssets.map((m) => ({ mimeType: m.mediaAsset.mimeType, filename: m.mediaAsset.filename })));
+      if (issues.length) {
+        const r = { ok: false, count: 0, message: `“${post.title ?? "Post"}” was left approved but not scheduled: ${issues.join(" ")}` };
+        await log(ctx, "autoSchedule", r, "approve");
+        return r;
+      }
+    }
     if (!post?.socialAccountId) {
       const r = { ok: false, count: 0, message: `“${post?.title ?? "Post"}” has no connected account, so it was left approved but not scheduled.` };
       await log(ctx, "autoSchedule", r, "approve");

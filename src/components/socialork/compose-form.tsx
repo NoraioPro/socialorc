@@ -232,6 +232,8 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
   };
 
   /** Manual path: one draft per selected channel, no AI key involved. */
+  const [after, setAfter] = useState<"draft" | "approval" | "schedule">("draft");
+
   const createManual = async () => {
     const text = (body || brief).trim();
     if (!text || picked.length === 0) {
@@ -245,6 +247,7 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
     setBusy("manual");
     setError(null);
     const failed: string[] = [];
+    const createdIds: string[] = [];
     for (const platform of picked) {
       try {
         const res = await fetch("/api/posts", {
@@ -262,18 +265,48 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
           failed.push(`${platform}: ${data.error ?? res.status}`);
+        } else {
+          const data = (await res.json().catch(() => ({}))) as { id?: string; post?: { id?: string } };
+          const id = data.id ?? data.post?.id;
+          if (id) createdIds.push(id);
         }
       } catch {
         failed.push(`${platform}: network error`);
       }
     }
+    // One-click follow-ups: send for approval, or approve + schedule the next free slot.
+    let landing = "/socialork/drafts";
+    if (after !== "draft" && createdIds.length) {
+      let slot: string | null = null;
+      if (after === "schedule") {
+        const r = await fetch("/api/posts/next-slot").then((x) => (x.ok ? x.json() : null)).catch(() => null);
+        slot = (r as { at?: string } | null)?.at ?? null;
+      }
+      for (const id of createdIds) {
+        const submit = await fetch(`/api/posts/${id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+        if (!submit.ok) { failed.push(`submit: ${submit.status}`); continue; }
+        landing = "/socialork/approvals";
+        if (after === "schedule" && slot) {
+          const ap = await fetch(`/api/posts/${id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) });
+          if (!ap.ok) { failed.push(`approve: needs a manager (${ap.status})`); continue; }
+          const sc = await fetch(`/api/posts/${id}/schedule`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scheduledFor: slot }) });
+          if (sc.ok) landing = "/socialork/publishing";
+          else {
+            const d = (await sc.json().catch(() => ({}))) as { error?: string };
+            // the autoSchedule rule may already have scheduled it on approve; that is fine
+            if (d.error?.includes("Current status: SCHEDULED")) landing = "/socialork/publishing";
+            else failed.push(`post: ${d.error ?? sc.status}`);
+          }
+        }
+      }
+    }
     setBusy(null);
-    if (failed.length === picked.length) {
+    if (failed.length === picked.length && !createdIds.length) {
       setError(`Nothing was saved — ${failed.join("; ")}`);
       return;
     }
-    if (failed.length) setError(`Saved the rest. Failed → ${failed.join("; ")}`);
-    router.push("/socialork/drafts");
+    if (failed.length) { setError(`Saved, but some steps need attention → ${failed.join("; ")}`); if (landing === "/socialork/drafts") { router.refresh(); return; } }
+    router.push(landing);
     router.refresh();
   };
 
@@ -601,12 +634,19 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
 
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-            {picked.length} channel{picked.length === 1 ? "" : "s"} · saves as drafts, nothing publishes
+            {picked.length} channel{picked.length === 1 ? "" : "s"} ·{" "}
+            {after === "draft" ? "saves as drafts, nothing publishes" : after === "approval" ? "goes to approval, nothing publishes until approved" : "approved and queued for the next free slot"}
           </span>
-          <div className="so-row" style={{ gap: 8 }}>
+          <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <div role="radiogroup" aria-label="After creating" data-testid="after-create" style={{ display: "flex", padding: 2, border: "1px solid var(--line2)", borderRadius: 8, background: "var(--panel2)" }}>
+              {([["draft", "Draft"], ["approval", "Send for approval"], ["schedule", "Schedule next slot"]] as const).map(([k, l]) => (
+                <button key={k} type="button" role="radio" aria-checked={after === k} onClick={() => setAfter(k)}
+                  style={{ border: 0, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", background: after === k ? "var(--accent-soft, var(--panel))" : "transparent", color: after === k ? "var(--text)" : "var(--text3)", fontWeight: after === k ? 600 : 400 }}>{l}</button>
+              ))}
+            </div>
             <button className="so-btn" type="button" onClick={() => void createManual()}
-              data-variant="primary" disabled={busy === "manual"}>
-              {busy === "manual" ? "Saving…" : `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}`}
+              data-variant="primary" disabled={busy === "manual"} data-testid="create-submit">
+              {busy === "manual" ? "Working…" : after === "draft" ? `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}` : after === "approval" ? "Create & send for approval" : "Create & schedule"}
             </button>
             <button className="so-btn" type="submit" disabled={busy === "generate" || aiReady === false}
               title={aiReady === false ? "Needs an AI key — add one under Settings → AI keys" : undefined}>
