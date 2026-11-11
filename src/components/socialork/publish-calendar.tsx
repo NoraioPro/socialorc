@@ -121,7 +121,7 @@ export function PublishCalendar({ scheduled, approved }: { scheduled: Item[]; ap
           </span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, minmax(0,1fr))" }}>
+        <div className="so-cal-grid" style={{ display: "grid", gridTemplateColumns: "56px repeat(7, minmax(0,1fr))" }}>
           <div />
           {days.map((d) => (
             <div key={d.name} className="so-mono" style={{ padding: "8px 6px", textAlign: "center", fontSize: 10.5, color: "var(--text3)", borderBottom: "1px solid var(--line)" }}>

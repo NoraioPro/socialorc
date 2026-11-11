@@ -87,7 +87,7 @@ export function ApprovalsBoard({ posts, canApprove = true }: { posts: ApprovalPo
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
+      <div className="so-split" style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
         <section className="so-card" style={{ overflow: "hidden" }}>
           <div role="tablist" aria-label="Approval status" style={{ display: "flex", gap: 4, padding: 8, borderBottom: "1px solid var(--line)" }}>
             {TABS.map((t) => (
