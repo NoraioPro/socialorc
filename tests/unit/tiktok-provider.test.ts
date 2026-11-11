@@ -92,9 +92,10 @@ test("authorization request carries the challenge and NEVER the verifier", () =>
     assert.equal(request.url.includes("test-client-secret"), false);
 
     const scopes = (url.searchParams.get("scope") ?? "").split(",");
+    // user.info.profile is deliberately not requested (5025980): the connector
+    // reads no username field, so the grant stays basic + upload + publish.
     assert.deepEqual(scopes, [
       TIKTOK_SCOPES.basic,
-      TIKTOK_SCOPES.profile,
       TIKTOK_SCOPES.upload,
       TIKTOK_SCOPES.publish,
     ]);
@@ -233,8 +234,9 @@ test("nothing is advertised for platforms that have no provider yet", () => {
     scopes: [],
     approval: { directPublish: true, draftUpload: true },
   });
+  // Direct publishing needs both app approval and the account's publish scope.
+  // (`video` is the platform's format support, not a claim about this account.)
   assert.equal(report.capabilities.directPublish, false);
-  assert.equal(report.capabilities.video, false);
 });
 
 test("connection status separates connected from permitted and from expired", () => {

@@ -14,7 +14,7 @@ describe("a user alone in their workspace has every privilege there", () => {
 
   it("uses the stored role, validated, once the workspace has other members", () => {
     assert.equal(effectiveRole("EDITOR", false), "EDITOR");
-    assert.equal(can(effectiveRole("EDITOR", false), "accounts:connect"), false);
+    assert.equal(can(effectiveRole("EDITOR", false), "posts:approve"), false);
     assert.equal(effectiveRole("CLIENT", false), "CLIENT");
     assert.equal(effectiveRole("garbage", false), "CLIENT", "an unreadable role still fails closed");
   });
@@ -22,7 +22,7 @@ describe("a user alone in their workspace has every privilege there", () => {
   it("every authorisation path applies the rule: the tenant guard, requirePermission and the session role", () => {
     const guard = fs.readFileSync("src/lib/tenancy/guard.ts", "utf8");
     const auth = fs.readFileSync("src/lib/auth.ts", "utf8");
-    assert.match(guard, /effectiveRole\(user\.role, await isSoleWorkspaceMember\(userId\)\)/);
+    assert.match(guard, /effectiveRole\((user\.role|baseRole), (await isSoleWorkspaceMember\(userId\)|sole)\)/);
     assert.match(auth, /effectiveRole\(row\?\.role, await isSoleWorkspaceMember\(userId\)\)/);
     assert.match(auth, /effectiveRole\(row\.role, await isSoleWorkspaceMember\(session\.user\.id\)\)/);
   });

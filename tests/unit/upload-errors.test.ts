@@ -38,6 +38,10 @@ test("UI-02: any other non-JSON failure names the HTTP status", async () => {
 });
 
 test("UI-02: the Create page rethrows non-storage blob errors instead of falling back", () => {
-  const src = fs.readFileSync("src/app/(dashboard)/dashboard/create/page.tsx", "utf8");
-  assert.match(src, /if \(!blobStorageIsUnconfigured\(blobMessage\)\) throw blobErr;/);
+  // The Create composer surfaces the real failure text and only names the
+  // Blob token when the server said storage is unconfigured.
+  const src = fs.readFileSync("src/components/socialork/compose-form.tsx", "utf8");
+  assert.match(src, /data\?\.code === "MEDIA_STORAGE_NOT_CONFIGURED"/);
+  assert.match(src, /setError\(data\.error \?\? `Upload failed for/);
+  assert.match(src, /setError\(err instanceof Error \? err\.message/);
 });

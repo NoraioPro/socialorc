@@ -7,7 +7,9 @@
  * simply not built yet.
  */
 import "./settings-layout.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { Platform } from "@prisma/client";
+import { ConnectTargetPicker } from "@/components/settings/connect-target-picker";
 import { useRouter } from "next/navigation";
 import { ConnectButton } from "@/components/socialork/connect-button";
 import { ConnectionGuide } from "@/components/socialork/connection-guide";
@@ -78,6 +80,39 @@ export function SettingsShell({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("profile");
+  const [pendingDisconnect, setPendingDisconnect] = useState<string | null>(null);
+  // A Facebook or Instagram login covered several Pages/accounts: the connect
+  // flow sends the user back with ?pick=<platform>, and the picker finishes it.
+  const [pickPlatform, setPickPlatform] = useState<Platform | null>(null);
+  useEffect(() => {
+    const pick = new URLSearchParams(window.location.search).get("pick")?.toUpperCase();
+    if (pick === "FACEBOOK" || pick === "INSTAGRAM") setPickPlatform(pick as Platform);
+  }, []);
+  const [disconnectNote, setDisconnectNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const disconnect = async (accountId: string, name: string) => {
+    if (pendingDisconnect !== accountId) {
+      setPendingDisconnect(accountId);
+      return;
+    }
+    setPendingDisconnect(null);
+    setDisconnectNote(null);
+    try {
+      const res = await fetch(`/api/accounts/${accountId}`, { method: "DELETE" });
+      const data = (await res.json().catch(() => ({}))) as { revokedAtPlatform?: boolean; error?: string };
+      if (!res.ok) {
+        setDisconnectNote({ ok: false, text: data.error ?? `Could not disconnect ${name} (${res.status}).` });
+        return;
+      }
+      setDisconnectNote(
+        data.revokedAtPlatform
+          ? { ok: true, text: `${name} disconnected and access revoked at the platform.` }
+          : { ok: false, text: `${name} disconnected here, but ${name} did not confirm the access was revoked. Remove SocialOrk from the platform's app settings to finish.` },
+      );
+      setTimeout(() => window.location.reload(), 2500);
+    } catch {
+      setDisconnectNote({ ok: false, text: `Could not reach the server to disconnect ${name}.` });
+    }
+  };
   const [name, setName] = useState(profile.name);
   const [timezone, setTimezone] = useState(profile.timezone || "Europe/Oslo");
   const [headline, setHeadline] = useState(profile.headline ?? "");
@@ -249,6 +284,20 @@ export function SettingsShell({
               </div>
             ) : null}
           </div>
+          {pickPlatform ? (
+            <div style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
+              <ConnectTargetPicker
+                platform={pickPlatform}
+                onConnected={() => window.location.replace("/socialork/settings?connected=1")}
+                onClose={() => setPickPlatform(null)}
+              />
+            </div>
+          ) : null}
+          {disconnectNote ? (
+            <div role="status" style={{ padding: "8px 16px", fontSize: 12, color: disconnectNote.ok ? "var(--green)" : "var(--amber, var(--red))" }}>
+              {disconnectNote.text}
+            </div>
+          ) : null}
           <div style={{ display: "grid" }}>
             {connections.map((c) => (
               <div key={c.platform} style={{ borderBottom: "1px solid var(--line)" }}>
@@ -285,6 +334,13 @@ export function SettingsShell({
                         <option value="PRIVATE">only me</option>
                         <option value="WORKSPACE">workspace</option>
                       </select>
+                    ) : null}
+                    {c.accountId ? (
+                      <button type="button" className="so-btn" style={{ height: 24, fontSize: 11 }}
+                        data-testid={`disconnect-${c.platform}`}
+                        onClick={() => void disconnect(c.accountId as string, c.name)}>
+                        {pendingDisconnect === c.accountId ? "Confirm disconnect" : "Disconnect"}
+                      </button>
                     ) : null}
                     {c.state === "reconnect" ? (
                       c.platform === "TELEGRAM" ? (

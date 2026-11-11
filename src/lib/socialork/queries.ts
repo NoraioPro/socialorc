@@ -125,9 +125,12 @@ export async function getOverview(tenant: TenantContext) {
   return { counts, published30, accounts, reconnect, recent };
 }
 
+/** Scheduled posts the calendar and the upcoming table can show. The page says so when it is reached. */
+export const UPCOMING_CAP = 500;
+
 export async function getPublishing(tenant: TenantContext) {
   const [upcoming, failed, published, jobs] = await Promise.all([
-    listPosts(tenant, ["SCHEDULED", "PUBLISHING"], 40),
+    listPosts(tenant, ["SCHEDULED", "PUBLISHING"], UPCOMING_CAP),
     listPosts(tenant, ["FAILED"], 20),
     prisma.post.findMany({
       where: { ...scoped(tenant, await activeBrainId(tenant)), status: "PUBLISHED" },

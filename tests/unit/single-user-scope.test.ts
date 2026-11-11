@@ -43,10 +43,10 @@ for (const [file, method] of ROUTES) {
 }
 
 test("the UI hides the Team and Permissions panels and the timeline when teams are off", () => {
-  const settings = fs.readFileSync("src/app/(dashboard)/settings/accounts/page.tsx", "utf8");
-  assert.match(settings, /teamsEnabled\(\) \|\| \(s\.key !== "team" && s\.key !== "permissions"\)/);
-  const sidebar = fs.readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
-  assert.match(sidebar, /teamsEnabled\(\) \|\| item\.href !== "\/dashboard\/feed"/);
+  // The SocialOrk shell is the live sidebar: Team and Timeline are gated on the flag.
+  const shell = fs.readFileSync("src/components/socialork/shell.tsx", "utf8");
+  assert.match(shell, /teamsOn \? \[\{ href: "\/socialork\/feed"/);
+  assert.match(shell, /teamsOn \? \[\{ href: "\/socialork\/team"/);
 });
 
 test("the e2e harness opts into teams so its tenancy and role suites still run", () => {

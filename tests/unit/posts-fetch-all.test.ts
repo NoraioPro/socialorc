@@ -47,12 +47,12 @@ test("UI-01: a failing page is an error, not a silently truncated list", async (
   await assert.rejects(() => fetchAllPosts(fetchImpl), /Failed to load posts \(500\)/);
 });
 
-test("UI-01: Calendar and Queue use the paginated loader, not limit=500", () => {
-  for (const page of ["calendar", "queue"]) {
-    const src = fs.readFileSync(`src/app/(dashboard)/dashboard/${page}/page.tsx`, "utf8");
-    assert.match(src, /fetchAllPosts/);
-    assert.equal(src.includes("limit=500"), false, page);
-  }
+test("UI-01: Calendar and Queue never silently drop scheduled posts", () => {
+  const queries = fs.readFileSync("src/lib/socialork/queries.ts", "utf8");
+  assert.match(queries, /export const UPCOMING_CAP = 500;/);
+  const page = fs.readFileSync("src/app/socialork/publishing/page.tsx", "utf8");
+  assert.match(page, /UPCOMING_CAP/);
+  assert.match(page, /Showing the first \{UPCOMING_CAP\} scheduled posts/);
 });
 
 test("N-8: the list API reports the limit and offset it actually applied", () => {

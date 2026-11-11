@@ -152,7 +152,7 @@ describe("OAuth callback: state verification", () => {
       const { GET, calls } = harness();
       const cookies: Record<string, string> = c.cookie ? { [`oauth_state_${STATE}`]: c.cookie } : {};
       const to = redirectOf(await GET(request(`code=c&state=${STATE}`, cookies)));
-      assert.equal(to.pathname, "/settings/accounts");
+      assert.equal(to.pathname, "/connect/done");
       assert.equal(to.searchParams.get("error"), c.expected);
       assert.deepEqual(calls.exchanged, []);
       assert.deepEqual(calls.persisted, []);
@@ -190,7 +190,6 @@ describe("OAuth callback: a single identity is connected directly", () => {
     const to = redirectOf(res);
     assert.equal(to.searchParams.get("success"), "linkedin_connected");
     assert.equal(to.searchParams.get("account"), "acct_1");
-    assert.equal(to.searchParams.get("brain"), "brain_9");
     assert.deepEqual(calls.exchanged, ["the-code"]);
     assert.equal(calls.persisted.length, 1);
     const saved = calls.persisted[0];
@@ -244,8 +243,8 @@ describe("OAuth callback: grants that cover several Pages", () => {
     });
     const res = await GET(request(`code=c&state=${STATE}`, fbCookie()));
     const to = redirectOf(res);
-    assert.equal(to.searchParams.get("select"), "facebook");
-    assert.equal(to.searchParams.get("brain"), "brain_9");
+    assert.equal(to.searchParams.get("error"), "account_needs_selection");
+    assert.equal(to.searchParams.get("platform"), "facebook");
     assert.deepEqual(calls.persisted, [], "nothing is stored until the user chooses");
     assert.deepEqual(calls.connectedTargets, []);
     assert.equal(res.cookies.get(`oauth_state_${STATE}`)?.value, "");

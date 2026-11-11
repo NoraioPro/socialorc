@@ -21,7 +21,7 @@ export default function ConnectDonePage() {
       ok: !error && Boolean(success),
       error: error ?? null,
       account: params.get("account"),
-      platform: success ? success.replace(/_connected$/, "") : null,
+      platform: success ? success.replace(/_connected$/, "") : params.get("platform"),
     };
 
     if (window.opener && !window.opener.closed) {
@@ -35,8 +35,9 @@ export default function ConnectDonePage() {
       return;
     }
 
+    const pick = !payload.ok && error === "account_needs_selection" && payload.platform ? `&pick=${payload.platform}` : "";
     window.location.replace(
-      `/socialork/settings?${payload.ok ? "connected=1" : `error=${encodeURIComponent(error ?? "unknown")}`}`,
+      `/socialork/settings?${payload.ok ? "connected=1" : `error=${encodeURIComponent(error ?? "unknown")}`}${pick}`,
     );
   }, []);
 

@@ -150,7 +150,9 @@ describe("the disconnect route", () => {
   });
 
   it("the settings page tells the user when the platform did not confirm", () => {
-    const page = fs.readFileSync("src/app/(dashboard)/settings/accounts/page.tsx", "utf8");
+    // The live settings screen is the SocialOrk one; the old accounts page is a redirect.
+    const page = fs.readFileSync("src/components/socialork/settings-shell.tsx", "utf8");
     assert.match(page, /did not confirm the access was revoked/);
+    assert.match(page, /revokedAtPlatform/);
   });
 });

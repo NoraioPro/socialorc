@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
       // Prefer the caller's own connection; fall back to one the team shared.
       const account =
         (await prisma.socialAccount.findFirst({
-          where: { userId: guard.userId, platform, isActive: true },
+          where: { workspaceId: guard.workspaceId, userId: guard.userId, platform, isActive: true },
           orderBy: { createdAt: "asc" },
         })) ??
         (await prisma.socialAccount.findFirst({

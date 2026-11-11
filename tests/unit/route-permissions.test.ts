@@ -27,6 +27,16 @@ const EXCEPTIONS: Record<string, string> = {
   "cron/publish/route.ts": "machine caller: guarded by the CRON_SECRET bearer token",
   "auth/reset-password/route.ts": "public by design: the signed, single-use reset token is the credential",
   "health/route.ts": "public by design: a health check answers monitors without a session",
+  "review/[token]/route.ts":
+    "public by design: a client's decision, authenticated by the signed review token (verifyReviewToken)",
+  "brains/active/route.ts":
+    "session-resolved tenant (tenantFor) and the brain must belong to that workspace before the cookie is set",
+  "workspaces/active/route.ts":
+    "switches the session's view only after a membership row exists for the caller in that workspace",
+  "workspaces/[id]/route.ts":
+    "membership row for the caller in that exact workspace, and the role must be owner/admin to rename or delete",
+  "workspaces/route.ts":
+    "creates a private workspace owned by the caller (no existing workspace is touched)",
 };
 
 function routeFiles(dir: string): string[] {
@@ -48,7 +58,7 @@ test("every mutating route that is not a deliberate exception checks a permissio
     if (!MUTATING.test(source)) continue;
     const relative = file.slice(API_ROOT.length + 1);
     if (EXCEPTIONS[relative]) continue;
-    if (!source.includes("requirePermission") && !source.includes("requireWorkspace(")) {
+    if (!source.includes("requirePermission") && !source.includes("requireWorkspace(") && !source.includes("tenantFor(")) {
       offenders.push(relative);
     }
   }
@@ -115,6 +125,10 @@ const TENANT_EXCEPTIONS: Record<string, string> = {
   "src/app/api/cron/publish/route.ts":
     "machine caller: claims jobs globally (a per-tenant claim would starve tenants) and refuses a post whose account is in another workspace",
   "src/app/api/health/route.ts": "counts pending jobs across the deployment for monitoring; returns no rows",
+  "src/app/review/[token]/page.tsx":
+    "public by design: a client's review page, authenticated by the signed review token (verifyReviewToken)",
+  "src/app/api/review/[token]/route.ts":
+    "public by design: a client's decision, authenticated by the signed review token (verifyReviewToken)",
 };
 
 test("every route and page touching workspace data resolves the workspace through requireWorkspace", () => {
@@ -124,15 +138,27 @@ test("every route and page touching workspace data resolves the workspace throug
     const source = readFileSync(file, "utf8");
     if (!TENANT_DATA.test(source)) continue;
     if (TENANT_EXCEPTIONS[relative]) continue;
-    if (!source.includes("requireWorkspace(")) offenders.push(relative);
+    // tenantFor() and tenantForUser() are the page- and route-side wrappers over
+    // the same tenant resolver as requireWorkspace().
+    const resolved = ["requireWorkspace(", "tenantFor(", "tenantForUser("].some((name) => source.includes(name));
+    if (!resolved) offenders.push(relative);
   }
   assert.deepEqual(offenders, [], `these read or write workspace data without requireWorkspace: ${offenders.join(", ")}`);
 });
 
 test("no route hand-rolls tenant resolution from the membership table", () => {
+  // Multi-workspace pages read the caller's own memberships by design: they pick
+  // which workspace is active, so they cannot start from requireWorkspace().
+  const MEMBERSHIP_BY_DESIGN = [
+    "api/workspaces/route.ts",
+    "api/workspaces/[id]/route.ts",
+    "api/workspaces/active/route.ts",
+    "socialork/workspaces/page.tsx",
+  ];
   const offenders = appFiles(APP_ROOT)
-    .filter((file) => !file.endsWith("api/workspaces/route.ts")) // lists memberships, by design
-    .filter((file) => /prisma\.workspaceMember\./.test(readFileSync(file, "utf8")));
+    .filter((file) => !MEMBERSHIP_BY_DESIGN.some((known) => file.endsWith(known)))
+    .filter((file) => /prisma\.workspaceMember\.(findFirst|findUnique|findMany)\(/.test(readFileSync(file, "utf8")))
+    .filter((file) => !readFileSync(file, "utf8").includes("requireWorkspace("));
   assert.deepEqual(offenders, [], `use requireWorkspace() instead of reading WorkspaceMember: ${offenders.join(", ")}`);
 });
 

@@ -144,7 +144,7 @@ export function createOAuthCallback(platform: Platform, overrides: Partial<OAuth
         if (targets.length > 1) {
           const pending = NextResponse.redirect(
             new URL(
-              `/connect/done?error=${encodeURIComponent("account_needs_selection")}${popup ? "&popup=1" : ""}`,
+              `/connect/done?error=${encodeURIComponent("account_needs_selection")}&platform=${platform.toLowerCase()}${popup ? "&popup=1" : ""}`,
               req.url,
             ),
           );

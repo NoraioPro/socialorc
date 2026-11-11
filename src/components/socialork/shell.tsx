@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { teamsEnabled } from "@/lib/features";
 import { tr, LANG_COOKIE, type Lang } from "@/lib/socialork/i18n";
 import { ToastHost } from "@/components/socialork/undo-toast";
 import { Bell, LogOut, Menu, Moon, Plus, Sun, X } from "lucide-react";
@@ -74,6 +75,9 @@ export function Shell({
 
   // Everyday work stays visible; the rest folds into two groups that open
   // themselves when you are inside one of their pages.
+  // Team collaboration (the Team page and the workspace Timeline) is off for the
+  // single-user MVP; its links stay out of the sidebar until the flag is on.
+  const teamsOn = teamsEnabled();
   const nav: { label?: string; fold?: boolean; items: NavItem[] }[] = [
     {
       items: [
@@ -99,7 +103,7 @@ export function Shell({
         { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
         { href: "/socialork/automations", label: "Automations", icon: Workflow },
         { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
-        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
+        ...(teamsOn ? [{ href: "/socialork/feed", label: "Timeline", icon: CircleDot }] : []),
       ],
     },
     {
@@ -110,7 +114,7 @@ export function Shell({
         { href: "/socialork/media", label: "Media", icon: ImageIcon },
         { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
         { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
-        { href: "/socialork/team", label: "Team", icon: Users },
+        ...(teamsOn ? [{ href: "/socialork/team", label: "Team", icon: Users }] : []),
         { href: "/socialork/settings", label: "Settings", icon: Settings },
       ],
     },

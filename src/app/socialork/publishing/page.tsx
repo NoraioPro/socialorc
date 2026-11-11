@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
-import { formatWhen, getPublishing, relativeTime, tenantFor } from "@/lib/socialork/queries";
+import { UPCOMING_CAP, formatWhen, getPublishing, relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { PostActions } from "@/components/socialork/post-actions";
 import { PublishCalendar } from "@/components/socialork/publish-calendar";
 import { PublishingTabs } from "@/components/socialork/publishing-tabs";
@@ -54,6 +54,11 @@ export default async function PublishingPage() {
       <section className="so-card">
         <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}>
           <div className="so-stat-label">Upcoming</div>
+          {upcoming.length >= UPCOMING_CAP ? (
+            <div className="so-mono" style={{ fontSize: 11, color: "var(--amber, var(--red))", marginTop: 4 }}>
+              Showing the first {UPCOMING_CAP} scheduled posts. Later ones are still scheduled; narrow the list before reading it.
+            </div>
+          ) : null}
         </div>
         {upcoming.length === 0 ? (
           <div className="so-empty">

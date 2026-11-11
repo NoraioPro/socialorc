@@ -35,8 +35,8 @@ test("the default self-signup role can run the whole core flow", () => {
   }
 });
 
-test("EDITOR cannot connect an account or schedule (why it is not the default)", () => {
-  assert.equal(can("EDITOR", "accounts:connect"), false);
+test("EDITOR cannot schedule, and may connect only a personal account (why signup is ADMIN)", () => {
+  assert.equal(can("EDITOR", "accounts:connect"), true);
   assert.equal(can("EDITOR", "posts:schedule"), false);
 });
 

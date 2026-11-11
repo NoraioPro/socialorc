@@ -154,8 +154,11 @@ function legacyCapabilities(
   const base = config?.capabilities;
   const requiredScope = PUBLISH_SCOPE[platform];
   const scopeGranted = requiredScope ? input.scopes.includes(requiredScope) : false;
-  const canPublish =
-    platform === "TELEGRAM" ? true : Boolean(input.approval.directPublish || scopeGranted);
+  // Both are needed, as TikTok already requires: the app must be approved for
+  // direct publishing AND this account must hold the publish scope. Approval
+  // alone advertised a publish button the account could not actually use.
+  const scopeOk = !requiredScope || scopeGranted;
+  const canPublish = platform === "TELEGRAM" ? true : Boolean(input.approval.directPublish && scopeOk);
 
   const capabilities = {
     ...NO_CAPABILITIES,
@@ -173,7 +176,7 @@ function legacyCapabilities(
     limitations.push({
       capability: "directPublish" as const,
       code: "APP_REVIEW_REQUIRED" as const,
-      message: requiredScope
+      message: !scopeOk
         ? `This account has not granted ${requiredScope}, so ${platform} publishing is unavailable until it reconnects with that scope.`
         : `${platform} publishing needs the app to be approved by the platform first.`,
     });

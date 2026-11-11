@@ -114,7 +114,9 @@ describe("roles: permission matrix", () => {
     assert.equal(can("EDITOR", "posts:submit"), true);
     assert.equal(can("EDITOR", "posts:approve"), false);
     assert.equal(can("EDITOR", "posts:schedule"), false);
-    assert.equal(can("EDITOR", "accounts:connect"), false);
+    // Deliberate (40a5da9, "personal connections, shared deliberately"): an EDITOR
+    // connects their own account; visibility keeps it private by default.
+    assert.equal(can("EDITOR", "accounts:connect"), true);
     assert.equal(can("EDITOR", "engagement:reply"), true);
     assert.equal(can("EDITOR", "engagement:delete"), false);
   });
