@@ -6,7 +6,8 @@ import { getRecentRuns } from "@/lib/socialork/audit-log";
 import { RECIPES, listWorkflows } from "@/lib/socialork/autopilot";
 import { AutopilotWorkflows } from "@/components/socialork/autopilot-workflows";
 import { can } from "@/lib/roles";
-import { Empty, Panel, PageHead, Stat } from "@/components/socialork/design-bits";
+import { Empty, Panel, Stat } from "@/components/socialork/design-bits";
+import { PageHead } from "@/components/socialork/page-head";
 
 export const dynamic = "force-dynamic";
 

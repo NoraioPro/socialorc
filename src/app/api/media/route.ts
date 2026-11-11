@@ -172,3 +172,17 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
+
+/** PATCH /api/media — { id, altText }: the description a screen reader (and the alt-text rule) reads. */
+export async function PATCH(req: NextRequest) {
+  const guard = await requireWorkspace("media:upload");
+  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  const body = (await req.json().catch(() => null)) as { id?: string; altText?: string } | null;
+  if (!body?.id || typeof body.altText !== "string") return NextResponse.json({ error: "Missing id or altText" }, { status: 400 });
+  const updated = await prisma.mediaAsset.updateMany({
+    where: { id: body.id, workspaceId: guard.workspaceId },
+    data: { altText: body.altText.trim().slice(0, 500) || null },
+  });
+  if (updated.count === 0) return NextResponse.json({ error: "Media not found" }, { status: 404 });
+  return NextResponse.json({ success: true });
+}

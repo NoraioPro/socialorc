@@ -6,6 +6,7 @@ import { getAuthSession } from "@/lib/auth";
 import { needsOnboarding } from "@/lib/onboarding";
 import { getBrains, getCurrentUser, getShellData, tenantFor } from "@/lib/socialork/queries";
 import { activeBrainId } from "@/lib/tenancy/active-brain";
+import { getLang } from "@/lib/socialork/lang";
 import { Shell } from "@/components/socialork/shell";
 import "../socialork.css";
 import "../socialork-lively.css";
@@ -51,6 +52,7 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
   });
   if (account && needsOnboarding(account.onboardedAt)) redirect("/onboarding");
 
+  const lang = await getLang();
   const [shell, user, brains, brainId] = await Promise.all([
     getShellData(tenant),
     getCurrentUser(tenant.userId),
@@ -59,7 +61,7 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
   ]);
 
   return (
-    <div className={`${hanken.variable} ${plexMono.variable} ${plexArabic.variable}`} style={{ height: "100dvh" }}>
+    <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className={`${hanken.variable} ${plexMono.variable} ${plexArabic.variable}`} style={{ height: "100dvh", fontFamily: lang === "ar" ? "var(--font-plex-arabic), var(--font-hanken), system-ui, sans-serif" : undefined }}>
       <Shell
         workspaceName={shell.workspaceName}
         role={String(tenant.role)}
@@ -70,6 +72,7 @@ export default async function SocialOrkLayout({ children }: { children: React.Re
         counts={shell.counts}
         brainsList={brains.map((b) => ({ id: b.id, name: b.name, isDefault: b.isDefault }))}
         activeBrainId={brainId}
+        lang={lang}
       >
         {children}
       </Shell>

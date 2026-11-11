@@ -117,6 +117,16 @@ export function SettingsShell({
     fontSize: 13, outline: "none",
   };
 
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<{ id: string; platform: string; handle: string | null; ok: boolean; message: string }[] | null>(null);
+  async function testConnections() {
+    setTesting(true);
+    try {
+      const r = await fetch("/api/social/test", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      setTestResults(r.ok ? j.results : [{ id: "err", platform: "error", handle: null, ok: false, message: j.error ?? "The test could not run." }]);
+    } finally { setTesting(false); }
+  }
   const connectedCount = connections.filter((c) => c.state !== "missing").length;
   const reconnectCount = connections.filter((c) => c.state === "reconnect").length;
 
@@ -226,7 +236,18 @@ export function SettingsShell({
               <span className="so-mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text3)" }}>
                 {connectedCount} of {connections.length} connected{reconnectCount ? ` · ${reconnectCount} needs reconnecting` : ""}
               </span>
+              <button type="button" className="so-btn" style={{ height: 28 }} disabled={testing} onClick={() => void testConnections()}>{testing ? "Testing…" : "Test connections"}</button>
             </div>
+            {testResults ? (
+              <div data-testid="test-results" style={{ display: "grid", gap: 4, marginTop: 10, fontSize: 12.5 }}>
+                {testResults.length === 0 ? <span style={{ color: "var(--text3)" }}>No channel is connected yet.</span> : testResults.map((r) => (
+                  <div key={r.id} className="so-row" style={{ gap: 8 }}>
+                    <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: r.ok ? "var(--green)" : "var(--red)" }} />
+                    <b>{r.platform.toLowerCase()}</b><span style={{ color: "var(--text3)" }}>{r.handle ?? ""}</span><span style={{ color: r.ok ? "var(--text2)" : "var(--red)" }}>{r.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div style={{ display: "grid" }}>
             {connections.map((c) => (

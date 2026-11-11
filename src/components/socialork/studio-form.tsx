@@ -175,6 +175,7 @@ export function StudioForm() {
               <div style={{ whiteSpace: "pre-line", lineHeight: 1.6, fontSize: 13.5, padding: 12, borderRadius: 10, background: "var(--bg)" }}>{v.content}</div>
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                 <button className="so-btn" type="button" onClick={() => void navigator.clipboard?.writeText(v.content)}>Copy</button>
+                <a className="so-btn" href={`/socialork/create?platform=${encodeURIComponent(v.platform)}&body=${encodeURIComponent(v.content.slice(0, 3000))}`}>Continue in Create</a>
                 <button className="so-btn" data-variant="primary" type="button" onClick={() => void save(v)} disabled={busy}>
                   Save as draft
                 </button>

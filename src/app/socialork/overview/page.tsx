@@ -7,6 +7,8 @@ import { Check, CircleAlert, Eye, PenLine, Send, CalendarClock } from "lucide-re
 import { GLYPHS, type GlyphName } from "@/components/socialork/platform-glyphs";
 import { PostActions } from "@/components/socialork/post-actions";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import prisma from "@/lib/prisma";
+import { getRuleState } from "@/lib/socialork/automations";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,22 @@ export default async function OverviewPage() {
     listPosts(tenant, ["SCHEDULED"], 6),
   ]);
 
+  const [memberCount, postCount, aiKey, rules, brainFilled] = await Promise.all([
+    prisma.workspaceMember.count({ where: { workspaceId: tenant.workspaceId } }),
+    prisma.post.count({ where: { workspaceId: tenant.workspaceId } }),
+    prisma.aiCredential.count({ where: { OR: [{ workspaceId: tenant.workspaceId }, { userId: tenant.userId }] } }),
+    getRuleState(tenant.workspaceId),
+    prisma.brandBrain.count({ where: { workspaceId: tenant.workspaceId } }),
+  ]);
+  const setup = [
+    { label: "Connect a channel", done: accounts.length > 0, href: "/socialork/settings" },
+    { label: "Fill in your brand brain", done: brainFilled > 0, href: "/socialork/brains" },
+    { label: "Add an AI key", done: aiKey > 0, href: "/socialork/settings/ai" },
+    { label: "Write your first post", done: postCount > 0, href: "/socialork/create" },
+    { label: "Invite a teammate", done: memberCount > 1, href: "/socialork/team" },
+    { label: "Switch on an automation", done: Object.values(rules).some(Boolean), href: "/socialork/automations" },
+  ];
+  const setupDone = setup.filter((x) => x.done).length;
   const c = overview.counts;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -118,6 +136,26 @@ export default async function OverviewPage() {
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {setupDone < setup.length ? (
+        <section className="so-card" data-testid="setup-checklist" style={{ padding: "14px 16px", display: "grid", gap: 10 }}>
+          <div className="so-row" style={{ justifyContent: "space-between" }}>
+            <div style={{ fontWeight: 600 }}>Get your workspace ready</div>
+            <span className="so-mono" style={{ fontSize: 12, color: "var(--text3)" }}>{setupDone} of {setup.length}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 999, background: "var(--panel2)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${(setupDone / setup.length) * 100}%`, background: "var(--accent)" }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 8 }}>
+            {setup.map((x) => (
+              <a key={x.label} href={x.href} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, color: x.done ? "var(--text3)" : "var(--text)", textDecoration: x.done ? "line-through" : "none" }}>
+                <span aria-hidden style={{ width: 16, height: 16, borderRadius: "50%", display: "grid", placeItems: "center", border: `1.5px solid ${x.done ? "var(--green)" : "var(--line2)"}`, color: "var(--green)" }}>{x.done ? <Check size={10} strokeWidth={3} /> : null}</span>
+                {x.label}
+              </a>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <section className="so-card" style={{ display: "flex", alignItems: "stretch", overflow: "hidden" }}>

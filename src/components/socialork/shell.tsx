@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { tr, LANG_COOKIE, type Lang } from "@/lib/socialork/i18n";
 import { ToastHost } from "@/components/socialork/undo-toast";
 import { Bell, LogOut, Menu, Moon, Plus, Sun, X } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
@@ -44,6 +45,7 @@ export function Shell({
   counts,
   brainsList = [],
   activeBrainId: activeBrain = "",
+  lang = "en",
   children,
 }: {
   workspaceName: string;
@@ -55,6 +57,7 @@ export function Shell({
   counts: NavCounts;
   brainsList?: { id: string; name: string; isDefault: boolean }[];
   activeBrainId?: string;
+  lang?: Lang;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -176,7 +179,7 @@ export function Shell({
         <nav className="so-nav">
           {nav.map((group, gi) => (
             <div key={group.label ?? `g${gi}`} style={{ display: "grid", gap: 1 }}>
-              {group.label ? <div className="so-nav-label">{group.label}</div> : null}
+              {group.label ? <div className="so-nav-label">{tr(lang, group.label)}</div> : null}
               {group.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 const Icon = item.icon;
@@ -189,7 +192,7 @@ export function Shell({
                     title={item.hint}
                   >
                     <Icon size={16} strokeWidth={1.8} />
-                    <span style={{ flex: 1 }}>{item.label}</span>
+                    <span style={{ flex: 1 }}>{tr(lang, item.label)}</span>
                     {typeof item.count === "number" && item.count > 0 ? (
                       <span className="so-nav-count" data-tone={item.tone}>{item.count}</span>
                     ) : null}
@@ -290,18 +293,18 @@ export function Shell({
           <span className="so-crumb">
             <b>{workspaceName}</b>
             <span>/</span>
-            <span style={{ fontWeight: 600, color: "var(--text)" }}>{current?.label ?? "Overview"}</span>
+            <span style={{ fontWeight: 600, color: "var(--text)" }}>{tr(lang, current?.label ?? "Overview")}</span>
           </span>
           <div style={{ flex: 1 }} />
 
           <button className="so-search" onClick={() => setPaletteOpen(true)}>
             <Command size={13} strokeWidth={2} />
-            <span className="so-search-text" style={{ flex: 1, textAlign: "left" }}>Search</span>
+            <span className="so-search-text" style={{ flex: 1, textAlign: "start" }}>{tr(lang, "Search")}</span>
             <span className="so-kbd">⌘K</span>
           </button>
 
           <div className="so-viewas" role="group" aria-label="View as">
-            <span>View as</span>
+            <span>{tr(lang, "View as")}</span>
             <div style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)" }}>
               {["Admin", "Manager", "Editor"].map((r) => {
                 const on = (viewAs ?? role).toLowerCase() === r.toLowerCase();
@@ -387,6 +390,21 @@ export function Shell({
           <button
             type="button"
             className="so-btn"
+            title={tr(lang, "Language")}
+            aria-label="Language"
+            data-testid="lang-toggle"
+            onClick={() => {
+              document.cookie = `${LANG_COOKIE}=${lang === "ar" ? "en" : "ar"}; path=/; max-age=31536000; samesite=lax`;
+              window.location.reload();
+            }}
+            style={{ width: 32, padding: 0, fontSize: 12, fontWeight: 600 }}
+          >
+            {lang === "ar" ? "EN" : "ع"}
+          </button>
+
+          <button
+            type="button"
+            className="so-btn"
             title="Toggle light / dark"
             aria-label="Toggle light / dark"
             onClick={() => {
@@ -401,7 +419,7 @@ export function Shell({
 
           <a href="/socialork/create" className="so-btn" data-variant="primary" style={{ gap: 6, textDecoration: "none" }}>
             <Plus size={14} strokeWidth={2.4} />
-            <span className="so-hide-sm">New post</span>
+            <span className="so-hide-sm">{tr(lang, "New post")}</span>
           </a>
         </header>
 
@@ -441,16 +459,16 @@ export function Shell({
               key={href}
               href={href}
               data-active={pathname === href || pathname.startsWith(`${href}/`)}
-              aria-label={label}
+              aria-label={tr(lang, label)}
             >
               <Icon size={20} strokeWidth={1.9} />
-              <span>{label}</span>
+              <span>{tr(lang, label)}</span>
               {count > 0 ? <span className="so-tab-count">{count}</span> : null}
             </a>
           ))}
           <button type="button" data-active={navOpen} aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}>
             <Menu size={20} strokeWidth={1.9} />
-            <span>Menu</span>
+            <span>{tr(lang, "Menu")}</span>
           </button>
         </nav>
       </div>
@@ -499,7 +517,7 @@ export function Shell({
                       style={{ width: "100%", border: 0, background: "transparent", cursor: "pointer", height: 34 }}
                     >
                       <Icon size={15} strokeWidth={1.8} />
-                      <span>{item.label}</span>
+                      <span>{tr(lang, item.label)}</span>
                       <span className="so-brain-meta" style={{ marginLeft: "auto" }}>{item.href}</span>
                     </button>
                   );

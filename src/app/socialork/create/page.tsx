@@ -5,7 +5,8 @@ import { ComposeForm } from "@/components/socialork/compose-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function CreatePage() {
+export default async function CreatePage({ searchParams }: { searchParams: Promise<{ body?: string; platform?: string }> }) {
+  const sp = await searchParams;
   const session = await getAuthSession();
   if (!session?.user?.id) redirect("/login");
   const tenant = await tenantFor(session.user.id);
@@ -20,7 +21,7 @@ export default async function CreatePage() {
           approves it.
         </p>
       </div>
-      <ComposeForm accounts={accounts} />
+      <ComposeForm accounts={accounts} initialBody={sp.body?.slice(0, 3000)} initialPlatform={sp.platform} />
     </div>
   );
 }

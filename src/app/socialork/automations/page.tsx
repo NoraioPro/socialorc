@@ -4,7 +4,8 @@ import { getOverview, relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { RULES, getAutomationStats, getRuleState } from "@/lib/socialork/automations";
 import { AutomationRules } from "@/components/socialork/automation-rules";
 import { can } from "@/lib/roles";
-import { PageHead, Stat, card } from "@/components/socialork/design-bits";
+import { Stat, card } from "@/components/socialork/design-bits";
+import { PageHead } from "@/components/socialork/page-head";
 
 export const dynamic = "force-dynamic";
 

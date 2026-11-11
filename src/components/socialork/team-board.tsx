@@ -19,6 +19,16 @@ export function TeamBoard({ members, canInvite }: { members: Member[]; canInvite
   const [note, setNote] = useState<{ kind: "ok" | "err"; text: string; token?: string | null } | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
 
+  const resetLink = async (member: Member) => {
+    setRowBusy(member.id);
+    const res = await fetch("/api/team/reset-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: member.userId }) });
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    setRowBusy(null);
+    if (!res.ok || !data.url) return setNote({ kind: "err", text: data.error ?? "Could not create the link." });
+    try { await navigator.clipboard.writeText(data.url); } catch { /* shown below anyway */ }
+    setNote({ kind: "ok", text: `Reset link for ${member.name || member.email} (valid 2 hours, copied): ${data.url}` });
+  };
+
   const changeRole = async (member: Member, nextRole: string) => {
     setRowBusy(member.id);
     setNote(null);
@@ -184,6 +194,9 @@ export function TeamBoard({ members, canInvite }: { members: Member[]; canInvite
                   </td>
                   <td className="so-mono" style={{ color: "var(--text2)" }}>{m.joined}</td>
                   <td style={{ textAlign: "right" }}>
+                    {canInvite ? (
+                      <button className="so-btn" style={{ height: 28, color: "var(--text2)", marginInlineEnd: 6 }} disabled={rowBusy === m.id} onClick={() => void resetLink(m)}>Reset link</button>
+                    ) : null}
                     {canInvite && m.role.toUpperCase() !== "OWNER" ? (
                       <button className="so-btn" style={{ height: 28, color: "var(--text2)" }}
                         disabled={rowBusy === m.id} onClick={() => void removeMember(m)}>

@@ -6,17 +6,6 @@ export const card: CSSProperties = {
   boxShadow: "var(--card)", overflow: "hidden",
 };
 
-export function PageHead({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-      <div>
-        <h1 className="so-h1">{title}</h1>
-        <p style={{ margin: "4px 0 0", color: "var(--text2)", maxWidth: 660, fontSize: 13 }}>{children}</p>
-      </div>
-      {actions ? <div style={{ display: "flex", gap: 8 }}>{actions}</div> : null}
-    </div>
-  );
-}
 
 /** Says plainly that a screen is a design preview with no backend yet. */
 export function PreviewNote({ children }: { children: ReactNode }) {

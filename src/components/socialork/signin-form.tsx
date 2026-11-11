@@ -86,6 +86,7 @@ export function SignInForm() {
       <button className="so-btn" data-variant="primary" type="submit" disabled={busy} style={{ height: 38 }}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
+      <p style={{ margin: 0, fontSize: 12, color: "var(--text3)" }}>Forgot your password? Ask a workspace admin for a reset link (Team → Reset link).</p>
 
       {providers.length > 0 ? (
         <>

@@ -27,24 +27,35 @@ type Variant = { platform: string; title?: string | null; content: string; usedM
 
 type AccountOption = { id: string; platform: string; handle: string | null; owner: string; shared: boolean };
 
-export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
+export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }: { accounts?: AccountOption[]; initialBody?: string; initialPlatform?: string }) {
   const router = useRouter();
   const [brains, setBrains] = useState<Brain[]>([]);
   const [brainId, setBrainId] = useState<string>("");
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [brief, setBrief] = useState("");
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(initialBody);
   const [tone, setTone] = useState("professional");
   const [postTitle, setPostTitle] = useState("");
   const [audience, setAudience] = useState("");
   const [cta, setCta] = useState("");
-  const [picked, setPicked] = useState<string[]>(["LINKEDIN"]);
+  const [picked, setPicked] = useState<string[]>([PLATFORMS.some((p) => p.id === initialPlatform) ? (initialPlatform as string) : "LINKEDIN"]);
   const [accountId, setAccountId] = useState<string>("");
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
   const [genBusy, setGenBusy] = useState(false);
   const [imgPrompt, setImgPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [libOpen, setLibOpen] = useState(false);
+  const [library, setLibrary] = useState<{ id: string; url: string; filename: string; mimeType: string; altText?: string | null }[] | null>(null);
+  const openLibrary = async () => {
+    const next = !libOpen;
+    setLibOpen(next);
+    if (next && !library) {
+      const r = await fetch("/api/media?limit=60");
+      const j = (await r.json().catch(() => ({}))) as { assets?: { id: string; url: string; filename: string; mimeType: string; altText?: string | null }[] };
+      setLibrary(j.assets ?? []);
+    }
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -497,6 +508,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
                 border: "1px solid var(--line2)", background: "var(--panel2)", color: "var(--text)", fontSize: 12.5,
               }}
             />
+            <button type="button" className="so-btn" style={{ height: 30 }} aria-expanded={libOpen} onClick={() => void openLibrary()}>Choose from library</button>
             <button
               type="button"
               className="so-btn"
@@ -510,6 +522,24 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
               JPG · PNG · GIF · WebP · MP4 · MOV · WebM · up to 100MB each
             </span>
           </div>
+
+          {libOpen ? (
+            <div data-testid="media-library" className="so-card" style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(84px,1fr))", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+              {library === null ? <span style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</span> : library.length === 0 ? <span style={{ fontSize: 12, color: "var(--text3)" }}>The library is empty. Upload something first.</span> : library.map((a) => {
+                const on = media.some((m) => m.id === a.id);
+                return (
+                  <button key={a.id} type="button" title={a.altText || a.filename} aria-pressed={on}
+                    onClick={() => setMedia((list) => (on ? list.filter((x) => x.id !== a.id) : [...list, { id: a.id, url: a.url, filename: a.filename, mimeType: a.mimeType, devOnly: false }]))}
+                    style={{ padding: 0, aspectRatio: "1", borderRadius: 8, overflow: "hidden", cursor: "pointer", background: "var(--bg)", border: `2px solid ${on ? "var(--accent)" : "var(--line2)"}` }}>
+                    {a.mimeType.startsWith("image/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={a.url} alt={a.altText || a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           {media.length > 0 ? (
             <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>

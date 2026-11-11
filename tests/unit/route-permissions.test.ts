@@ -25,6 +25,7 @@ const EXCEPTIONS: Record<string, string> = {
   "settings/profile/route.ts":
     "self-scoped for the same reason: it reads and writes profileSelect columns of the caller's own user row",
   "cron/publish/route.ts": "machine caller: guarded by the CRON_SECRET bearer token",
+  "auth/reset-password/route.ts": "public by design: the signed, single-use reset token is the credential",
   "health/route.ts": "public by design: a health check answers monitors without a session",
 };
 
