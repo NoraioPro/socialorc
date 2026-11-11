@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PostActions } from "@/components/socialork/post-actions";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { showToast } from "@/components/socialork/undo-toast";
 import type { PostStatus } from "@prisma/client";
 
 export type DraftRow = {
@@ -34,12 +35,43 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const ready = useMemo(() => rows.filter((r) => !r.rejectionReason && r.content.trim() && r.content.length <= (PLATFORM_CONFIGS[r.platform]?.maxTextLength ?? Infinity)), [rows]);
   const visible = useMemo(
     () => (filter === "changes" ? rows.filter((r) => r.rejectionReason) : rows),
     [rows, filter],
   );
 
+  const create = async (r: DraftRow, title: string) => {
+    const res = await fetch("/api/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, content: r.content, platform: r.platform }) });
+    return res.ok ? ((await res.json().catch(() => ({}))) as { id?: string; post?: { id?: string } }) : null;
+  };
+
+  const duplicate = async (r: DraftRow) => {
+    setBusy(r.id);
+    const made = await create(r, `${r.title ?? "Untitled post"} (copy)`);
+    setBusy(null);
+    if (!made) return setError("Could not duplicate the draft.");
+    const newId = made.id ?? made.post?.id;
+    router.refresh();
+    showToast("Draft duplicated.", newId ? async () => { await fetch(`/api/posts/${newId}`, { method: "DELETE" }); router.refresh(); } : undefined);
+  };
+
+  const submitAll = async () => {
+    setBusy("all");
+    setError(null);
+    let ok = 0;
+    const sent: string[] = [];
+    for (const r of ready) {
+      const res = await fetch(`/api/posts/${r.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+      if (res.ok) { ok++; sent.push(r.id); }
+    }
+    setBusy(null);
+    router.refresh();
+    showToast(`Submitted ${ok} of ${ready.length} for review.`);
+  };
+
   const remove = async (id: string) => {
+    const row = rows.find((x) => x.id === id);
     setBusy(id);
     setError(null);
     try {
@@ -50,6 +82,7 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
         return;
       }
       router.refresh();
+      if (row) showToast("Draft deleted.", async () => { await create(row, row.title ?? "Untitled post"); router.refresh(); });
     } catch {
       setError("Network error — nothing was deleted.");
     } finally {
@@ -69,6 +102,9 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
         ))}
       </div>
 
+      {ready.length > 0 && (
+        <div><button className="so-btn" data-variant="primary" disabled={busy === "all"} onClick={() => void submitAll()}>{busy === "all" ? "Submitting…" : `Submit all ${ready.length} ready`}</button></div>
+      )}
       <section className="so-card">
         {visible.length === 0 ? (
           <div className="so-empty" style={{ padding: "32px 16px" }}>
@@ -115,6 +151,7 @@ export function DraftsTable({ rows }: { rows: DraftRow[] }) {
                   <td>
                     <div className="so-row" style={{ justifyContent: "flex-end", gap: 6 }}>
                       <PostActions id={r.id} status={r.status} compact />
+                      <button className="so-btn" style={{ height: 28, padding: "0 9px" }} onClick={() => void duplicate(r)} disabled={busy === r.id}>Duplicate</button>
                       <button className="so-btn" style={{ height: 28, padding: "0 9px" }}
                         onClick={() => void remove(r.id)} disabled={busy === r.id}>
                         {busy === r.id ? "…" : "Delete"}

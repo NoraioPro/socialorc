@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApprovalsBoard, type ApprovalPost } from "@/components/socialork/approvals-board";
 import { PLATFORM_CONFIGS } from "@/types/platform";
+import { showToast } from "@/components/socialork/undo-toast";
 
 type Check = { ok: boolean; label: string };
 
@@ -44,12 +45,21 @@ function checksFor(p: ApprovalPost, viewerId: string, solo: boolean): Check[] {
   return out;
 }
 
-export function ApprovalsScreen({ posts, canApprove, viewerId, solo }: { posts: ApprovalPost[]; canApprove: boolean; viewerId: string; solo: boolean }) {
-  const [mode, setMode] = useState<"queue" | "quick">("queue");
+export type AuditItem = { id: string; label: string; actor: string; subject: string; at: string; ok: boolean };
+
+export function ApprovalsScreen({ posts, canApprove, viewerId, solo, audit, clientSignOff }: { posts: ApprovalPost[]; canApprove: boolean; viewerId: string; solo: boolean; audit: AuditItem[]; clientSignOff: boolean }) {
+  const [mode, setMode] = useState<"queue" | "quick" | "audit">("quick");
+  const [signOff, setSignOff] = useState(clientSignOff);
+  async function toggleSignOff() {
+    const next = !signOff;
+    setSignOff(next);
+    const r = await fetch("/api/approvals/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignOff: next }) });
+    if (!r.ok) setSignOff(!next);
+  }
   const pending = posts.filter((p) => p.status === "PENDING_APPROVAL");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "quick") setMode("quick");
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "queue") setMode("queue");
   }, []);
 
   return (
@@ -62,7 +72,7 @@ export function ApprovalsScreen({ posts, canApprove, viewerId, solo }: { posts: 
           </p>
         </div>
         <div role="tablist" aria-label="Approvals mode" style={{ display: "flex", padding: 2, border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)" }}>
-          {([["queue", "Queue", null], ["quick", "Quick review", pending.length]] as const).map(([id, label, n]) => (
+          {([["quick", "Quick review", pending.length], ["queue", "Review queue", null], ["audit", "Audit trail", null]] as const).map(([id, label, n]) => (
             <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)}
               style={{ height: 28, padding: "0 12px", border: 0, borderRadius: 6, fontSize: 12.5, fontWeight: 500, cursor: "pointer",
                 background: mode === id ? "var(--panel2)" : "transparent", color: mode === id ? "var(--text)" : "var(--text2)" }}>
@@ -71,16 +81,43 @@ export function ApprovalsScreen({ posts, canApprove, viewerId, solo }: { posts: 
           ))}
         </div>
       </div>
+      <div className="so-card so-card-pad" style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13 }}>
+        <button type="button" role="switch" aria-checked={signOff} aria-label="Require client sign-off" disabled={!canApprove} onClick={toggleSignOff}
+          style={{ width: 36, height: 22, flex: "none", position: "relative", border: 0, borderRadius: 11, background: signOff ? "var(--accent)" : "var(--panel2)" }}>
+          <span style={{ position: "absolute", top: 2, left: signOff ? 16 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+        </button>
+        <span><b>Require the client&apos;s sign-off.</b> <span style={{ color: "var(--text3)" }}>When on, only the client&apos;s approval from their review link approves a post. Your team cannot approve it for them.</span></span>
+      </div>
       {mode === "queue" ? (
         <ApprovalsBoard posts={posts} canApprove={canApprove} />
+      ) : mode === "quick" ? (
+        <QuickReview posts={pending} canApprove={canApprove} viewerId={viewerId} solo={solo} signOff={signOff} />
       ) : (
-        <QuickReview posts={pending} canApprove={canApprove} viewerId={viewerId} solo={solo} />
+        <section className="so-card" data-testid="audit-trail">
+          {audit.length === 0 ? <div className="so-empty">No decisions recorded yet.</div> : audit.map((a, i) => (
+            <div key={a.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline", padding: "10px 18px", borderTop: i ? "1px solid var(--line)" : 0, fontSize: 12.5 }}>
+              <span className="so-mono" style={{ width: 150, flex: "none", fontSize: 11.5, color: "var(--text3)" }}>{a.at}</span>
+              <span style={{ width: 170, flex: "none", fontWeight: 500, color: a.ok ? undefined : "var(--red)" }}>{a.label}</span>
+              <span style={{ width: 170, flex: "none", color: "var(--text2)" }}>{a.actor}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>{a.subject}</span>
+            </div>
+          ))}
+        </section>
       )}
     </>
   );
 }
 
-function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPost[]; canApprove: boolean; viewerId: string; solo: boolean }) {
+const REVISIONS: [string, string][] = [
+  ["Fix everything", "Fix grammar, clarity and tone. Keep the meaning and every fact unchanged."],
+  ["Shorter", "Make it about 30% shorter. Keep every fact."],
+  ["Punchier hook", "Rewrite the first line as a stronger hook. Keep the rest and every fact."],
+  ["Friendlier", "Make the tone warmer and friendlier. Keep every fact."],
+  ["More formal", "Make the tone more formal and professional. Keep every fact."],
+  ["Add a CTA", "Add one clear call to action at the end. Do not add new facts."],
+];
+
+function QuickReview({ posts, canApprove, viewerId, solo, signOff }: { posts: ApprovalPost[]; canApprove: boolean; viewerId: string; solo: boolean; signOff: boolean }) {
   const router = useRouter();
   const [done, setDone] = useState<Record<string, "approved" | "returned" | "skipped">>({});
   const [index, setIndex] = useState(0);
@@ -90,6 +127,7 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ err: boolean; text: string } | null>(null);
   const changed = useRef(false);
+  const [revised, setRevised] = useState<Record<string, string>>({});
 
   const queue = useMemo(() => posts.filter((p) => !done[p.id] || done[p.id] === "skipped"), [posts, done]);
   const order = useMemo(() => {
@@ -98,7 +136,8 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
     const skipped = queue.filter((p) => done[p.id] === "skipped");
     return [...fresh, ...skipped];
   }, [queue, done]);
-  const current = order[Math.min(index, Math.max(order.length - 1, 0))] ?? null;
+  const base = order[Math.min(index, Math.max(order.length - 1, 0))] ?? null;
+  const current = useMemo(() => (base && revised[base.id] ? { ...base, content: revised[base.id] } : base), [base, revised]);
   const checks = current ? checksFor(current, viewerId, solo) : [];
   const blocked = current ? current.authorId === viewerId && !solo : false;
 
@@ -128,6 +167,14 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
         const sd = (await s.json().catch(() => ({}))) as { error?: string };
         text = s.ok ? `Approved and scheduled for ${new Date(slot).toLocaleString()}.` : `Approved, but not scheduled: ${sd.error ?? `error ${s.status}`}`;
       }
+      if (action === "reject") {
+        const id = current.id;
+        showToast("Sent back to the author.", async () => {
+          await fetch(`/api/posts/${id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+          setDone((d) => { const n = { ...d }; delete n[id]; return n; });
+          changed.current = true;
+        });
+      }
       setDone((d) => ({ ...d, [current.id]: action === "approve" ? "approved" : "returned" }));
       setSendBack(false);
       setReason("");
@@ -138,6 +185,47 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
       setBusy(false);
     }
   }, [current, busy, canApprove, slot]);
+
+  async function revise(instruction: string) {
+    if (!current || busy) return;
+    setBusy(true);
+    setNote({ err: false, text: "Revising…" });
+    try {
+      const ai = await fetch("/api/posts/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "improve", content: current.content, platform: current.platform, instruction }) });
+      const aj = (await ai.json().catch(() => ({}))) as { content?: string; usedMock?: boolean; error?: string };
+      if (!ai.ok || !aj.content) { setNote({ err: true, text: aj.error ?? "The AI could not revise this post." }); return; }
+      const save = await fetch(`/api/posts/${current.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: aj.content }) });
+      if (!save.ok) { setNote({ err: true, text: "The revision could not be saved." }); return; }
+      // Editing clears approval and returns the post to draft; put it back in review.
+      await fetch(`/api/posts/${current.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+      changed.current = true;
+      setRevised((r) => ({ ...r, [current.id]: aj.content! }));
+      setNote({ err: false, text: aj.usedMock ? "Revised with sample text (no AI key yet) and kept in review." : "Revised and kept in review." });
+    } catch {
+      setNote({ err: true, text: "Network error. Nothing was changed." });
+    } finally { setBusy(false); }
+  }
+
+  async function batchApprove(list: ApprovalPost[]) {
+    setBusy(true);
+    let ok = 0;
+    for (const p of list) {
+      const r = await fetch(`/api/posts/${p.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) });
+      if (r.ok) { ok++; setDone((d) => ({ ...d, [p.id]: "approved" })); }
+    }
+    if (ok) changed.current = true;
+    setNote({ err: ok < list.length, text: `Approved ${ok} of ${list.length}.` });
+    setBusy(false);
+  }
+
+  async function previewClient() {
+    if (!current) return;
+    const r = await fetch(`/api/posts/${current.id}/review-link`, { method: "POST" });
+    const j = (await r.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!r.ok || !j.url) return setNote({ err: true, text: j.error ?? "Could not create the link." });
+    window.open(j.url, "_blank", "noopener");
+    try { await navigator.clipboard.writeText(j.url); setNote({ err: false, text: "Opened the client's page. The link is copied; it expires in 72 hours." }); } catch { setNote({ err: false, text: "Opened the client's page." }); }
+  }
 
   const skip = useCallback(() => {
     if (!current) return;
@@ -206,6 +294,14 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
           {current.rejectionReason ? <div className="so-frame" style={{ fontSize: 12 }}><b style={{ color: "var(--red)" }}>Earlier request:</b> {current.rejectionReason}</div> : null}
         </div>
 
+        {canApprove ? (
+          <div data-testid="revise" style={{ padding: "0 20px 14px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "var(--text3)" }}>Revise with AI</span>
+            {REVISIONS.map(([label, ins]) => <button key={label} type="button" className="so-btn" style={{ height: 28 }} disabled={busy} onClick={() => void revise(ins)}>{label}</button>)}
+            <button type="button" className="so-btn" data-variant="ghost" style={{ height: 28, marginLeft: "auto" }} onClick={() => void previewClient()}>Preview the client&apos;s page</button>
+          </div>
+        ) : null}
+
         {sendBack ? (
           <div style={{ padding: "0 20px 16px", display: "grid", gap: 8 }}>
             <span style={{ fontSize: 12.5, fontWeight: 600 }}>Why is it going back? One click sends it.</span>
@@ -235,7 +331,7 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
               <button className="so-btn" style={{ height: 34 }} disabled={busy} onClick={() => setSendBack((v) => !v)}>Send back</button>
               <button className="so-btn" data-variant="ghost" style={{ height: 34 }} disabled={busy} onClick={skip}>Skip</button>
               <Link className="so-btn" data-variant="ghost" style={{ height: 34 }} href={`/socialork/drafts/${current.id}`}>Edit</Link>
-              <button className="so-btn" data-variant="primary" style={{ height: 34 }} disabled={busy || blocked} onClick={() => void decide("approve")}>Approve</button>
+              <button className="so-btn" data-variant="primary" style={{ height: 34 }} disabled={busy || blocked || signOff} title={signOff ? "Client sign-off is required" : undefined} onClick={() => void decide("approve")}>Approve</button>
             </>
           ) : (
             <button className="so-btn" style={{ height: 34 }} onClick={skip}>Next</button>
@@ -245,7 +341,10 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
 
       <div style={{ flex: "1 1 280px", minWidth: 0, display: "grid", gap: 12 }}>
         <section className="so-card so-card-pad" style={{ display: "grid", gap: 8 }}>
-          <span className="so-stat-label">Checks</span>
+          <div className="so-spread" style={{ alignItems: "baseline" }}>
+            <span className="so-stat-label">AI check</span>
+            <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>{checks.filter((c) => c.ok).length} of {checks.length} checks pass</span>
+          </div>
           {checks.map((c) => (
             <div key={c.label} className="so-row" style={{ gap: 8, fontSize: 12.5, alignItems: "flex-start" }}>
               <span style={{ width: 8, height: 8, marginTop: 5, flex: "none", borderRadius: "50%", background: c.ok ? "var(--green)" : "var(--amber)" }} />
@@ -262,6 +361,18 @@ function QuickReview({ posts, canApprove, viewerId, solo }: { posts: ApprovalPos
             <span style={{ fontSize: 11.5, color: "var(--text3)" }}>Scheduling needs the schedule permission; if your role lacks it, the post stays approved.</span>
           </section>
         ) : null}
+        {canApprove && !signOff ? (() => {
+          const ready = order.filter((p) => !done[p.id] && checksFor(p, viewerId, solo).every((c) => c.ok) && (p.authorId !== viewerId || solo));
+          return (
+            <section className="so-card so-card-pad" style={{ display: "grid", gap: 8 }} data-testid="batch-approve">
+              <span style={{ fontWeight: 600 }}>Batch approve</span>
+              <span style={{ fontSize: 12, color: "var(--text3)" }}>Approves every post in this list that passes all checks and is not yours. Approving never publishes; scheduling stays separate.</span>
+              <button className="so-btn" data-variant="primary" style={{ height: 34 }} disabled={busy || ready.length === 0} onClick={() => void batchApprove(ready)}>
+                {ready.length ? `Approve ${ready.length} that pass` : "Nothing passes all checks"}
+              </button>
+            </section>
+          );
+        })() : null}
         <section className="so-card" style={{ overflow: "hidden" }}>
           <div className="so-card-pad" style={{ borderBottom: "1px solid var(--line)" }}><span className="so-stat-label">Up next</span></div>
           {order.slice(order.indexOf(current) + 1, order.indexOf(current) + 6).map((p) => (

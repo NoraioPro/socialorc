@@ -12,6 +12,8 @@ import {
 } from "@/lib/posts/transitions";
 import { isSoleWorkspaceMember } from "@/lib/tenancy/solo";
 import { clientIp, recordAudit } from "@/lib/audit";
+import { getClientSignOff } from "@/lib/socialork/approval-settings";
+import { onApproved, onSubmitted } from "@/lib/socialork/automations";
 
 export async function POST(
   req: NextRequest,
@@ -54,6 +56,14 @@ export async function POST(
     }
 
     if (action === "approve") {
+      // Client sign-off gate: when the workspace requires it, only the client's
+      // own approval through the review link can approve a post.
+      if (await getClientSignOff(guard.workspaceId)) {
+        return NextResponse.json(
+          { error: "This workspace requires the client's sign-off. Send them the review link; the post is approved when they accept it.", code: "CLIENT_SIGNOFF_REQUIRED" },
+          { status: 403 },
+        );
+      }
       // The product promises "nobody approves their own post, admins included".
       // A workspace with a single member has no second person to ask, so that
       // case is the one documented exception — and the response says so.
@@ -113,8 +123,14 @@ export async function POST(
         ip: clientIp(req.headers),
       });
 
+      const auto = await onApproved(
+        { workspaceId: guard.workspaceId, userId: String(guard.userId), label: actor?.name ?? actor?.email ?? null },
+        id,
+      );
+
       return NextResponse.json({
         success: true,
+        automation: auto,
         message: soloWorkspace
           ? "Post approved — solo workspace: you are the only member, so self-approval was allowed."
           : "Post approved successfully",
@@ -213,6 +229,11 @@ export async function POST(
         detail: { title: post.title, platform: post.platform },
         ip: clientIp(req.headers),
       });
+
+      await onSubmitted(
+        { workspaceId: guard.workspaceId, userId: String(guard.userId), label: submitter?.name ?? submitter?.email ?? null },
+        id,
+      );
 
       return NextResponse.json({
         success: true,

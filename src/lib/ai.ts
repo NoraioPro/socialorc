@@ -579,3 +579,17 @@ export async function suggestBestTimes(platform: Platform): Promise<{
     notes: notes[platform],
   };
 }
+
+/**
+ * One plain question to the configured model. No mock fallback: callers that
+ * must not invent content (analyst answers) get AINotConfiguredError instead.
+ */
+export async function chatText(aiConfig: AiConfig | null, system: string, user: string): Promise<string> {
+  if (!aiConfig) throw new AINotConfiguredError();
+  const response = await getOpenAI(aiConfig).chat.completions.create({
+    model: aiConfig.model ?? DEFAULT_MODEL,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    temperature: 0.4,
+  });
+  return response.choices[0]?.message?.content?.trim() || "";
+}

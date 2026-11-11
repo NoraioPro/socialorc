@@ -144,3 +144,12 @@
   .so-root *, .so-root *::before, .so-root *::after { animation: none !important; transition: none !important; }
 }
 .so-root[data-motion="off"] *, .so-root[data-motion="off"] *::before, .so-root[data-motion="off"] *::after { animation: none !important; transition: none !important; }
+
+/* nav icons follow the text colour like the design (the global link colour was leaking in) */
+.so-nav-item:not([data-active="true"]) svg.lucide { color: var(--text2); }
+.so-nav-item:not([data-active="true"]):hover svg.lucide { color: var(--text); }
+
+/* form labels read as plain sentence-case text, as in the design */
+.so-create-grid .so-stat-label { font: 500 12.5px var(--font-plex-sans, inherit); letter-spacing: 0; text-transform: none; color: var(--text2); }
+.so-root .so-nav-item { color: var(--text2); }
+.so-root .so-nav-item:hover, .so-root .so-nav-item[data-active="true"] { color: var(--text); text-decoration: none; }

@@ -378,6 +378,8 @@ model MediaAsset {
   /// PUBLIC assets may be used by a published portfolio; PRIVATE ones may not.
   /// This is a product flag, not Blob access control (uploads are public blobs).
   visibility  String    @default("PUBLIC")
+  /// Accessibility description; null until someone writes one.
+  altText     String?
 
   posts          PostMedia[]
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -597,6 +599,7 @@ model Workspace {
   updatedAt DateTime @updatedAt
 
   members         WorkspaceMember[]
+  settings        WorkspaceSetting[]
   brains          Brain[]
   posts           Post[]
   mediaAssets     MediaAsset[]
@@ -1129,4 +1132,20 @@ model PortfolioTemplate {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Small per-workspace key/value store (automation rule toggles, guided-setup
+// progress, language). One row per (workspace, key); value is JSON.
+// ---------------------------------------------------------------------------
+model WorkspaceSetting {
+  id          String   @id @default(cuid())
+  workspaceId String
+  key         String
+  value       Json
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
 }

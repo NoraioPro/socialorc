@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/publish",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/autopilot",
+      "schedule": "0 6 * * *"
     }
   ]
 }

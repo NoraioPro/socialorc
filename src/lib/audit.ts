@@ -22,7 +22,9 @@ export type AuditAction =
   | "MEMBER_REMOVED"
   | "SELF_APPROVED_SOLO"
   | "REVIEW_LINK_APPROVED"
-  | "REVIEW_LINK_CHANGES";
+  | "REVIEW_LINK_CHANGES"
+  | "AUTOMATION_RUN"
+  | "AUTOMATION_TOGGLED";
 
 export interface AuditInput {
   workspaceId: string;

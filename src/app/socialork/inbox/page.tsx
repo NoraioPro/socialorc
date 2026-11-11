@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import { capabilityLabel, getAccounts, tenantFor } from "@/lib/socialork/queries";
+import { InboxList } from "@/components/socialork/inbox-list";
+import { isRuleOn } from "@/lib/socialork/automations";
+import { can } from "@/lib/roles";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +15,7 @@ export default async function InboxPage() {
   if (!tenant) redirect("/onboarding");
 
   const accounts = await getAccounts(tenant);
+  const suggest = await isRuleOn(tenant.workspaceId, "suggestedReplies");
 
   return (
     <div className="so-page">
@@ -59,23 +63,7 @@ export default async function InboxPage() {
         </ul>
       )}
 
-      <section className="so-card" style={{ overflow: "hidden", maxWidth: 560 }}>
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontSize: 12.5, color: "var(--text2)" }}>
-          0 messages
-        </div>
-        <div className="so-empty" style={{ padding: "28px 16px" }}>
-          <svg width="150" height="110" viewBox="0 0 150 110" fill="none" aria-hidden style={{ margin: "0 auto 4px", display: "block", overflow: "visible" }}>
-            <path d="M25 58 40 26h70l15 32v26a8 8 0 0 1-8 8H33a8 8 0 0 1-8-8z" fill="var(--panel2)" stroke="var(--line2)" />
-            <path d="M25 58h30l6 10h28l6-10h30" stroke="var(--line2)" />
-          </svg>
-          <div style={{ fontWeight: 600, color: "var(--text)" }}>Nothing to show yet</div>
-          <div>Comments and messages from channels that share them will land here.</div>
-        </div>
-        <div style={{ padding: "12px 14px", borderTop: "1px solid var(--line)", fontSize: 12, color: "var(--text3)" }}>
-          Where a channel is marked &ldquo;Not available&rdquo;, the network&apos;s API does not expose
-          that data to this app at all. LinkedIn and TikTok don&apos;t share comments with third-party apps.
-        </div>
-      </section>
+      {accounts.length > 0 && <InboxList canReply={can(tenant.role, "engagement:reply")} suggest={suggest} />}
     </div>
   );
 }

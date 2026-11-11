@@ -3,16 +3,12 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import { getOverview, relativeTime, tenantFor } from "@/lib/socialork/queries";
 import { getRecentRuns } from "@/lib/socialork/audit-log";
-import { Empty, Panel, PageHead, PreviewNote, Stat, card } from "@/components/socialork/design-bits";
+import { RECIPES, listWorkflows } from "@/lib/socialork/autopilot";
+import { AutopilotWorkflows } from "@/components/socialork/autopilot-workflows";
+import { can } from "@/lib/roles";
+import { Empty, Panel, PageHead, Stat } from "@/components/socialork/design-bits";
 
 export const dynamic = "force-dynamic";
-
-const RECIPES = [
-  { name: "Daily draft", desc: "Writes a draft each morning from your brain and the week's themes.", flow: "Brain -> Draft -> Review" },
-  { name: "Repurpose a long post", desc: "Turns one long post into short versions for each channel.", flow: "Post -> Rewrite -> Review -> Schedule" },
-  { name: "Retry failed publishes", desc: "Tries a failed post again, then tells you if it still fails.", flow: "Failed -> Retry -> Notify" },
-  { name: "Weekly recap", desc: "Collects the week's results into one summary for the team.", flow: "Insights -> Summary -> Review" },
-];
 
 const rules = [
   { label: "A person approves every post", sub: "Nothing is published without a human decision.", locked: true },
@@ -25,7 +21,7 @@ export default async function AutopilotPage() {
   const tenant = await tenantFor(session.user.id);
   if (!tenant) redirect("/onboarding");
 
-  const [overview, runs] = await Promise.all([getOverview(tenant), getRecentRuns(tenant)]);
+  const [overview, runs, workflows] = await Promise.all([getOverview(tenant), getRecentRuns(tenant), listWorkflows(tenant.workspaceId)]);
   const c = overview.counts;
   const pending = c.PENDING_APPROVAL ?? 0;
 
@@ -43,7 +39,6 @@ export default async function AutopilotPage() {
         Workflows that draft, check and schedule posts on every channel. Nothing goes out unless it passes your approval rules.
       </PageHead>
 
-      <PreviewNote>Workflows are not available yet, so the list below is empty and the recipes cannot be switched on. The numbers and runs are your real workspace activity.</PreviewNote>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
         <Stat label="Waiting for approval" value={pending} sub="Posts in review" color={pending ? "var(--amber)" : undefined} />
@@ -54,25 +49,7 @@ export default async function AutopilotPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))", gap: 16, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16, gridColumn: "span 1" }}>
-          <section style={card}>
-            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line)" }}>
-              <div style={{ fontWeight: 600 }}>Workflows</div>
-              <div style={{ fontSize: 12, color: "var(--text3)" }}>None yet</div>
-            </div>
-            <Empty title="No workflows yet">Recipes you can use once workflows ship are listed below.</Empty>
-          </section>
-          <Panel title="Start from a recipe" sub="Preview only. Channels, approval and timing will be changeable.">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12, padding: 16 }}>
-              {RECIPES.map((r) => (
-                <div key={r.name} style={{ display: "flex", flexDirection: "column", gap: 8, padding: 14, border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }}>
-                  <span style={{ fontWeight: 600 }}>{r.name}</span>
-                  <span style={{ fontSize: 12.5, color: "var(--text2)", flex: 1 }}>{r.desc}</span>
-                  <span style={{ font: "500 11px 'IBM Plex Mono', monospace", color: "var(--text3)" }}>{r.flow}</span>
-                  <button type="button" className="so-btn" disabled aria-disabled="true" title="Coming soon">Use recipe</button>
-                </div>
-              ))}
-            </div>
-          </Panel>
+          <AutopilotWorkflows recipes={RECIPES} initial={workflows} canEdit={can(tenant.role, "posts:approve")} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

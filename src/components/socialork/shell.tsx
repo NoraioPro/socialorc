@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { ToastHost } from "@/components/socialork/undo-toast";
 import { Bell, LogOut, Menu, Moon, Plus, Sun, X } from "lucide-react";
 import { WorkspaceSwitcher } from "@/components/socialork/workspace-switcher";
 import { BrainSwitcher } from "@/components/socialork/brain-switcher";
@@ -72,7 +73,11 @@ export function Shell({
     {
       items: [
         { href: "/socialork/overview", label: "Overview", icon: LayoutDashboard },
+        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
         { href: "/socialork/create", label: "Create", icon: PenLine },
+        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
+        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
+        { href: "/socialork/automations", label: "Automations", icon: Workflow },
         { href: "/socialork/drafts", label: "Drafts", icon: FileText, count: counts.drafts },
         { href: "/socialork/approvals", label: "Approvals", icon: ShieldCheck, count: counts.review, tone: "amber" },
         {
@@ -82,6 +87,7 @@ export function Shell({
           hint: counts.failed > 0 ? `${counts.failed} failed` : undefined,
         },
         { href: "/socialork/inbox", label: "Inbox", icon: Inbox },
+        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
         { href: "/socialork/insights", label: "Insights", icon: TrendingUp },
       ],
     },
@@ -89,21 +95,11 @@ export function Shell({
       label: "Workspace",
       items: [
         { href: "/socialork/brains", label: "Brains", icon: BookOpen },
+        { href: "/socialork/media", label: "Media", icon: ImageIcon },
+        { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
+        { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
         { href: "/socialork/team", label: "Team", icon: Users },
         { href: "/socialork/settings", label: "Settings", icon: Settings },
-      ],
-    },
-    {
-      label: "More",
-      items: [
-        { href: "/socialork/studio", label: "AI Studio", icon: Sparkles },
-        { href: "/socialork/media", label: "Media", icon: ImageIcon },
-        { href: "/socialork/feed", label: "Timeline", icon: CircleDot },
-        { href: "/socialork/market-intel", label: "Market Intel", icon: TrendingUp },
-        { href: "/socialork/autopilot", label: "Autopilot", icon: Zap },
-        { href: "/socialork/automations", label: "Automations", icon: Workflow },
-        { href: "/socialork/workspaces", label: "Workspaces", icon: Blocks },
-        { href: "/socialork/portfolio", label: "Portfolio", icon: PanelsTopLeft },
       ],
     },
   ];
@@ -327,20 +323,6 @@ export function Shell({
             </div>
           </div>
 
-          <button
-            type="button"
-            className="so-btn"
-            title="Toggle light / dark"
-            aria-label="Toggle light / dark"
-            onClick={() => {
-              const next = theme === "dark" ? "light" : "dark";
-              setTheme(next);
-              window.localStorage.setItem("so-theme", next);
-            }}
-            style={{ width: 32, padding: 0, display: "grid", placeItems: "center" }}
-          >
-            {theme === "dark" ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
-          </button>
 
           <span ref={bellRef} style={{ position: "relative" }}>
             <button
@@ -402,6 +384,21 @@ export function Shell({
             ) : null}
           </span>
 
+          <button
+            type="button"
+            className="so-btn"
+            title="Toggle light / dark"
+            aria-label="Toggle light / dark"
+            onClick={() => {
+              const next = theme === "dark" ? "light" : "dark";
+              setTheme(next);
+              window.localStorage.setItem("so-theme", next);
+            }}
+            style={{ width: 32, padding: 0, display: "grid", placeItems: "center" }}
+          >
+            {theme === "dark" ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
+          </button>
+
           <a href="/socialork/create" className="so-btn" data-variant="primary" style={{ gap: 6, textDecoration: "none" }}>
             <Plus size={14} strokeWidth={2.4} />
             <span className="so-hide-sm">New post</span>
@@ -432,6 +429,7 @@ export function Shell({
         <div className="so-scroll">{children}</div>
 
         {/* Phone only: the four places people go all day, plus the full menu. */}
+        <ToastHost />
         <nav className="so-tabbar" aria-label="Quick navigation">
           {[
             { href: "/socialork/overview", label: "Overview", Icon: LayoutDashboard, count: 0 },

@@ -3,7 +3,7 @@ import { getAuthSession } from "@/lib/auth";
 import {
   formatWhen, getAccounts, getCurrentUser, getOverview, listPosts, STATUS_TONE, tenantFor, relativeTime,
 } from "@/lib/socialork/queries";
-import { Check, CircleAlert, FileText, Send, ShieldCheck, CalendarClock } from "lucide-react";
+import { Check, CircleAlert, Eye, PenLine, Send, CalendarClock } from "lucide-react";
 import { GLYPHS, type GlyphName } from "@/components/socialork/platform-glyphs";
 import { PostActions } from "@/components/socialork/post-actions";
 import { PLATFORM_CONFIGS } from "@/types/platform";
@@ -54,11 +54,11 @@ export default async function OverviewPage() {
   const needsYou = overview.recent.filter((p) => p.status === "PENDING_APPROVAL" || p.status === "FAILED");
 
   const pipe = [
-    { label: "Drafts", n: c.DRAFT ?? 0, icon: FileText, href: "/socialork/drafts" },
-    { label: "In review", n: c.PENDING_APPROVAL ?? 0, icon: ShieldCheck, href: "/socialork/approvals" },
-    { label: "Approved", n: c.APPROVED ?? 0, icon: Check, href: "/socialork/publishing" },
-    { label: "Scheduled", n: c.SCHEDULED ?? 0, icon: CalendarClock, href: "/socialork/publishing" },
-    { label: "Published · 30d", n: overview.published30, icon: Send, href: "/socialork/publishing" },
+    { label: "Drafts", n: c.DRAFT ?? 0, icon: PenLine, href: "/socialork/drafts", tone: "var(--text2)" },
+    { label: "In review", n: c.PENDING_APPROVAL ?? 0, icon: Eye, href: "/socialork/approvals", tone: "var(--amber)" },
+    { label: "Approved", n: c.APPROVED ?? 0, icon: Check, href: "/socialork/publishing", tone: "var(--green)" },
+    { label: "Scheduled", n: c.SCHEDULED ?? 0, icon: CalendarClock, href: "/socialork/publishing", tone: "var(--blue)" },
+    { label: "Published · 30d", n: overview.published30, icon: Send, href: "/socialork/publishing", tone: "var(--green)" },
   ];
   const failedN = c.FAILED ?? 0;
   const healthy = accounts.filter((a) => a.isActive && !a.needsReconnect).length;
@@ -136,9 +136,9 @@ export default async function OverviewPage() {
                 <span
                   style={{
                     width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center",
-                    border: `1.5px solid ${p.n > 0 ? "var(--accent)" : "var(--line2)"}`,
-                    background: p.n > 0 ? "var(--accentSoft)" : "transparent",
-                    color: p.n > 0 ? "var(--accentText)" : "var(--text3)",
+                    border: `1.5px solid ${p.tone}`,
+                    background: "transparent",
+                    color: p.tone,
                   }}
                 >
                   <Icon size={18} strokeWidth={1.9} />
@@ -186,13 +186,14 @@ export default async function OverviewPage() {
                   key={post.id}
                   href="/socialork/publishing"
                   style={{
-                    display: "grid", gridTemplateColumns: "96px 24px minmax(0,1fr)", alignItems: "center", gap: 12,
+                    display: "grid", gridTemplateColumns: "110px 24px minmax(0,1fr)", alignItems: "center", gap: 12,
                     padding: "10px 16px", borderTop: i === 0 ? 0 : "1px solid var(--line)", color: "inherit", textDecoration: "none",
                   }}
                 >
                   <span className="so-mono" style={{ fontSize: 12, color: "var(--text2)" }}>{formatWhen(post.scheduledFor)}</span>
                   <Glyph platform={post.platform} />
-                  <span style={{ minWidth: 0 }}>
+                  <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "block", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {post.title ?? post.content.slice(0, 60)}
                     </span>
@@ -200,6 +201,8 @@ export default async function OverviewPage() {
                       {PLATFORM_CONFIGS[post.platform]?.name ?? post.platform}
                       {post.socialAccount?.platformUsername ? ` · ${post.socialAccount.platformUsername}` : ""}
                     </span>
+                    </span>
+                    <span className="so-pill" data-tone={STATUS_TONE[post.status].tone}>{STATUS_TONE[post.status].label}</span>
                   </span>
                 </a>
               ))}

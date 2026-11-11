@@ -6,6 +6,7 @@
  * carry `workspaceId = null`; those are matched by their author so a fresh
  * workspace does not look emptier than it is. Nothing here mutates.
  */
+import { relativeTime } from "./format-time";
 import prisma from "@/lib/prisma";
 import { tenantForUser, type TenantContext } from "@/lib/tenancy/guard";
 import { activeBrainId } from "@/lib/tenancy/active-brain";
@@ -291,25 +292,16 @@ export async function getCurrentUser(userId: string) {
   return prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, image: true, role: true } });
 }
 
-export function relativeTime(date: Date | null): string {
-  if (!date) return "—";
-  const diff = Date.now() - date.getTime();
-  const mins = Math.round(diff / 6e4);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return date.toISOString().slice(0, 10);
-}
+export { relativeTime } from "./format-time";
 
 export function formatWhen(date: Date | null): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("en-GB", {
-    weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
-    timeZone: "Europe/Oslo",
-  }).format(date);
+  const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Oslo" }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo", hourCycle: "h23" }).format(date);
+  const now = new Date();
+  if (day(date) === day(now)) return `Today ${time}`;
+  if (day(date) === day(new Date(now.getTime() + 86400_000))) return `Tomorrow ${time}`;
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo", hourCycle: "h23" }).format(date);
 }
 
 export const STATUS_TONE: Record<PostStatus, { label: string; tone: string }> = {

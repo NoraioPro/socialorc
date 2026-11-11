@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { PostStatus } from "@prisma/client";
 import { clientIp, recordAudit } from "@/lib/audit";
 import { verifyReviewToken } from "@/lib/review-link";
+import { onApproved } from "@/lib/socialork/automations";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     detail: { title: post.title, platform: post.platform, note: note || undefined },
     ip: clientIp(req.headers),
   });
+
+  if (action === "approve") await onApproved({ workspaceId: post.workspaceId, userId: "", label: "client via review link" }, post.id);
 
   return NextResponse.json({
     success: true,

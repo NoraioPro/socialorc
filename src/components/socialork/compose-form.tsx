@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { KeyRound } from "lucide-react";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { mediaProblems, platformSpec } from "@/lib/social/platform-rules";
 import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
@@ -34,6 +35,9 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   const [brief, setBrief] = useState("");
   const [body, setBody] = useState("");
   const [tone, setTone] = useState("professional");
+  const [postTitle, setPostTitle] = useState("");
+  const [audience, setAudience] = useState("");
+  const [cta, setCta] = useState("");
   const [picked, setPicked] = useState<string[]>(["LINKEDIN"]);
   const [accountId, setAccountId] = useState<string>("");
   const [variants, setVariants] = useState<Variant[] | null>(null);
@@ -195,7 +199,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
       const res = await fetch("/api/posts/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idea: brief.trim(), platforms: picked, tone }),
+        body: JSON.stringify({ idea: brief.trim(), platforms: picked, tone, additionalContext: [audience.trim() && `Audience: ${audience.trim()}`, cta.trim() && `Call to action: ${cta.trim()}`].filter(Boolean).join("\n") || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -236,7 +240,7 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            title: brief.trim() ? brief.trim().slice(0, 90) : undefined,
+            title: postTitle.trim() ? postTitle.trim().slice(0, 90) : brief.trim() ? brief.trim().slice(0, 90) : undefined,
             content: text,
             platform,
             socialAccountId:
@@ -311,7 +315,8 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
   return (
     <>
       {aiReady === false ? (
-        <div className="so-banner">
+        <div className="so-card" style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 18px" }}>
+          <span aria-hidden style={{ width: 34, height: 34, flex: "none", borderRadius: 9, display: "grid", placeItems: "center", background: "var(--amberSoft)", color: "var(--amber)" }}><KeyRound size={16} /></span>
           <div style={{ display: "grid", gap: 2 }}>
             <strong>AI generation is off</strong>
             <span style={{ color: "var(--text2)" }}>
@@ -337,6 +342,10 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
       >
         <div style={{ fontWeight: 600 }}>Brief</div>
         <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="post-title">Title</label>
+          <input id="post-title" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} placeholder="Internal name for the post" style={field} />
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="brief">Core message</label>
           <textarea id="brief" rows={4} value={brief} onChange={(e) => setBrief(e.target.value)}
             placeholder="What are you announcing, and who is it for?"
@@ -353,14 +362,24 @@ export function ComposeForm({ accounts = [] }: { accounts?: AccountOption[] }) {
               ))}
             </select>
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="so-stat-label" htmlFor="tone">Tone</label>
-            <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} style={field}>
-              {["professional", "casual", "humorous", "inspirational", "educational", "conversational"].map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+        </div>
+
+        <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="audience">Audience</label>
+          <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Who is this for?" style={field} />
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          <span className="so-stat-label">Tone</span>
+          <div role="radiogroup" aria-label="Tone" style={{ display: "flex", padding: 2, border: "1px solid var(--line2)", borderRadius: 8, background: "var(--panel2)" }}>
+            {["professional", "friendly", "bold"].map((t) => (
+              <button key={t} type="button" role="radio" aria-checked={tone === t} onClick={() => setTone(t)}
+                style={{ flex: 1, height: 30, border: 0, borderRadius: 6, cursor: "pointer", textTransform: "capitalize", fontSize: 12.5, fontWeight: 500, background: tone === t ? "var(--bg)" : "transparent", color: tone === t ? "var(--text)" : "var(--text3)" }}>{t}</button>
+            ))}
           </div>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          <label className="so-stat-label" htmlFor="cta">Call to action</label>
+          <input id="cta" value={cta} onChange={(e) => setCta(e.target.value)} placeholder="What should people do next?" style={field} />
         </div>
 
         <div style={{ display: "grid", gap: 6 }}>

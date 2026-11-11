@@ -4,6 +4,7 @@ import type { TenantContext } from "@/lib/tenancy/guard";
 const LABEL: Record<string, string> = {
   APPROVED: "Approved", REJECTED: "Sent back", SUBMITTED: "Submitted for review", SCHEDULED: "Scheduled",
   PUBLISHED: "Published", PUBLISH_FAILED: "Publish failed", ROLE_CHANGED: "Role changed", SELF_APPROVED_SOLO: "Self-approved (solo)",
+  REVIEW_LINK_APPROVED: "Client approved", REVIEW_LINK_CHANGES: "Client asked for changes", AUTOMATION_TOGGLED: "Automation switched",
 };
 export type RunRow = { id: string; action: string; label: string; actor: string; at: Date; ok: boolean };
 

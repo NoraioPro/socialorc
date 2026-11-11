@@ -282,7 +282,7 @@
 .so-pipe a { position: relative; }
 .so-pipe a:not(:last-child)::after {
   content: ""; position: absolute; top: 25px; left: calc(50% + 28px); width: calc(100% - 56px); height: 1.5px;
-  background: linear-gradient(90deg, var(--line2), var(--line2)); pointer-events: none;
+  height: 0; background: none; border-top: 1.5px dashed var(--green); opacity: 0.7; pointer-events: none;
 }
 .so-stat { transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1), border-color 0.18s, box-shadow 0.18s; }
 .so-stat:hover { transform: translateY(-2px); border-color: var(--line2); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35); }
