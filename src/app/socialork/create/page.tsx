@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/lib/auth";
 import { getUsableAccounts, tenantFor } from "@/lib/socialork/queries";
 import { ComposeForm } from "@/components/socialork/compose-form";
+import { can } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,12 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
           approves it.
         </p>
       </div>
-      <ComposeForm accounts={accounts} initialBody={sp.body?.slice(0, 3000)} initialPlatform={sp.platform} />
+      <ComposeForm
+        accounts={accounts}
+        initialBody={sp.body?.slice(0, 3000)}
+        initialPlatform={sp.platform}
+        canApprove={can(tenant.role, "posts:approve")}
+      />
     </div>
   );
 }

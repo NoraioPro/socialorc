@@ -27,7 +27,12 @@ type Variant = { platform: string; title?: string | null; content: string; usedM
 
 type AccountOption = { id: string; platform: string; handle: string | null; owner: string; shared: boolean };
 
-export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }: { accounts?: AccountOption[]; initialBody?: string; initialPlatform?: string }) {
+export function ComposeForm({
+  accounts = [],
+  initialBody = "",
+  initialPlatform,
+  canApprove = false,
+}: { accounts?: AccountOption[]; initialBody?: string; initialPlatform?: string; canApprove?: boolean }) {
   const router = useRouter();
   const [brains, setBrains] = useState<Brain[]>([]);
   const [brainId, setBrainId] = useState<string>("");
@@ -233,7 +238,8 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
   };
 
   /** Manual path: one draft per selected channel, no AI key involved. */
-  const [after, setAfter] = useState<"draft" | "approval" | "schedule">("draft");
+  // Managers and admins decide here, so the one-click option is the default for them.
+  const [after, setAfter] = useState<"draft" | "approval" | "schedule">(canApprove ? "schedule" : "draft");
 
   const createManual = async () => {
     const text = (body || brief).trim();
@@ -289,7 +295,11 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
         landing = "/socialork/approvals";
         if (after === "schedule" && slot) {
           const ap = await fetch(`/api/posts/${id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) });
-          if (!ap.ok) { failed.push(`approve: needs a manager (${ap.status})`); continue; }
+          if (!ap.ok) {
+            const why = ((await ap.json().catch(() => ({}))) as { error?: string }).error;
+            failed.push(why ?? `approve failed (${ap.status})`);
+            continue;
+          }
           const sc = await fetch(`/api/posts/${id}/schedule`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scheduledFor: slot }) });
           if (sc.ok) landing = "/socialork/publishing";
           else {
@@ -640,14 +650,14 @@ export function ComposeForm({ accounts = [], initialBody = "", initialPlatform }
           </span>
           <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
             <div role="radiogroup" aria-label="After creating" data-testid="after-create" style={{ display: "flex", padding: 2, border: "1px solid var(--line2)", borderRadius: 8, background: "var(--panel2)" }}>
-              {([["draft", "Draft"], ["approval", "Send for approval"], ["schedule", "Schedule next slot"]] as const).map(([k, l]) => (
+              {([["draft", "Draft"], ["approval", "Send for approval"], ["schedule", canApprove ? "Approve & schedule" : "Schedule next slot"]] as const).map(([k, l]) => (
                 <button key={k} type="button" role="radio" aria-checked={after === k} onClick={() => setAfter(k)}
                   style={{ border: 0, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", background: after === k ? "var(--accent-soft, var(--panel))" : "transparent", color: after === k ? "var(--text)" : "var(--text3)", fontWeight: after === k ? 600 : 400 }}>{l}</button>
               ))}
             </div>
             <button className="so-btn" type="button" onClick={() => void createManual()}
               data-variant="primary" disabled={busy === "manual"} data-testid="create-submit">
-              {busy === "manual" ? "Working…" : after === "draft" ? `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}` : after === "approval" ? "Create & send for approval" : "Create & schedule"}
+              {busy === "manual" ? "Working…" : after === "draft" ? `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}` : after === "approval" ? "Create & send for approval" : canApprove ? "Create, approve & schedule" : "Create & schedule"}
             </button>
             <button className="so-btn" type="submit" disabled={busy === "generate" || aiReady === false}
               title={aiReady === false ? "Needs an AI key — add one under Settings → AI keys" : undefined}>
