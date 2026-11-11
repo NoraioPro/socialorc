@@ -375,13 +375,28 @@ Respond in JSON format with an array of objects, each containing:
 Ensure content is properly tailored for each platform's audience and constraints while maintaining brand voice.`;
 }
 
-function parseVariantResponse(content: string | null | undefined): GeneratedVariant[] {
+export function parseVariantResponse(content: string | null | undefined): GeneratedVariant[] {
   if (!content) {
     throw new Error("No response from AI");
   }
 
-  const parsed = JSON.parse(content);
-  const variants: { platform: string; content: string; hashtags: string[] }[] = parsed.variants || parsed.posts || [];
+  // Models often wrap JSON in a markdown fence, return a bare array, or use
+  // another key name. Accept all of these instead of reporting "nothing usable".
+  const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed: unknown = JSON.parse(cleaned);
+  const pick = (obj: unknown): unknown => {
+    if (Array.isArray(obj)) return obj;
+    if (obj && typeof obj === "object") {
+      const o = obj as Record<string, unknown>;
+      for (const key of ["variants", "posts", "results", "items", "outputs"]) {
+        if (Array.isArray(o[key])) return o[key];
+      }
+    }
+    return [];
+  };
+  const variants = (pick(parsed) as { platform: string; content: string; hashtags?: string[] }[])
+    .filter((v) => v && typeof v.content === "string" && v.content.trim().length > 0)
+    .map((v) => ({ ...v, hashtags: Array.isArray(v.hashtags) ? v.hashtags : [] }));
 
   return variants.map((v) => {
     const platform = v.platform as Platform;
