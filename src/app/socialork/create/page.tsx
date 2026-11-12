@@ -18,8 +18,7 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
       <div style={{ display: "grid", gap: 6 }}>
         <h1 className="so-h1">New post</h1>
         <p className="so-sub">
-          Write one brief and get a draft for each channel. Nothing publishes until a manager
-          approves it.
+          Pick channels, write once (or let AI draft it), add an image, and choose what happens next.
         </p>
       </div>
       <ComposeForm

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Images, ImagePlus, KeyRound, Sparkles, Upload, X } from "lucide-react";
 import { PLATFORM_CONFIGS } from "@/types/platform";
-import { mediaProblems, platformSpec } from "@/lib/social/platform-rules";
+import { mediaProblems } from "@/lib/social/platform-rules";
 import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
 
 const PLATFORMS = [
@@ -209,7 +209,7 @@ export function ComposeForm({
 
   const generate = async () => {
     if (!brief.trim() || picked.length === 0) {
-      setError("Write the brief and pick at least one channel.");
+      setError("Tell AI what the post is about, and pick at least one channel.");
       return;
     }
     setBusy("generate");
@@ -232,7 +232,10 @@ export function ComposeForm({
         setError("The model returned nothing usable. Try a longer brief.");
         return;
       }
-      setVariants(list.map((v) => ({ ...v, platform: String(v.platform ?? picked[0]) })));
+      const next = list.map((v) => ({ ...v, platform: String(v.platform ?? picked[0]) }));
+      setVariants(next);
+      // An empty post box takes the first channel's draft, so the text is ready to edit.
+      if (!body.trim()) setBody((next.find((v) => v.platform === picked[0]) ?? next[0]).content);
     } catch {
       setError("Network error — nothing was generated.");
     } finally {
@@ -243,6 +246,21 @@ export function ComposeForm({
   /** Manual path: one draft per selected channel, no AI key involved. */
   // Managers and admins decide here, so the one-click option is the default for them.
   const [after, setAfter] = useState<"draft" | "approval" | "schedule">(canApprove ? "schedule" : "draft");
+  const [nextSlot, setNextSlot] = useState<string | null>(null);
+  useEffect(() => {
+    if (after !== "schedule") return;
+    let live = true;
+    fetch("/api/posts/next-slot")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { at?: string } | null) => {
+        if (!live || !j?.at) return;
+        setNextSlot(
+          new Date(j.at).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+        );
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [after]);
 
   const createManual = async () => {
     const text = (body || brief).trim();
@@ -390,7 +408,7 @@ export function ComposeForm({
         </div>
       ) : null}
 
-      <style>{`.so-cf-preview{display:grid;align-content:start;overflow:hidden;padding:0}.so-cf-stage{position:relative;height:clamp(280px,46vh,520px);background:var(--bg);border-bottom:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.so-cf-stage img,.so-cf-stage video{width:100%;height:100%;object-fit:contain;display:block}.so-cf-stage-empty{position:relative;display:grid;justify-items:center;gap:8px;text-align:center;padding:24px;width:100%;height:100%;align-content:center}.so-cf-shimmer{position:absolute;inset:0;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite;opacity:.6}.so-cf-line{height:12px;border-radius:4px;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite}@keyframes so-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}.so-cf-stage-remove{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}.so-cf-thumbs{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}.so-cf-thumb{position:relative;flex:none;width:72px;height:72px;border-radius:9px;border:2px solid var(--line2);overflow:hidden;background:var(--bg)}.so-cf-thumb[data-active=true]{border-color:var(--accent)}.so-cf-thumb-pick{all:unset;cursor:pointer;display:grid;place-items:center;width:100%;height:100%}.so-cf-thumb-pick img{width:100%;height:100%;object-fit:cover}.so-cf-thumb-x{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}.so-cf-tools{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}.so-cf-genbar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-genbar input{flex:1 1 240px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-genbar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-tools .so-btn{display:inline-flex;align-items:center;gap:6px}.so-cf-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow-y:auto;padding:2px}.so-cf-library button{padding:0;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);border:2px solid var(--line2)}.so-cf-library img{width:100%;height:100%;object-fit:cover}.so-cf-post{display:grid;gap:8px;padding:14px 16px 16px}.so-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
+      <style>{`.so-cf-aibar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-aibar input{flex:1 1 200px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-aibar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-split{display:flex;align-items:stretch}.so-cf-split .so-btn{height:36px;border-radius:8px 0 0 8px;flex:1;justify-content:center}.so-cf-split select{height:36px;border-radius:0 8px 8px 0;border:1px solid var(--line2);border-left:0;background:var(--panel2);color:var(--text);font-size:12.5px;padding:0 8px;max-width:190px;cursor:pointer}.so-cf-preview{display:grid;align-content:start;overflow:hidden;padding:0}.so-cf-stage{position:relative;height:clamp(280px,46vh,520px);background:var(--bg);border-bottom:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.so-cf-stage img,.so-cf-stage video{width:100%;height:100%;object-fit:contain;display:block}.so-cf-stage-empty{position:relative;display:grid;justify-items:center;gap:8px;text-align:center;padding:24px;width:100%;height:100%;align-content:center}.so-cf-shimmer{position:absolute;inset:0;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite;opacity:.6}.so-cf-line{height:12px;border-radius:4px;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite}@keyframes so-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}.so-cf-stage-remove{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}.so-cf-thumbs{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}.so-cf-thumb{position:relative;flex:none;width:72px;height:72px;border-radius:9px;border:2px solid var(--line2);overflow:hidden;background:var(--bg)}.so-cf-thumb[data-active=true]{border-color:var(--accent)}.so-cf-thumb-pick{all:unset;cursor:pointer;display:grid;place-items:center;width:100%;height:100%}.so-cf-thumb-pick img{width:100%;height:100%;object-fit:cover}.so-cf-thumb-x{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}.so-cf-tools{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}.so-cf-genbar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-genbar input{flex:1 1 240px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-genbar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-tools .so-btn{display:inline-flex;align-items:center;gap:6px}.so-cf-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow-y:auto;padding:2px}.so-cf-library button{padding:0;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);border:2px solid var(--line2)}.so-cf-library img{width:100%;height:100%;object-fit:cover}.so-cf-post{display:grid;gap:8px;padding:14px 16px 16px}.so-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
       <div className="so-create-grid">
       <form
         className="so-card"
@@ -400,27 +418,63 @@ export function ComposeForm({
           void generate();
         }}
       >
-        <div style={{ fontWeight: 600 }}>Brief</div>
-        <div className="so-cf2">
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="post-title">Title</label>
-          <input id="post-title" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} placeholder="Internal name for the post" style={field} />
+        <div style={{ display: "grid", gap: 8 }}>
+          <span className="so-stat-label">Channels</span>
+          <div className="so-row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {PLATFORMS.map((p) => (
+              <button key={p.id} type="button" style={chip(picked.includes(p.id))} aria-pressed={picked.includes(p.id)} onClick={() => toggle(p.id)}>
+                {p.name}
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="audience">Audience</label>
-          <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Who is this for?" style={field} />
-        </div>
-        </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="brief">Core message</label>
-          <textarea id="brief" rows={3} value={brief} onChange={(e) => setBrief(e.target.value)}
-            placeholder="What are you announcing, and who is it for?"
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="so-row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <label className="so-stat-label" htmlFor="body">Post</label>
+            <span className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {picked.map((id) => {
+                const limit = PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.maxTextLength ?? 0;
+                const over = limit > 0 && body.length > limit;
+                return (
+                  <span key={id} className="so-mono" style={{ fontSize: 10.5, color: over ? "var(--red)" : "var(--text3)" }}>
+                    {PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id}
+                    {limit ? ` ${body.length}/${limit}` : ""}
+                    {over ? " · too long" : ""}
+                  </span>
+                );
+              })}
+            </span>
+          </div>
+          <div className="so-cf-aibar">
+            <input
+              id="brief"
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              placeholder="Ask AI: what is this post about?"
+              aria-label="What should AI write about"
+            />
+            <button className="so-btn" type="submit" disabled={busy === "generate" || aiReady === false}
+              title={aiReady === false ? "Needs a text AI key — add one under Settings → AI keys" : undefined}>
+              <Sparkles size={14} aria-hidden /> {busy === "generate" ? "Writing…" : "Write with AI"}
+            </button>
+          </div>
+          <textarea id="body" rows={8} value={body} onChange={(e) => setBody(e.target.value)}
+            placeholder="Write your post, or let AI draft it from the line above. One draft is made per channel."
             style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
         </div>
 
         <details className="so-cf-more" style={{ display: "grid", gap: 12 }}>
-        <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text2)", fontWeight: 500 }}>More options: brain, tone, call to action, publish as</summary>
+        <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text2)", fontWeight: 500 }}>More options</summary>
         <div className="so-cf2">
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="so-stat-label" htmlFor="post-title">Title</label>
+            <input id="post-title" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} placeholder="Internal name" style={field} />
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="so-stat-label" htmlFor="audience">Audience</label>
+            <input id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Who is this for?" style={field} />
+          </div>
           <div style={{ display: "grid", gap: 6 }}>
             <label className="so-stat-label" htmlFor="brain">Brain</label>
             <select id="brain" value={brainId} onChange={(e) => setBrainId(e.target.value)} style={field}>
@@ -429,6 +483,10 @@ export function ComposeForm({
                 <option key={b.id} value={b.id}>{b.name}{b.isDefault ? " (active)" : ""}</option>
               ))}
             </select>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="so-stat-label" htmlFor="cta">Call to action</label>
+            <input id="cta" value={cta} onChange={(e) => setCta(e.target.value)} placeholder="What should people do next?" style={field} />
           </div>
         </div>
 
@@ -441,10 +499,6 @@ export function ComposeForm({
             ))}
           </div>
         </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="cta">Call to action</label>
-          <input id="cta" value={cta} onChange={(e) => setCta(e.target.value)} placeholder="What should people do next?" style={field} />
-        </div>
 
         <div style={{ display: "grid", gap: 6 }}>
           <label className="so-stat-label" htmlFor="account">Publish as</label>
@@ -456,111 +510,32 @@ export function ComposeForm({
               </option>
             ))}
           </select>
-          <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-            Your own connections, plus any the team shared. A personal account is never used by someone else.
-          </span>
         </div>
         </details>
 
-        <div style={{ display: "grid", gap: 8 }}>
-          <span className="so-stat-label">Channels</span>
-          <div className="so-row" style={{ flexWrap: "wrap", gap: 8 }}>
-            {PLATFORMS.map((p) => (
-              <button key={p.id} type="button" style={chip(picked.includes(p.id))} onClick={() => toggle(p.id)}>
-                {p.name}
-              </button>
-            ))}
-          </div>
-          {/* What the picked channels accept, before the post is written — the
-              alternative was learning it from a rejection at publish time. */}
-          {picked.length > 0 ? (
-            <ul
-              data-testid="platform-specs"
-              style={{ margin: "2px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 5 }}
-            >
-              {picked.map((id) => {
-                const spec = platformSpec(id as keyof typeof PLATFORM_CONFIGS);
-                return (
-                  <li
-                    key={id}
-                    style={{
-                      display: "grid",
-                      gap: 2,
-                      borderLeft: "2px solid var(--line2)",
-                      paddingLeft: 9,
-                    }}
-                  >
-                    <span style={{ fontSize: 11.5, color: "var(--text2)" }}>
-                      <strong style={{ color: "var(--text)" }}>{spec.name}</strong> — {spec.summary}
-                    </span>
-                    <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                      {spec.media}
-                      {spec.maxCaption ? ` · caption up to ${spec.maxCaption.toLocaleString()} characters` : ""}
-                    </span>
-                    {spec.rules.map((rule) => (
-                      <span key={rule} className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-                        · {rule}
-                      </span>
-                    ))}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="so-stat-label" htmlFor="body">Post content (written by you)</label>
-          <textarea id="body" rows={6} value={body} onChange={(e) => setBody(e.target.value)}
-            placeholder="Write it once — a draft is created for every channel you picked."
-            style={{ ...field, resize: "vertical", lineHeight: 1.55 }} />
-          <div className="so-row" style={{ gap: 10, flexWrap: "wrap" }}>
-            {picked.length === 0 ? (
-              <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-                pick at least one channel
-              </span>
-            ) : (
-              picked.map((id) => {
-                const limit = PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.maxTextLength ?? 0;
-                const over = limit > 0 && body.length > limit;
-                return (
-                  <span key={id} className="so-mono" style={{ fontSize: 10.5, color: over ? "var(--red)" : "var(--text3)" }}>
-                    {PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id}
-                    {limit ? ` ${body.length}/${limit}` : ""}
-                    {over ? " over" : ""}
-                  </span>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-
         <div className="so-cf-actions">
-        <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-          <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
-            {picked.length} channel{picked.length === 1 ? "" : "s"} ·{" "}
-            {after === "draft" ? "saves as drafts, nothing publishes" : after === "approval" ? "goes to approval, nothing publishes until approved" : "approved and queued for the next free slot"}
-          </span>
-          <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <div role="radiogroup" aria-label="After creating" data-testid="after-create" style={{ display: "flex", padding: 2, border: "1px solid var(--line2)", borderRadius: 8, background: "var(--panel2)" }}>
-              {([["draft", "Draft"], ["approval", "Send for approval"], ["schedule", canApprove ? "Approve & schedule" : "Schedule next slot"]] as const).map(([k, l]) => (
-                <button key={k} type="button" role="radio" aria-checked={after === k} onClick={() => setAfter(k)}
-                  style={{ border: 0, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", background: after === k ? "var(--accent-soft, var(--panel))" : "transparent", color: after === k ? "var(--text)" : "var(--text3)", fontWeight: after === k ? 600 : 400 }}>{l}</button>
-              ))}
-            </div>
+          {error ? <span role="alert" style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
+          <div className="so-cf-split">
             <button className="so-btn" type="button" onClick={() => void createManual()}
               data-variant="primary" disabled={busy === "manual"} data-testid="create-submit">
-              {busy === "manual" ? "Working…" : after === "draft" ? `Create ${picked.length} draft${picked.length === 1 ? "" : "s"}` : after === "approval" ? "Create & send for approval" : canApprove ? "Create, approve & schedule" : "Create & schedule"}
+              {busy === "manual" ? "Working…" : picked.length > 1 ? `Create ${picked.length} posts` : "Create post"}
             </button>
-            <button className="so-btn" type="submit" disabled={busy === "generate" || aiReady === false}
-              title={aiReady === false ? "Needs an AI key — add one under Settings → AI keys" : undefined}>
-              {busy === "generate" ? "Generating…" : "Generate with AI"}
-            </button>
+            <select aria-label="What happens when you create" data-testid="after-create" value={after}
+              onChange={(e) => setAfter(e.target.value as "draft" | "approval" | "schedule")}>
+              <option value="schedule">{canApprove ? "Approve & schedule" : "Schedule next slot"}</option>
+              <option value="approval">Send for approval</option>
+              <option value="draft">Save as draft</option>
+            </select>
           </div>
-        </div>
-
-        {error ? <span style={{ color: "var(--red)", fontSize: 12 }}>{error}</span> : null}
+          <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }} data-testid="after-hint">
+            {after === "draft"
+              ? "Nothing publishes. Find it under Drafts."
+              : after === "approval"
+                ? "A manager approves it before anything publishes."
+                : nextSlot
+                  ? `Goes out ${nextSlot} on ${picked.length} channel${picked.length === 1 ? "" : "s"}.`
+                  : "Goes out in the next free slot."}
+          </span>
         </div>
       </form>
 
