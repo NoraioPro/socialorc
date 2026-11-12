@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound } from "lucide-react";
+import { Images, ImagePlus, KeyRound, Sparkles, Upload, X } from "lucide-react";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { mediaProblems, platformSpec } from "@/lib/social/platform-rules";
 import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
@@ -48,6 +48,7 @@ export function ComposeForm({
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
   const [genBusy, setGenBusy] = useState(false);
+  const [coverId, setCoverId] = useState<string | null>(null);
   const [imgPrompt, setImgPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const [libOpen, setLibOpen] = useState(false);
@@ -160,9 +161,9 @@ export function ComposeForm({
    * away — the route stores it as a media asset, so it uploads nothing.
    */
   const generateImage = async () => {
-    const prompt = imgPrompt.trim();
+    const prompt = (imgPrompt.trim() || brief.trim() || body.trim()).slice(0, 1500);
     if (!prompt) {
-      setError("Describe the image you want first.");
+      setError("Describe the image you want, or write the brief first.");
       return;
     }
     setGenBusy(true);
@@ -184,10 +185,12 @@ export function ComposeForm({
         setError(data.error ?? `Image generation failed (${res.status}).`);
         return;
       }
+      const newId = String(data.id ?? data.url);
+      setCoverId(newId);
       setMedia((m) => [
         ...m,
         {
-          id: String(data.id ?? data.url),
+          id: newId,
           url: String(data.url),
           filename: data.filename ?? "ai-image.png",
           mimeType: data.mimeType ?? "image/png",
@@ -362,6 +365,8 @@ export function ComposeForm({
     fontWeight: active ? 600 : 500,
   });
 
+  const cover = media.find((m) => m.id === coverId) ?? media[media.length - 1] ?? null;
+
   const channelsLabel = useMemo(
     () => picked.map((id) => PLATFORMS.find((p) => p.id === id)?.name ?? id).join(" · "),
     [picked],
@@ -385,7 +390,7 @@ export function ComposeForm({
         </div>
       ) : null}
 
-      <style>{`.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
+      <style>{`.so-cf-preview{display:grid;align-content:start;overflow:hidden;padding:0}.so-cf-stage{position:relative;height:clamp(280px,46vh,520px);background:var(--bg);border-bottom:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.so-cf-stage img,.so-cf-stage video{width:100%;height:100%;object-fit:contain;display:block}.so-cf-stage-empty{position:relative;display:grid;justify-items:center;gap:8px;text-align:center;padding:24px;width:100%;height:100%;align-content:center}.so-cf-shimmer{position:absolute;inset:0;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite;opacity:.6}.so-cf-line{height:12px;border-radius:4px;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite}@keyframes so-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}.so-cf-stage-remove{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}.so-cf-thumbs{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}.so-cf-thumb{position:relative;flex:none;width:72px;height:72px;border-radius:9px;border:2px solid var(--line2);overflow:hidden;background:var(--bg)}.so-cf-thumb[data-active=true]{border-color:var(--accent)}.so-cf-thumb-pick{all:unset;cursor:pointer;display:grid;place-items:center;width:100%;height:100%}.so-cf-thumb-pick img{width:100%;height:100%;object-fit:cover}.so-cf-thumb-x{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}.so-cf-tools{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}.so-cf-genbar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-genbar input{flex:1 1 240px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-genbar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-tools .so-btn{display:inline-flex;align-items:center;gap:6px}.so-cf-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow-y:auto;padding:2px}.so-cf-library button{padding:0;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);border:2px solid var(--line2)}.so-cf-library img{width:100%;height:100%;object-fit:cover}.so-cf-post{display:grid;gap:8px;padding:14px 16px 16px}.so-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
       <div className="so-create-grid">
       <form
         className="so-card"
@@ -530,128 +535,6 @@ export function ComposeForm({
           </div>
         </div>
 
-        <details className="so-cf-media" style={{ display: "grid", gap: 8 }}>
-        <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text2)", fontWeight: 500 }}>
-          Media{media.length > 0 ? ` (${media.length} attached)` : ""}
-        </summary>
-        <div style={{ display: "grid", gap: 8 }}>
-          <span className="so-stat-label">Attachments</span>
-          <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <label
-              className="so-btn"
-              style={{ height: 30, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}
-            >
-              {uploading ? "Uploading…" : "Attach image or video"}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
-                multiple
-                hidden
-                disabled={uploading}
-                onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
-              />
-            </label>
-            <input
-              value={imgPrompt}
-              onChange={(e) => setImgPrompt(e.target.value)}
-              placeholder="Describe an image to generate…"
-              aria-label="Image prompt"
-              style={{
-                flex: "1 1 220px", minWidth: 180, height: 30, padding: "0 10px", borderRadius: 8,
-                border: "1px solid var(--line2)", background: "var(--panel2)", color: "var(--text)", fontSize: 12.5,
-              }}
-            />
-            <button type="button" className="so-btn" style={{ height: 30 }} aria-expanded={libOpen} onClick={() => void openLibrary()}>Choose from library</button>
-            <button
-              type="button"
-              className="so-btn"
-              style={{ height: 30, cursor: genBusy ? "wait" : "pointer", opacity: genBusy ? 0.6 : 1 }}
-              disabled={genBusy}
-              onClick={() => void generateImage()}
-            >
-              {genBusy ? "Generating…" : "Generate image with AI"}
-            </button>
-            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
-              JPG · PNG · GIF · WebP · MP4 · MOV · WebM · up to 100MB each
-            </span>
-          </div>
-
-          {libOpen ? (
-            <div data-testid="media-library" className="so-card" style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(84px,1fr))", gap: 8, maxHeight: 220, overflowY: "auto" }}>
-              {library === null ? <span style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</span> : library.length === 0 ? <span style={{ fontSize: 12, color: "var(--text3)" }}>The library is empty. Upload something first.</span> : library.map((a) => {
-                const on = media.some((m) => m.id === a.id);
-                return (
-                  <button key={a.id} type="button" title={a.altText || a.filename} aria-pressed={on}
-                    onClick={() => setMedia((list) => (on ? list.filter((x) => x.id !== a.id) : [...list, { id: a.id, url: a.url, filename: a.filename, mimeType: a.mimeType, devOnly: false }]))}
-                    style={{ padding: 0, aspectRatio: "1", borderRadius: 8, overflow: "hidden", cursor: "pointer", background: "var(--bg)", border: `2px solid ${on ? "var(--accent)" : "var(--line2)"}` }}>
-                    {a.mimeType.startsWith("image/") ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.url} alt={a.altText || a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-
-          {media.length > 0 ? (
-            <div className="so-row" style={{ gap: 8, flexWrap: "wrap" }}>
-              {media.map((m) => (
-                <div
-                  key={m.id}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 8,
-                    border: "1px solid var(--line2)", background: "var(--panel2)", maxWidth: 260,
-                  }}
-                >
-                  {m.mimeType.startsWith("image/") ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.url} alt="" width={28} height={28} style={{ borderRadius: 5, objectFit: "cover" }} />
-                  ) : (
-                    <span className="so-mono" style={{ fontSize: 10, color: "var(--text3)" }}>VIDEO</span>
-                  )}
-                  <span style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
-                    {m.filename}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setMedia((list) => list.filter((x) => x.id !== m.id))}
-                    style={{ border: 0, background: "transparent", color: "var(--text3)", cursor: "pointer", fontSize: 12 }}
-                    aria-label={`Remove ${m.filename}`}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {media.some((m) => m.devOnly) ? (
-            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--amber)" }}>
-              dev storage: this asset is stored inline and cannot be published — set BLOB_READ_WRITE_TOKEN for a real upload
-            </span>
-          ) : null}
-          {mediaRequiredMissing.length > 0 ? (
-            <span style={{ fontSize: 11.5, color: "var(--amber)" }}>
-              {mediaRequiredMissing.map((id) => PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id).join(", ")} needs an image or video before it can publish.
-            </span>
-          ) : null}
-          {/* Rejections the adapter would produce, said before publishing. */}
-          {picked
-            .flatMap((id) =>
-              mediaProblems(id as keyof typeof PLATFORM_CONFIGS, media).map((problem) => ({ id, problem })),
-            )
-            .map(({ id, problem }) => (
-              <span
-                key={`${id}-${problem}`}
-                data-testid="media-problem"
-                style={{ fontSize: 11.5, color: "var(--amber)" }}
-              >
-                {problem}
-              </span>
-            ))}
-        </div>
-        </details>
 
         <div className="so-cf-actions">
         <div className="so-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -681,9 +564,163 @@ export function ComposeForm({
         </div>
       </form>
 
-      <section className="so-card" style={{ display: "flex", flexDirection: "column", minHeight: 600, overflow: "hidden" }}>
+      <section className="so-card so-cf-preview">
+        {/* The image stage: the picked (or newest) image at full size. */}
+        <div className="so-cf-stage" data-testid="media-stage">
+          {genBusy ? (
+            <div className="so-cf-stage-empty" role="status">
+              <div className="so-cf-shimmer" aria-hidden />
+              <span style={{ position: "relative", fontWeight: 600 }}>Generating your image…</span>
+              <span style={{ position: "relative", color: "var(--text3)", fontSize: 12 }}>This can take up to a minute.</span>
+            </div>
+          ) : cover ? (
+            cover.mimeType.startsWith("image/") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={cover.url} alt={cover.filename} />
+            ) : (
+              <video src={cover.url} controls />
+            )
+          ) : (
+            <div className="so-cf-stage-empty">
+              <ImagePlus size={34} aria-hidden style={{ color: "var(--text3)" }} />
+              <strong>No image yet</strong>
+              <span style={{ color: "var(--text2)", maxWidth: 340 }}>
+                Generate one with AI below, upload your own, or pick one from the library.
+              </span>
+            </div>
+          )}
+          {cover && !genBusy ? (
+            <button
+              type="button"
+              className="so-cf-stage-remove"
+              aria-label={`Remove ${cover.filename}`}
+              onClick={() => {
+                setMedia((list) => list.filter((x) => x.id !== cover.id));
+                setCoverId(null);
+              }}
+            >
+              <X size={14} aria-hidden /> Remove
+            </button>
+          ) : null}
+        </div>
+
+        {media.length > 1 ? (
+          <div className="so-cf-thumbs" aria-label="Attached media">
+            {media.map((m) => (
+              <div key={m.id} className="so-cf-thumb" data-active={cover?.id === m.id}>
+                <button type="button" className="so-cf-thumb-pick" aria-label={`Show ${m.filename}`} aria-pressed={cover?.id === m.id} onClick={() => setCoverId(m.id)}>
+                  {m.mimeType.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url} alt="" />
+                  ) : (
+                    <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>
+                  )}
+                </button>
+                <button type="button" className="so-cf-thumb-x" aria-label={`Remove ${m.filename}`} onClick={() => setMedia((list) => list.filter((x) => x.id !== m.id))}>
+                  <X size={11} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Image tools: AI first, then upload and the library. */}
+        <div className="so-cf-tools">
+          <div className="so-cf-genbar">
+            <label htmlFor="img-prompt" className="so-sr-only">Image prompt</label>
+            <input
+              id="img-prompt"
+              value={imgPrompt}
+              onChange={(e) => setImgPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void generateImage(); } }}
+              placeholder="Describe the image… (empty uses your brief)"
+              aria-label="Image prompt"
+            />
+            <button type="button" className="so-btn" data-variant="primary" disabled={genBusy} onClick={() => void generateImage()}>
+              <Sparkles size={14} aria-hidden /> {genBusy ? "Generating…" : "Generate image with AI"}
+            </button>
+          </div>
+          <div className="so-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <label className="so-btn" style={{ height: 30, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+              <Upload size={14} aria-hidden /> {uploading ? "Uploading…" : "Upload image or video"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(e) => { void uploadFiles(e.target.files); e.target.value = ""; }}
+              />
+            </label>
+            <button type="button" className="so-btn" style={{ height: 30 }} aria-expanded={libOpen} onClick={() => void openLibrary()}>
+              <Images size={14} aria-hidden /> Choose from library
+            </button>
+            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+              JPG · PNG · GIF · WebP · MP4 · MOV · WebM · up to 100MB
+            </span>
+          </div>
+
+          {libOpen ? (
+            <div data-testid="media-library" className="so-cf-library">
+              {library === null ? <span style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</span> : library.length === 0 ? <span style={{ fontSize: 12, color: "var(--text3)" }}>The library is empty. Upload something first.</span> : library.map((a) => {
+                const on = media.some((m) => m.id === a.id);
+                return (
+                  <button key={a.id} type="button" title={a.altText || a.filename} aria-pressed={on}
+                    onClick={() => {
+                      if (on) {
+                        setMedia((list) => list.filter((x) => x.id !== a.id));
+                      } else {
+                        setMedia((list) => [...list, { id: a.id, url: a.url, filename: a.filename, mimeType: a.mimeType, devOnly: false }]);
+                        setCoverId(a.id);
+                      }
+                    }}
+                    style={{ borderColor: on ? "var(--accent)" : "var(--line2)" }}>
+                    {a.mimeType.startsWith("image/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={a.url} alt={a.altText || a.filename} />
+                    ) : <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {media.some((m) => m.devOnly) ? (
+            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--amber)" }}>
+              dev storage: this asset is stored inline and cannot be published — set BLOB_READ_WRITE_TOKEN for a real upload
+            </span>
+          ) : null}
+          {mediaRequiredMissing.length > 0 ? (
+            <span style={{ fontSize: 11.5, color: "var(--amber)" }}>
+              {mediaRequiredMissing.map((id) => PLATFORM_CONFIGS[id as keyof typeof PLATFORM_CONFIGS]?.name ?? id).join(", ")} needs an image or video before it can publish.
+            </span>
+          ) : null}
+          {picked
+            .flatMap((id) => mediaProblems(id as keyof typeof PLATFORM_CONFIGS, media).map((problem) => ({ id, problem })))
+            .map(({ id, problem }) => (
+              <span key={`${id}-${problem}`} data-testid="media-problem" style={{ fontSize: 11.5, color: "var(--amber)" }}>
+                {problem}
+              </span>
+            ))}
+        </div>
+
+        {/* What the post will look like, then the AI drafts per channel. */}
+        <div className="so-cf-post">
+          <div className="so-row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <span className="so-stat-label">Post preview</span>
+            <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>{channelsLabel || "no channel picked"}</span>
+          </div>
+          {body.trim() ? (
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: 13 }}>{body}</div>
+          ) : (
+            <div style={{ color: "var(--text3)", fontSize: 12.5 }}>
+              Your post text shows here as you write it. Generate with AI for one draft per channel.
+            </div>
+          )}
+        </div>
+
         {variants ? (
-          <div style={{ display: "grid", gap: 12, padding: 18 }}>
+          <div style={{ display: "grid", gap: 12, padding: "0 18px 18px" }}>
             <div className="so-row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
               <span style={{ fontWeight: 600 }}>Generated for {channelsLabel}</span>
               <span className="so-mono" style={{ fontSize: 11, color: "var(--text3)" }}>
@@ -698,7 +735,10 @@ export function ComposeForm({
                 </div>
                 {v.title ? <div style={{ fontWeight: 600 }}>{v.title}</div> : null}
                 <div style={{ color: "var(--text2)", fontSize: 12.5, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{v.content}</div>
-                <div className="so-row" style={{ justifyContent: "flex-end" }}>
+                <div className="so-row" style={{ justifyContent: "flex-end", gap: 8 }}>
+                  <button className="so-btn" style={{ height: 28 }} type="button" onClick={() => setBody(v.content)}>
+                    Use this text
+                  </button>
                   <button className="so-btn" style={{ height: 28 }} onClick={() => void saveVariant(v)}
                     disabled={busy === `save:${v.platform}`}>
                     {busy === `save:${v.platform}` ? "Saving…" : "Save as draft"}
@@ -708,28 +748,13 @@ export function ComposeForm({
             ))}
           </div>
         ) : busy === "generate" ? (
-          <div style={{ padding: 20, display: "grid", gap: 12 }} role="status">
+          <div style={{ padding: "0 18px 18px", display: "grid", gap: 12 }} role="status">
             <div style={{ fontSize: 12.5, color: "var(--text2)" }}>Generating a draft for {channelsLabel || "each channel"}…</div>
             {[60, 92, 84, 40].map((w) => (
-              <div key={w} style={{ height: 12, width: `${w}%`, borderRadius: 4, background: "linear-gradient(90deg,var(--panel2) 0%,var(--line2) 50%,var(--panel2) 100%)", backgroundSize: "800px 100%", animation: "so-shimmer 1.4s linear infinite" }} />
+              <div key={w} className="so-cf-line" style={{ width: `${w}%` }} />
             ))}
           </div>
-        ) : (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 40, textAlign: "center" }}>
-            <svg width="200" height="128" viewBox="0 0 200 128" fill="none" aria-hidden style={{ marginBottom: 6, overflow: "visible" }}>
-              <rect x="18" y="38" width="84" height="64" rx="11" fill="var(--panel2)" stroke="var(--line2)" />
-              <rect x="98" y="46" width="84" height="64" rx="11" fill="var(--panel2)" stroke="var(--line2)" />
-              <rect x="56" y="18" width="88" height="68" rx="12" fill="var(--panel)" stroke="var(--accent)" strokeOpacity="0.7" />
-              <rect x="69" y="33" width="44" height="6" rx="3" fill="var(--accent)" opacity="0.8" />
-              <rect x="69" y="47" width="62" height="5" rx="2.5" fill="var(--accentSoft)" />
-              <rect x="69" y="58" width="52" height="5" rx="2.5" fill="var(--accentSoft)" />
-            </svg>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>One draft per channel appears here</div>
-            <div style={{ color: "var(--text2)", maxWidth: 360 }}>
-              Each variant respects its channel&apos;s length and media rules. Generate with AI, or write the post yourself and create a draft per channel.
-            </div>
-          </div>
-        )}
+        ) : null}
       </section>
       </div>
     </>
