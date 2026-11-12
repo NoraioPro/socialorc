@@ -196,10 +196,16 @@ async function generateWithLeonardo(input: {
 
   let created: Response;
   try {
-    created = await fetch(`${input.baseUrl}/generations`, {
+    // Current models (e.g. "flux-dev") use the v2 create endpoint with a model name.
+    const v2Base = input.baseUrl.replace(/\/v1$/, "/v2");
+    created = await fetch(`${v2Base}/generations`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ prompt: input.prompt, modelId: input.modelId, width, height, num_images: 1 }),
+      body: JSON.stringify({
+        model: input.modelId,
+        public: false,
+        parameters: { prompt: input.prompt, width, height, quantity: 1 },
+      }),
     });
   } catch (error) {
     throw new AiImageError(
@@ -208,6 +214,7 @@ async function generateWithLeonardo(input: {
     );
   }
   const createdBody = (await created.json().catch(() => ({}))) as {
+    generate?: { generationId?: string };
     sdGenerationJob?: { generationId?: string };
     error?: string;
     message?: string;
@@ -218,7 +225,7 @@ async function generateWithLeonardo(input: {
       "ai_image_provider_error",
     );
   }
-  const generationId = createdBody.sdGenerationJob?.generationId;
+  const generationId = createdBody.generate?.generationId ?? createdBody.sdGenerationJob?.generationId;
   if (!generationId) throw new AiImageError("Leonardo did not return a generation id.", "ai_image_empty");
 
   const deadline = Date.now() + 90_000;
