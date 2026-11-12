@@ -71,6 +71,11 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   const baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const model = (input.model ?? config.model ?? "gpt-image-1").trim();
 
+  if (isLeonardo(baseUrl)) {
+    const bytes = await generateWithLeonardo({ baseUrl, apiKey: config.apiKey, modelId: model, prompt, size: normaliseSize(input.size) });
+    return storeGeneratedImage({ bytes, scope: input.scope, storage });
+  }
+
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/images/generations`, {
@@ -117,11 +122,16 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
     throw new AiImageError("The provider returned no image.", "ai_image_empty");
   }
 
+  return storeGeneratedImage({ bytes, scope: input.scope, storage });
+}
+
+async function storeGeneratedImage(args: { bytes: Buffer; scope: AiScope; storage: ReturnType<typeof mediaStorage> }): Promise<GeneratedImage> {
+  const { bytes, scope, storage } = args;
   if (bytes.byteLength === 0) throw new AiImageError("The provider returned an empty image.", "ai_image_empty");
   if (bytes.byteLength > MAX_BYTES) throw new AiImageError("The generated image is larger than 12MB.", "ai_image_too_large");
 
-  const userId = input.scope.userId;
-  const workspaceId = input.scope.workspaceId;
+  const userId = scope.userId;
+  const workspaceId = scope.workspaceId;
   if (!userId || !workspaceId) {
     throw new AiImageError("A signed-in user inside a workspace is required to store a generated image.", "no_user");
   }
@@ -158,4 +168,75 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
     mimeType: asset.mimeType,
     size: asset.size,
   };
+}
+
+const LEONARDO_HOST = "cloud.leonardo.ai";
+
+function isLeonardo(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname === LEONARDO_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Leonardo's API is not OpenAI-shaped: create a generation, then poll it until
+ * it is COMPLETE and download the first image URL it returns.
+ */
+async function generateWithLeonardo(input: {
+  baseUrl: string;
+  apiKey: string;
+  modelId: string;
+  prompt: string;
+  size: string;
+}): Promise<Buffer> {
+  const [width, height] = input.size.split("x").map((n) => Number(n));
+  const headers = { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" };
+
+  let created: Response;
+  try {
+    created = await fetch(`${input.baseUrl}/generations`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prompt: input.prompt, modelId: input.modelId, width, height, num_images: 1 }),
+    });
+  } catch (error) {
+    throw new AiImageError(
+      `Could not reach Leonardo (${error instanceof Error ? error.message : "network error"}).`,
+      "ai_image_unreachable",
+    );
+  }
+  const createdBody = (await created.json().catch(() => ({}))) as {
+    sdGenerationJob?: { generationId?: string };
+    error?: string;
+    message?: string;
+  };
+  if (!created.ok) {
+    throw new AiImageError(
+      `Leonardo refused the request: ${createdBody.error ?? createdBody.message ?? `HTTP ${created.status}`}`,
+      "ai_image_provider_error",
+    );
+  }
+  const generationId = createdBody.sdGenerationJob?.generationId;
+  if (!generationId) throw new AiImageError("Leonardo did not return a generation id.", "ai_image_empty");
+
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const poll = await fetch(`${input.baseUrl}/generations/${generationId}`, { headers }).catch(() => null);
+    if (!poll?.ok) continue;
+    const body = (await poll.json().catch(() => ({}))) as {
+      generations_by_pk?: { status?: string; generated_images?: { url?: string }[] };
+    };
+    const gen = body.generations_by_pk;
+    if (gen?.status === "FAILED") throw new AiImageError("Leonardo could not generate this image.", "ai_image_provider_error");
+    const url = gen?.generated_images?.[0]?.url;
+    if (gen?.status === "COMPLETE" && url) {
+      const download = await fetch(url).catch(() => null);
+      if (!download?.ok) throw new AiImageError("Leonardo returned an image we could not download.", "ai_image_download_failed");
+      return Buffer.from(await download.arrayBuffer());
+    }
+  }
+  throw new AiImageError("Leonardo took too long to finish this image. Try again.", "ai_image_timeout");
 }
