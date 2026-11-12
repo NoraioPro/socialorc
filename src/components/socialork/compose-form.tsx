@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Images, ImagePlus, KeyRound, Sparkles, Upload, X } from "lucide-react";
+import { Check, Images, ImagePlus, KeyRound, Plus, Sparkles, Upload, X } from "lucide-react";
 import { PLATFORM_CONFIGS } from "@/types/platform";
 import { mediaProblems } from "@/lib/social/platform-rules";
 import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
@@ -47,8 +47,11 @@ export function ComposeForm({
   const [accountId, setAccountId] = useState<string>("");
   const [variants, setVariants] = useState<Variant[] | null>(null);
   const [media, setMedia] = useState<{ id: string; url: string; filename: string; mimeType: string; devOnly: boolean }[]>([]);
-  const [genBusy, setGenBusy] = useState(false);
-  const [coverId, setCoverId] = useState<string | null>(null);
+  type MediaItem = { id: string; url: string; filename: string; mimeType: string; devOnly: boolean };
+  const [generated, setGenerated] = useState<MediaItem[]>([]);
+  const [genPending, setGenPending] = useState(0);
+  const [genCount, setGenCount] = useState(2);
+  const [stageId, setStageId] = useState<string | null>(null);
   const [imgPrompt, setImgPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const [libOpen, setLibOpen] = useState(false);
@@ -152,57 +155,69 @@ export function ComposeForm({
         setError(`Network error uploading ${file.name}.`);
       }
     }
-    if (added.length) setMedia((m) => [...m, ...added]);
+    if (added.length) {
+      setMedia((m) => [...m, ...added]);
+      setStageId(added[added.length - 1].id);
+    }
     setUploading(false);
   };
 
   /**
-   * Generate an image on the workspace/user image key and attach it straight
-   * away — the route stores it as a media asset, so it uploads nothing.
+   * Generate one or more images on the image key. Results land in a gallery you
+   * keep for the session (each is also a media asset already); you add the ones
+   * you want to the post, and can generate more at any time.
    */
-  const generateImage = async () => {
+  const generateImages = async () => {
     const prompt = (imgPrompt.trim() || brief.trim() || body.trim()).slice(0, 1500);
     if (!prompt) {
-      setError("Describe the image you want, or write the brief first.");
+      setError("Describe the image you want, or write the post first.");
       return;
     }
-    setGenBusy(true);
+    const count = Math.min(Math.max(genCount, 1), 4);
+    setGenPending((n) => n + count);
     setError(null);
-    try {
-      const res = await fetch("/api/ai/images", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        id?: string;
-        url?: string;
-        filename?: string;
-        mimeType?: string;
-        error?: string;
-      };
-      if (!res.ok || !data.url) {
-        setError(data.error ?? `Image generation failed (${res.status}).`);
-        return;
-      }
-      const newId = String(data.id ?? data.url);
-      setCoverId(newId);
-      setMedia((m) => [
-        ...m,
-        {
-          id: newId,
+    const one = async () => {
+      try {
+        const res = await fetch("/api/ai/images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          id?: string;
+          url?: string;
+          filename?: string;
+          mimeType?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.url) {
+          setError(data.error ?? `Image generation failed (${res.status}).`);
+          return;
+        }
+        const item: MediaItem = {
+          id: String(data.id ?? data.url),
           url: String(data.url),
           filename: data.filename ?? "ai-image.png",
           mimeType: data.mimeType ?? "image/png",
           devOnly: false,
-        },
-      ]);
-    } catch {
-      setError("Network error generating the image.");
-    } finally {
-      setGenBusy(false);
-    }
+        };
+        setGenerated((g) => [...g, item]);
+        setStageId(item.id);
+      } catch {
+        setError("Network error generating the image.");
+      } finally {
+        setGenPending((n) => Math.max(0, n - 1));
+      }
+    };
+    await Promise.all(Array.from({ length: count }, () => one()));
   };
+
+  const inPost = (id: string) => media.some((m) => m.id === id);
+  const addToPost = (item: MediaItem) => {
+    setMedia((list) => (list.some((m) => m.id === item.id) ? list : [...list, item]));
+    setStageId(item.id);
+  };
+  const removeFromPost = (id: string) => setMedia((list) => list.filter((m) => m.id !== id));
 
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -383,7 +398,8 @@ export function ComposeForm({
     fontWeight: active ? 600 : 500,
   });
 
-  const cover = media.find((m) => m.id === coverId) ?? media[media.length - 1] ?? null;
+  const stage =
+    [...media, ...generated].find((m) => m.id === stageId) ?? media[media.length - 1] ?? generated[generated.length - 1] ?? null;
 
   const channelsLabel = useMemo(
     () => picked.map((id) => PLATFORMS.find((p) => p.id === id)?.name ?? id).join(" · "),
@@ -408,7 +424,7 @@ export function ComposeForm({
         </div>
       ) : null}
 
-      <style>{`.so-cf-aibar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-aibar input{flex:1 1 200px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-aibar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-split{display:flex;align-items:stretch}.so-cf-split .so-btn{height:36px;border-radius:8px 0 0 8px;flex:1;justify-content:center}.so-cf-split select{height:36px;border-radius:0 8px 8px 0;border:1px solid var(--line2);border-left:0;background:var(--panel2);color:var(--text);font-size:12.5px;padding:0 8px;max-width:190px;cursor:pointer}.so-cf-preview{display:grid;align-content:start;overflow:hidden;padding:0}.so-cf-stage{position:relative;height:clamp(280px,46vh,520px);background:var(--bg);border-bottom:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.so-cf-stage img,.so-cf-stage video{width:100%;height:100%;object-fit:contain;display:block}.so-cf-stage-empty{position:relative;display:grid;justify-items:center;gap:8px;text-align:center;padding:24px;width:100%;height:100%;align-content:center}.so-cf-shimmer{position:absolute;inset:0;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite;opacity:.6}.so-cf-line{height:12px;border-radius:4px;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite}@keyframes so-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}.so-cf-stage-remove{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}.so-cf-thumbs{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}.so-cf-thumb{position:relative;flex:none;width:72px;height:72px;border-radius:9px;border:2px solid var(--line2);overflow:hidden;background:var(--bg)}.so-cf-thumb[data-active=true]{border-color:var(--accent)}.so-cf-thumb-pick{all:unset;cursor:pointer;display:grid;place-items:center;width:100%;height:100%}.so-cf-thumb-pick img{width:100%;height:100%;object-fit:cover}.so-cf-thumb-x{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}.so-cf-tools{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}.so-cf-genbar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-genbar input{flex:1 1 240px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-genbar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-tools .so-btn{display:inline-flex;align-items:center;gap:6px}.so-cf-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow-y:auto;padding:2px}.so-cf-library button{padding:0;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);border:2px solid var(--line2)}.so-cf-library img{width:100%;height:100%;object-fit:cover}.so-cf-post{display:grid;gap:8px;padding:14px 16px 16px}.so-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
+      <style>{`.so-cf-stage-actions{position:absolute;top:10px;right:10px;display:flex;gap:6px}.so-cf-stage-actions .so-btn{height:30px;display:inline-flex;align-items:center;gap:5px}.so-cf-strip{display:grid;gap:6px;padding:10px 16px;border-bottom:1px solid var(--line)}.so-cf-strip .so-cf-thumbs{padding:0;border:0}.so-cf-count{height:34px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:12.5px;padding:0 8px}.so-cf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}.so-cf-tile{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;border:2px solid var(--line2);background:var(--bg)}.so-cf-tile[data-active=true]{border-color:var(--text3)}.so-cf-tile[data-added=true]{border-color:var(--accent)}.so-cf-tile-pick{all:unset;cursor:zoom-in;display:block;width:100%;height:100%}.so-cf-tile-pick img{width:100%;height:100%;object-fit:cover;display:block}.so-cf-tile-add{position:absolute;left:6px;bottom:6px;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;border:0;font-size:11.5px;font-weight:600;cursor:pointer;background:rgba(0,0,0,.72);color:#fff}.so-cf-tile-add[aria-pressed=true]{background:var(--accent);color:#04120a}.so-cf-aibar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-aibar input{flex:1 1 200px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-aibar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-split{display:flex;align-items:stretch}.so-cf-split .so-btn{height:36px;border-radius:8px 0 0 8px;flex:1;justify-content:center}.so-cf-split select{height:36px;border-radius:0 8px 8px 0;border:1px solid var(--line2);border-left:0;background:var(--panel2);color:var(--text);font-size:12.5px;padding:0 8px;max-width:190px;cursor:pointer}.so-cf-preview{display:grid;align-content:start;overflow:hidden;padding:0}.so-cf-stage{position:relative;height:clamp(280px,46vh,520px);background:var(--bg);border-bottom:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.so-cf-stage img,.so-cf-stage video{width:100%;height:100%;object-fit:contain;display:block}.so-cf-stage-empty{position:relative;display:grid;justify-items:center;gap:8px;text-align:center;padding:24px;width:100%;height:100%;align-content:center}.so-cf-shimmer{position:absolute;inset:0;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite;opacity:.6}.so-cf-line{height:12px;border-radius:4px;background:linear-gradient(100deg,var(--panel2) 20%,var(--line2) 50%,var(--panel2) 80%);background-size:200% 100%;animation:so-shimmer 1.4s linear infinite}@keyframes so-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}.so-cf-stage-remove{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}.so-cf-thumbs{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}.so-cf-thumb{position:relative;flex:none;width:72px;height:72px;border-radius:9px;border:2px solid var(--line2);overflow:hidden;background:var(--bg)}.so-cf-thumb[data-active=true]{border-color:var(--accent)}.so-cf-thumb-pick{all:unset;cursor:pointer;display:grid;place-items:center;width:100%;height:100%}.so-cf-thumb-pick img{width:100%;height:100%;object-fit:cover}.so-cf-thumb-x{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer}.so-cf-tools{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}.so-cf-genbar{display:flex;gap:8px;flex-wrap:wrap}.so-cf-genbar input{flex:1 1 240px;min-width:0;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13px}.so-cf-genbar .so-btn{height:34px;display:inline-flex;align-items:center;gap:6px}.so-cf-tools .so-btn{display:inline-flex;align-items:center;gap:6px}.so-cf-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow-y:auto;padding:2px}.so-cf-library button{padding:0;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);border:2px solid var(--line2)}.so-cf-library img{width:100%;height:100%;object-fit:cover}.so-cf-post{display:grid;gap:8px;padding:14px 16px 16px}.so-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.so-create-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:14px;align-items:start}.so-cf2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.so-cf-actions{position:sticky;bottom:0;background:var(--panel);padding-top:10px;border-top:1px solid var(--line);display:grid;gap:8px;z-index:2}@media(max-width:960px){.so-create-grid{grid-template-columns:minmax(0,1fr)}}@media(max-width:560px){.so-cf2{grid-template-columns:minmax(0,1fr)}}`}</style>
       <div className="so-create-grid">
       <form
         className="so-card"
@@ -540,62 +556,66 @@ export function ComposeForm({
       </form>
 
       <section className="so-card so-cf-preview">
-        {/* The image stage: the picked (or newest) image at full size. */}
+        {/* The image stage: whichever image you last picked, generated or attached. */}
         <div className="so-cf-stage" data-testid="media-stage">
-          {genBusy ? (
+          {stage ? (
+            stage.mimeType.startsWith("image/") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={stage.url} alt={stage.filename} />
+            ) : (
+              <video src={stage.url} controls />
+            )
+          ) : genPending > 0 ? (
             <div className="so-cf-stage-empty" role="status">
               <div className="so-cf-shimmer" aria-hidden />
-              <span style={{ position: "relative", fontWeight: 600 }}>Generating your image…</span>
+              <span style={{ position: "relative", fontWeight: 600 }}>Generating {genPending} image{genPending === 1 ? "" : "s"}…</span>
               <span style={{ position: "relative", color: "var(--text3)", fontSize: 12 }}>This can take up to a minute.</span>
             </div>
-          ) : cover ? (
-            cover.mimeType.startsWith("image/") ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={cover.url} alt={cover.filename} />
-            ) : (
-              <video src={cover.url} controls />
-            )
           ) : (
             <div className="so-cf-stage-empty">
               <ImagePlus size={34} aria-hidden style={{ color: "var(--text3)" }} />
               <strong>No image yet</strong>
               <span style={{ color: "var(--text2)", maxWidth: 340 }}>
-                Generate one with AI below, upload your own, or pick one from the library.
+                Generate a few with AI below, keep the ones you like, or upload your own.
               </span>
             </div>
           )}
-          {cover && !genBusy ? (
-            <button
-              type="button"
-              className="so-cf-stage-remove"
-              aria-label={`Remove ${cover.filename}`}
-              onClick={() => {
-                setMedia((list) => list.filter((x) => x.id !== cover.id));
-                setCoverId(null);
-              }}
-            >
-              <X size={14} aria-hidden /> Remove
-            </button>
+          {stage ? (
+            <div className="so-cf-stage-actions">
+              {inPost(stage.id) ? (
+                <button type="button" className="so-btn" onClick={() => removeFromPost(stage.id)} aria-label={`Remove ${stage.filename} from the post`}>
+                  <X size={14} aria-hidden /> Remove from post
+                </button>
+              ) : (
+                <button type="button" className="so-btn" data-variant="primary" onClick={() => addToPost(stage)}>
+                  <Check size={14} aria-hidden /> Add to post
+                </button>
+              )}
+            </div>
           ) : null}
         </div>
 
-        {media.length > 1 ? (
-          <div className="so-cf-thumbs" aria-label="Attached media">
-            {media.map((m) => (
-              <div key={m.id} className="so-cf-thumb" data-active={cover?.id === m.id}>
-                <button type="button" className="so-cf-thumb-pick" aria-label={`Show ${m.filename}`} aria-pressed={cover?.id === m.id} onClick={() => setCoverId(m.id)}>
-                  {m.mimeType.startsWith("image/") ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.url} alt="" />
-                  ) : (
-                    <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>
-                  )}
-                </button>
-                <button type="button" className="so-cf-thumb-x" aria-label={`Remove ${m.filename}`} onClick={() => setMedia((list) => list.filter((x) => x.id !== m.id))}>
-                  <X size={11} aria-hidden />
-                </button>
-              </div>
-            ))}
+        {/* In this post: what will publish, in order. */}
+        {media.length > 0 ? (
+          <div className="so-cf-strip">
+            <span className="so-stat-label">In this post · {media.length}</span>
+            <div className="so-cf-thumbs" aria-label="Media in this post">
+              {media.map((m) => (
+                <div key={m.id} className="so-cf-thumb" data-active={stage?.id === m.id}>
+                  <button type="button" className="so-cf-thumb-pick" aria-label={`Show ${m.filename}`} aria-pressed={stage?.id === m.id} onClick={() => setStageId(m.id)}>
+                    {m.mimeType.startsWith("image/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.url} alt="" />
+                    ) : (
+                      <span className="so-mono" style={{ fontSize: 10 }}>VIDEO</span>
+                    )}
+                  </button>
+                  <button type="button" className="so-cf-thumb-x" aria-label={`Remove ${m.filename}`} onClick={() => removeFromPost(m.id)}>
+                    <X size={11} aria-hidden />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -607,14 +627,52 @@ export function ComposeForm({
               id="img-prompt"
               value={imgPrompt}
               onChange={(e) => setImgPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void generateImage(); } }}
-              placeholder="Describe the image… (empty uses your brief)"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void generateImages(); } }}
+              placeholder="Describe the image… (empty uses your post)"
               aria-label="Image prompt"
             />
-            <button type="button" className="so-btn" data-variant="primary" disabled={genBusy} onClick={() => void generateImage()}>
-              <Sparkles size={14} aria-hidden /> {genBusy ? "Generating…" : "Generate image with AI"}
+            <label htmlFor="img-count" className="so-sr-only">How many images</label>
+            <select id="img-count" className="so-cf-count" value={genCount} onChange={(e) => setGenCount(Number(e.target.value))} aria-label="How many images">
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>{n} image{n === 1 ? "" : "s"}</option>
+              ))}
+            </select>
+            <button type="button" className="so-btn" data-variant="primary" disabled={genPending > 0} onClick={() => void generateImages()}>
+              <Sparkles size={14} aria-hidden /> {genPending > 0 ? "Generating…" : generated.length ? "Generate more" : "Generate with AI"}
             </button>
           </div>
+
+          {/* Everything generated this session stays here; it is also saved to the media library. */}
+          {generated.length > 0 || genPending > 0 ? (
+            <div className="so-cf-gallery" data-testid="generated-gallery" aria-label="Generated images">
+              {Array.from({ length: genPending }).map((_, i) => (
+                <div key={`pending-${i}`} className="so-cf-tile" aria-hidden>
+                  <div className="so-cf-shimmer" />
+                </div>
+              ))}
+              {[...generated].reverse().map((g) => {
+                const added = inPost(g.id);
+                return (
+                  <div key={g.id} className="so-cf-tile" data-active={stage?.id === g.id} data-added={added}>
+                    <button type="button" className="so-cf-tile-pick" aria-label={`View ${g.filename}`} onClick={() => setStageId(g.id)}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={g.url} alt="" />
+                    </button>
+                    <button type="button" className="so-cf-tile-add" aria-pressed={added}
+                      onClick={() => (added ? removeFromPost(g.id) : addToPost(g))}>
+                      {added ? <><Check size={12} aria-hidden /> Added</> : <><Plus size={12} aria-hidden /> Add</>}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {generated.length > 0 ? (
+            <span className="so-mono" style={{ fontSize: 10.5, color: "var(--text3)" }}>
+              Generated images are kept in your media library, even the ones you don&apos;t add.
+            </span>
+          ) : null}
+
           <div className="so-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <label className="so-btn" style={{ height: 30, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
               <Upload size={14} aria-hidden /> {uploading ? "Uploading…" : "Upload image or video"}
@@ -646,7 +704,7 @@ export function ComposeForm({
                         setMedia((list) => list.filter((x) => x.id !== a.id));
                       } else {
                         setMedia((list) => [...list, { id: a.id, url: a.url, filename: a.filename, mimeType: a.mimeType, devOnly: false }]);
-                        setCoverId(a.id);
+                        setStageId(a.id);
                       }
                     }}
                     style={{ borderColor: on ? "var(--accent)" : "var(--line2)" }}>
