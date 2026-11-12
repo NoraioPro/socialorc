@@ -31,9 +31,9 @@ export type PlatformSpec = {
 
 const SPECS: Record<Platform, Omit<PlatformSpec, "platform" | "name" | "allowsTextOnly">> = {
   LINKEDIN: {
-    summary: "Text, images, video, documents",
-    media: "Images (JPEG/PNG) or one video (MP4/MOV, up to 15 min)",
-    rules: ["Documents and multi-image carousels are supported"],
+    summary: "Text, one image, or one video",
+    media: "One image (JPEG/PNG/GIF) or one video (MP4/MOV, up to 15 min)",
+    rules: ["One image or video per post — SocialOrk does not send LinkedIn carousels yet"],
     acceptedMime: [
       "image/jpeg",
       "image/png",
@@ -66,8 +66,8 @@ const SPECS: Record<Platform, Omit<PlatformSpec, "platform" | "name" | "allowsTe
     maxCaption: 2200,
   },
   FACEBOOK: {
-    summary: "Text, up to 4 images, or one video",
-    media: "Up to 4 images (JPEG/PNG/WebP) or one video (MP4/MOV)",
+    summary: "Text, one image, or one video",
+    media: "One image (JPEG/PNG/WebP) or one video (MP4/MOV)",
     rules: ["Photos and video cannot be mixed in one post", "Alt text only applies to photo uploads"],
     acceptedMime: [
       "image/jpeg",
@@ -87,15 +87,15 @@ const SPECS: Record<Platform, Omit<PlatformSpec, "platform" | "name" | "allowsTe
     acceptedMime: ["video/mp4", "video/quicktime"],
   },
   TIKTOK: {
-    summary: "Video, or a photo carousel — no text-only",
-    media: "One video (MP4/MOV), or 2–35 photos",
+    summary: "Video only — no text-only",
+    media: "One video (MP4/MOV)",
     rules: ["Until TikTok's audit passes, posts are SELF_ONLY — only the author sees them"],
     acceptedMime: ["video/mp4", "video/quicktime", "image/jpeg", "image/webp"],
   },
   TELEGRAM: {
-    summary: "Text, photo, video or an album",
-    media: "Photo up to 10 MB, video up to 50 MB, album of 2–10 items",
-    rules: ["The album limit is 10 items, larger sets are rejected"],
+    summary: "Text, one photo, or one video",
+    media: "One photo up to 10 MB, or one video up to 50 MB",
+    rules: ["One photo or video per post — albums are not sent yet"],
     acceptedMime: [
       "image/jpeg",
       "image/png",
@@ -182,17 +182,19 @@ export function mediaProblems(platform: Platform, media: AttachedMedia[]): strin
   if ((platform === "FACEBOOK" || platform === "TWITTER") && images > 0 && videos > 0) {
     problems.push(`${spec.name} cannot mix photos and video in one post — pick one kind.`);
   }
-  if (platform === "FACEBOOK" && images > 4) {
-    problems.push("Facebook accepts at most 4 photos in one post.");
-  }
-  if (platform === "TWITTER" && images > 4) {
-    problems.push("X accepts at most 4 photos in one post.");
-  }
-  if ((platform === "INSTAGRAM" || platform === "YOUTUBE" || platform === "TIKTOK") && media.length > 1) {
-    problems.push(`${spec.name} publishes one item per post — the extra attachments are ignored.`);
-  }
-  if (platform === "TELEGRAM" && media.length > 10) {
-    problems.push("Telegram albums hold at most 10 items.");
+  // The connector is the final word on how many items one post can carry: the
+  // adapter rejects a second item when it cannot send a carousel, so say it here.
+  const config = PLATFORM_CONFIGS[platform];
+  if (config && media.length > 1 && !config.capabilities.carousel) {
+    const extra = media.length - 1;
+    problems.push(
+      `${spec.name} takes one image or video per post — remove ${extra} item${extra === 1 ? "" : "s"}, or untick ${spec.name}.`,
+    );
+  } else if (config && media.length > config.maxMediaCount) {
+    const extra = media.length - config.maxMediaCount;
+    problems.push(
+      `${spec.name} takes at most ${config.maxMediaCount} items in one post — remove ${extra}.`,
+    );
   }
 
   return problems;

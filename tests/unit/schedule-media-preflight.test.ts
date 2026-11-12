@@ -21,3 +21,16 @@ test("text channels schedule without media; extra attachments are advice, not a 
   }
   assert.equal(blockingMediaProblems("INSTAGRAM", [{ mimeType: "image/jpeg" }, { mimeType: "image/jpeg" }]).length, 0);
 });
+
+test("single-item connectors block a second attachment instead of failing at publish", () => {
+  const two = [{ mimeType: "image/jpeg" }, { mimeType: "image/jpeg" }];
+  for (const p of ["LINKEDIN", "FACEBOOK", "TELEGRAM"] as const) {
+    const problems = blockingMediaProblems(p, two);
+    assert.ok(problems.some((x) => x.includes("one image or video per post")), `${p}: ${problems.join(" | ")}`);
+    assert.equal(blockingMediaProblems(p, [{ mimeType: "image/jpeg" }]).length, 0, p);
+  }
+  // X sends up to four, Instagram a carousel.
+  assert.equal(blockingMediaProblems("TWITTER", two).length, 0);
+  assert.equal(blockingMediaProblems("INSTAGRAM", two).length, 0);
+  assert.ok(blockingMediaProblems("TWITTER", Array(5).fill({ mimeType: "image/jpeg" })).length > 0);
+});

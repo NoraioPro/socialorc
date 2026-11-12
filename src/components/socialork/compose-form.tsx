@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Images, ImagePlus, KeyRound, Plus, Sparkles, Upload, X } from "lucide-react";
 import { PLATFORM_CONFIGS } from "@/types/platform";
-import { mediaProblems } from "@/lib/social/platform-rules";
+import { blockingMediaProblems, mediaProblems } from "@/lib/social/platform-rules";
 import { DIRECT_UPLOAD_THRESHOLD, uploadMediaDirect } from "@/lib/media/client-upload";
 
 const PLATFORMS = [
@@ -285,6 +285,12 @@ export function ComposeForm({
     }
     if (mediaRequiredMissing.length) {
       setError(`Attach an image or video first — ${mediaRequiredMissing.join(", ")} cannot publish without media.`);
+      return;
+    }
+    // Stop here rather than at publish time: the channel would reject it later.
+    const blocking = picked.flatMap((id) => blockingMediaProblems(id as keyof typeof PLATFORM_CONFIGS, media));
+    if (blocking.length && after !== "draft") {
+      setError(blocking[0]);
       return;
     }
     setBusy("manual");

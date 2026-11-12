@@ -47,7 +47,7 @@ test("linkedin allows text alone and mixed media", () => {
   assert.deepEqual(mediaProblems("LINKEDIN", [{ mimeType: "video/mp4" }]), []);
 });
 
-test("facebook rejects photos mixed with video, and more than four photos", () => {
+test("facebook rejects photos mixed with video, and more than one item (the connector sends one)", () => {
   const mixed = mediaProblems("FACEBOOK", [
     { mimeType: "image/jpeg" },
     { mimeType: "video/mp4" },
@@ -55,7 +55,7 @@ test("facebook rejects photos mixed with video, and more than four photos", () =
   assert.ok(mixed.some((p) => /cannot mix photos and video/.test(p)));
 
   const five = mediaProblems("FACEBOOK", Array.from({ length: 5 }, () => ({ mimeType: "image/jpeg" })));
-  assert.ok(five.some((p) => /at most 4 photos/.test(p)));
+  assert.ok(five.some((p) => /one image or video per post/.test(p)));
 });
 
 test("x rejects more than four photos and mixing", () => {
@@ -63,14 +63,14 @@ test("x rejects more than four photos and mixing", () => {
     ...Array.from({ length: 5 }, () => ({ mimeType: "image/png" })),
     { mimeType: "video/mp4" },
   ]);
-  assert.ok(problems.some((p) => /at most 4 photos/.test(p)));
+  assert.ok(problems.some((p) => /at most 4 items/.test(p)));
   assert.ok(problems.some((p) => /cannot mix/.test(p)));
 });
 
-test("telegram caps an album at ten and accepts text alone", () => {
+test("telegram sends one item per post and accepts text alone", () => {
   assert.equal(platformSpec("TELEGRAM").allowsTextOnly, true);
-  const items = Array.from({ length: 11 }, () => ({ mimeType: "image/jpeg" }));
-  assert.ok(mediaProblems("TELEGRAM", items).some((p) => /at most 10 items/.test(p)));
+  const items = Array.from({ length: 2 }, () => ({ mimeType: "image/jpeg" }));
+  assert.ok(mediaProblems("TELEGRAM", items).some((p) => /one image or video per post/.test(p)));
 });
 
 test("every channel has a readable spec, and no channel claims unlimited media", () => {
