@@ -24,7 +24,6 @@ const PROVIDERS: Preset[] = [
   { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
   { id: "perplexity", label: "Perplexity", baseUrl: "https://api.perplexity.ai", model: "sonar" },
   { id: "fireworks", label: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
-  { id: "leonardo", label: "Leonardo AI (enter a model ID from your Leonardo account)", baseUrl: "https://cloud.leonardo.ai/api/rest/v1" },
   { id: "deepinfra", label: "DeepInfra", baseUrl: "https://api.deepinfra.com/v1/openai" },
   { id: "nous", label: "Nous Research", baseUrl: "https://inference-api.nousresearch.com/v1" },
   { id: "other", label: "Other (OpenAI-compatible)" },
@@ -38,6 +37,7 @@ const IMAGE_PROVIDERS: Preset[] = [
   { id: "together", label: "Together AI (FLUX)", baseUrl: "https://api.together.xyz/v1", model: "black-forest-labs/FLUX.1-schnell" },
   { id: "deepinfra", label: "DeepInfra", baseUrl: "https://api.deepinfra.com/v1/openai" },
   { id: "fireworks", label: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  { id: "leonardo", label: "Leonardo AI (enter a model ID from your Leonardo account)", baseUrl: "https://cloud.leonardo.ai/api/rest/v1" },
   { id: "other", label: "Other (OpenAI-compatible image API)" },
 ];
 
